@@ -1,0 +1,139 @@
+:root {
+	--bg: #0e1116;
+	--surface: #171b22;
+	--surface-2: #1f2530;
+	--line: #2a3240;
+	--text: #eceff4;
+	--muted: #9aa4b2;
+	--primary: #4fb3ff;
+	--primary-ink: #04121f;
+	--accent: #ffb547;
+	--danger: #ff5a5f;
+	--ok: #4fd18b;
+	--radius: 12px;
+	--radius-sm: 8px;
+	--font: 'Inter', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+	--mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+	color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	min-height: 100%;
+	background: var(--bg);
+	color: var(--text);
+	font: 15px/1.5 var(--font);
+	-webkit-font-smoothing: antialiased;
+}
+
+a {
+	color: var(--primary);
+	text-decoration: none;
+}
+
+h1,
+h2,
+h3 {
+	margin: 0;
+	line-height: 1.2;
+	font-weight: 650;
+	letter-spacing: -0.01em;
+}
+
+h1 {
+	font-size: 1.6rem;
+}
+
+h2 {
+	font-size: 1.15rem;
+}
+
+p {
+	margin: 0;
+}
+
+.muted {
+	color: var(--muted);
+}
+
+button,
+input,
+select {
+	font: inherit;
+	color: inherit;
+}
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	min-height: 2.5rem;
+	padding: 0 1.1rem;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	background: var(--surface-2);
+	cursor: pointer;
+	transition:
+		background 0.15s,
+		border-color 0.15s;
+}
+
+.btn:hover {
+	border-color: var(--muted);
+}
+
+.btn:focus-visible,
+input:focus-visible,
+a:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+
+.btn.primary {
+	background: var(--primary);
+	border-color: var(--primary);
+	color: var(--primary-ink);
+	font-weight: 600;
+}
+
+.btn:disabled {
+	opacity: 0.55;
+	cursor: default;
+}
+
+input[type='text'],
+input[type='number'] {
+	width: 100%;
+	min-height: 2.5rem;
+	padding: 0 0.8rem;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	background: var(--bg);
+}
+
+.card {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	padding: 1.25rem;
+}
+
+.stack {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+
+.icon {
+	width: 1.25em;
+	height: 1.25em;
+	flex: none;
+}

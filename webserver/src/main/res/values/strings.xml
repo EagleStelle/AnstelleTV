@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="web_server_title">AnstelleTV web control</string>
+    <string name="web_server_channel">Web control</string>
+    <string name="web_server_starting">Starting…</string>
+    <string name="web_server_running">Open %1$s in a browser</string>
+    <string name="web_server_pin">Pairing PIN: %1$s</string>
+    <string name="web_server_error">Not running: %1$s</string>
+</resources>

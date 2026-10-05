@@ -1,0 +1,46 @@
+# Gradle / Android
+.gradle/
+.kotlin/
+build/
+bin/
+/captures
+local.properties
+*.iml
+.idea/
+.cxx/
+.externalNativeBuild/
+*.apk
+*.aab
+*.hprof
+
+# Generated web UI copied into the APK at build time
+/app/src/main/assets/webui/
+
+# Web UI
+/webui/node_modules/
+/webui/.svelte-kit/
+/webui/build/
+
+# Secrets / signing
+*.jks
+*.keystore
+*.p12
+*.pem
+.env
+.env.*
+google-services.json
+
+# Logs
+*.log
+
+# Eclipse / JDT (VS Code Java extension)
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
