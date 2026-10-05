@@ -32,12 +32,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import tv.anstelle.core.data.ServerRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.WebServerController
 import tv.anstelle.core.data.WebServerStatus
 import tv.anstelle.core.database.dao.PairedClientDao
 import tv.anstelle.core.database.entity.PairedClientEntity
+import tv.anstelle.core.model.MediaServer
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusTile
@@ -48,6 +50,7 @@ data class SettingsUiState(
     val webServerEnabled: Boolean = true,
     val webServer: WebServerStatus = WebServerStatus.Stopped,
     val pairedClients: List<PairedClientEntity> = emptyList(),
+    val servers: List<MediaServer> = emptyList(),
 )
 
 @HiltViewModel
@@ -55,12 +58,14 @@ class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val webServer: WebServerController,
     pairedClients: PairedClientDao,
+    servers: ServerRepository,
 ) : ViewModel() {
     val state: StateFlow<SettingsUiState> = combine(
         settings.observe(Settings.WebServerEnabled),
         webServer.status,
         pairedClients.observeAll(),
-    ) { enabled, status, clients -> SettingsUiState(enabled, status, clients) }
+        servers.observeServers(),
+    ) { enabled, status, clients, serverList -> SettingsUiState(enabled, status, clients, serverList) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     fun setWebServerEnabled(enabled: Boolean) {
@@ -71,9 +76,10 @@ class SettingsViewModel @Inject constructor(
     }
 }
 
-/** On-device settings. Media servers, live TV sources and themes fill in over later phases. */
+/** On-device settings. Live TV sources and themes fill in over later phases. */
 @Composable
 fun SettingsScreen(
+    onOpenServers: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -115,11 +121,16 @@ fun SettingsScreen(
             )
         }
         item {
+            val servers = state.servers
             FocusTile(
                 title = "Media servers",
-                subtitle = "Connect a Jellyfin server (coming next).",
+                subtitle = when {
+                    servers.isEmpty() -> "Connect a Jellyfin server to start building channels."
+                    servers.any { !it.isSignedIn || it.lastSyncError != null } -> "${servers.size} connected · needs attention"
+                    else -> servers.joinToString { it.name }
+                },
                 icon = Icons.Filled.Dns,
-                onClick = {},
+                onClick = onOpenServers,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

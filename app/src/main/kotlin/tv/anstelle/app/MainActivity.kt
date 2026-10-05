@@ -16,6 +16,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import tv.anstelle.app.ui.AnstelleApp
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.data.WebServerController
+import tv.anstelle.core.data.work.LibrarySyncWorker
 import tv.anstelle.core.data.work.ScheduleCleanupWorker
 import javax.inject.Inject
 
@@ -51,7 +52,9 @@ class MainActivity : ComponentActivity() {
     private fun startDeferredWork(isTv: Boolean) {
         if (deferredWorkStarted) return
         deferredWorkStarted = true
-        ScheduleCleanupWorker.enqueue(WorkManager.getInstance(applicationContext))
+        val workManager = WorkManager.getInstance(applicationContext)
+        ScheduleCleanupWorker.enqueue(workManager)
+        LibrarySyncWorker.schedulePeriodic(workManager)
 
         val missing = buildList {
             // Android 17+: reaching Jellyfin on the LAN and serving the web UI need this.

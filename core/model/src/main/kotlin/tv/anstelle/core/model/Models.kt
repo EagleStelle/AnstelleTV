@@ -53,11 +53,48 @@ data class MediaServer(
     val jellyfinServerId: String,
     val name: String,
     val baseUrl: String,
-    val localUrl: String?,
-    val remoteUrl: String?,
     val userId: String?,
-    val isLocal: Boolean,
+    val userName: String?,
+    val serverVersion: String?,
+    val lastSyncUtcMs: Long?,
+    val lastSyncError: String?,
+    /** False when no usable access token is stored, so the user must sign in again. */
+    val isSignedIn: Boolean,
 )
+
+/** What `/System/Info/Public` reports for a server, plus the address that answered. */
+@Serializable
+data class PublicServerInfo(
+    val id: String,
+    val name: String,
+    val version: String,
+    val url: String,
+)
+
+/** Why connecting to or signing in to a Jellyfin server failed. */
+enum class ServerProblem {
+    INVALID_URL,
+    UNREACHABLE,
+    NOT_JELLYFIN,
+
+    /** The server's version is too old for the Jellyfin SDK. */
+    UNSUPPORTED_VERSION,
+
+    /** The saved address now answers with a different server. */
+    ID_MISMATCH,
+    BAD_CREDENTIALS,
+
+    /** A stored token was rejected; the user has to sign in again. */
+    SIGNED_OUT,
+    QUICK_CONNECT_DISABLED,
+    SERVER_ERROR,
+}
+
+class ServerConnectException(
+    val problem: ServerProblem,
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause)
 
 /** Result of resolving what a channel is airing at an instant. Built from SQLite only. */
 data class NowPlaying(

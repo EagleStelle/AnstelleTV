@@ -9,8 +9,9 @@ The app is native: Kotlin + Jetpack Compose (Compose for TV on TV, Material 3 on
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Scaffold: modules, catalog, Room schema, Hilt, placeholder screens with D-pad focus, Ktor server with pairing, SvelteKit shell, baseline profile + benchmark modules | Done |
-| 2 | Jellyfin login (Quick Connect, password), multiple servers, incremental sync, media segments | Next |
-| 3–11 | Scheduler, channels, playback, guide, live TV, profiles/themes, dashboard/backup, web UI parity, performance | Planned |
+| 2 | Jellyfin login (Quick Connect, password), multiple servers, incremental sync, reconciliation, media segments, rating scores, filler classification | Done |
+| 3 | Scheduler engine | Next |
+| 4–11 | Channels, playback, guide, live TV, profiles/themes, dashboard/backup, web UI parity, performance | Planned |
 
 The full plan, with key designs for every phase, lives in `C:\Users\Impulsor\.claude\plans\the-name-of-the-kind-shell.md`.
 
@@ -21,7 +22,7 @@ The full plan, with key designs for every phase, lives in `C:\Users\Impulsor\.cl
 - Brand: an A-frame antenna (the letter A) on a retro TV with fading scanlines.
   - Colors: `#0E1116` background, `#4FB3FF` blue, `#FFB547` amber.
   - Assets are regenerated with `python tools/brand/generate_brand.py`.
-- Testing uses the owner's private Jellyfin 12.1.0 server. Its address and contents are deliberately kept out of this repository.
+- Testing uses the owner's private Jellyfin 12.1.0 server with a non-admin account. Its address and contents are deliberately kept out of this repository, and test fixtures recorded from it are anonymized.
 
 ## Toolchain
 
@@ -59,11 +60,11 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 | `core/scheduler` | Pure JVM schedule engine (so far: `SplitMix64`, `SlotMath`) |
 | `core/livetv` | M3U / XMLTV / HDHomeRun (Phase 7) |
 | `core/database` | Room DB with all tables; exported schemas in `core/database/schemas` |
-| `core/jellyfin` | The shared `OkHttpClient` and the `Jellyfin` SDK instance (through `OkHttpFactory`) |
+| `core/jellyfin` | The shared `OkHttpClient` and `Jellyfin` SDK instance, server discovery, sign-in, Keystore token store, library source and the DTO → Room mappers |
 | `core/player` | `PlayerFactory` (ExoPlayer, OkHttp data source, FFmpeg audio fallback) |
 | `core/theme` | `ThemeSpec` JSON model, `AnstelleTheme` (Material 3 + TV), shared focusable components |
-| `core/data` | Hilt modules, repositories, `DatabaseChanges`, `WebServerController`, workers |
-| `feature/*` | Guide, player, on-demand, profiles, settings, dashboard (placeholders plus the log viewer and web-control settings) |
+| `core/data` | Hilt modules, repositories (`ServerRepository`, profiles, settings), `LibrarySyncer`, `DatabaseChanges`, `WebServerController`, workers |
+| `feature/*` | Guide, player, on-demand, profiles, settings, dashboard (placeholders plus the log viewer, web-control settings and the media server screens) |
 | `webserver` | Ktor CIO server, pairing, LAN guard, static SPA serving, `/api`, `/ws` |
 | `baselineprofile`, `benchmark` | Baseline profile generator and macrobenchmarks (stub journeys) |
 | `webui` | SvelteKit SPA |
@@ -94,13 +95,38 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 
 ### Platform
 
-- **Tokens:** `EncryptedSharedPreferences` is deprecated, so Jellyfin tokens will be wrapped with an Android Keystore AES-GCM key (Phase 2).
+- **Tokens:** `EncryptedSharedPreferences` is deprecated, so Jellyfin tokens are encrypted with an Android Keystore AES-256-GCM key and only the ciphertext sits in the private `jellyfin_tokens` prefs file (`KeystoreTokenStore`). A Keystore or decrypt failure drops the token and the server shows "Signed out", instead of crashing.
 - **Android 17 (API 37):** `ACCESS_LOCAL_NETWORK` is declared and requested at runtime.
 - **Foreground service:** the web server runs as a `specialUse` foreground service.
 - **FFmpeg decoder:** `org.jellyfin.media3:media3-ffmpeg-decoder` latest is `1.9.0+1`, built for Media3 1.9. It is used with Media3 1.11.1 and is gated by a decode smoke test in Phase 5. If that test fails, Media3 gets pinned to 1.9.x.
-- **Database migrations:** debug builds fall back to destructive migration while the schema moves between phases. Release builds need real migrations before the first public release.
+- **Database migrations:** debug builds fall back to destructive migration while the schema moves between phases. Pre-release schema versions (listed in `AnstelleDatabase.PRE_RELEASE_VERSIONS`) are also dropped in release builds. Real migrations start with the first public release.
 - **Cleartext HTTP** is allowed app-wide, because LAN Jellyfin, HDHomeRun and M3U sources use plain HTTP on arbitrary IPs.
 - **Gradle warning:** builds print `Configuration.setVisible` deprecation warnings that come from third-party Gradle plugins. They are harmless until Gradle 11.
+
+### Jellyfin (learned in Phase 2)
+
+- **Adding a server works like the official Jellyfin apps.** There is one "Server address" field that takes an IP address, a host name or a full URL. The SDK's `discovery.getAddressCandidates()` expands the input (with and without HTTPS, ports 8096/8920), and `getRecommendedServers()` checks every candidate; the best-scoring one wins. There is no separate home/remote address (user decision). Adding the same server again under another address updates the existing entry, matched by server Id, so its libraries stay.
+- **Sign-in:** Quick Connect (the code is polled every 3 s) or username and password. Signing in as a different user on a known server triggers a full re-fetch.
+- **SDK dates are device-local.** The SDK decodes server timestamps into `LocalDateTime` in the device's zone, and sends `LocalDateTime` query parameters with the device's UTC offset. The server handles offset-qualified `minDateLastSaved` correctly; a zone-less value is read differently. Convert only through `SdkTime.kt`. Unit tests run in `Asia/Manila` so UTC/local mix-ups fail on any machine.
+- **Grouped views:** a user view that groups libraries (one "TV Shows" view over several TV libraries) is not a library. Real libraries come from `CollectionFolder` views plus `/UserViews/GroupingOptions`, with the collection type from `/Items/{id}`.
+- **Incremental sync:** `BaseItemDto` has no `DateLastSaved`, so each library's watermark is the *server* clock (`/GetUtcTime`) at the start of its last sync, re-read with a 5-minute overlap.
+- **Series first:** episodes usually have no genres, studios, tags or rating of their own. Series are stored first and episodes inherit from them at sync time; a changed series re-reads its episodes.
+- **Reconciliation:** deletions and played-state changes don't touch `DateLastSaved`. An ID-only listing (plus an `IsPlayed` listing) runs at least every 6 hours and on manual sync. It deletes vanished items and sets `inputsHash = 0` on the schedules that air them, so the scheduler regenerates those channels.
+- **Fields:** `MediaSources` (source id, container, streams, `HasSegments`) and `Chapters` cost about 8 KB per item, so pages hold 150 items.
+- **Media segments** are fetched only for items whose source reports `HasSegments`, 4 at a time, and cached in `media_segment`.
+- **Ratings:** `/Localization/ParentalRatings` only lists the server's metadata country, while real items carry "12", "NC16", "M18", "PG13" or "6+". `RatingScores` falls back to a punctuation-insensitive match, then to the age written in the rating.
+- **Libraries and filler:** movies, shows, music videos, home videos and mixed libraries are synced. Music, books, photos, collections, playlists and live TV are not (music is on hold). Libraries named like "Commercials", "Bumpers" or "Station IDs" default to that filler role. Items tagged `commercial`, `bumper`, `station id`, `card` (or `anstelle:<kind>`) become filler inside content libraries. A library's role can be changed on the server screen, which re-fetches it.
+- **Logging:** the SDK logs through kotlin-logging. On Android that maps to logcat; JVM unit tests need `slf4j-nop` on the test runtime classpath.
+
+## Phase 2 verification (2026-10-05)
+
+- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 58 unit tests, 0 failures. The new tests run the mapper and the real SDK request/decoding path (through a fixture-backed `ApiClient`) against anonymized JSON recorded from a Jellyfin 12.1.0 server. `items_movie_page_derived.json` is built from a recorded episode because the test account has no movie library. Lint shows no issues in any library module; the app module keeps its two earlier warnings (`DataExtractionRules`, `IconMissingDensityFolder`).
+- **Google TV AVD:**
+  - Adding a server by bare domain resolved to its `https://` URL; adding it by bare IP resolved to `http://<ip>:8096`.
+  - Sign-in worked both times. Adding the server again by IP kept a single entry.
+  - The token survived an app restart (Keystore decrypt).
+  - First sync: show and episode counts equal `/Items/Counts` for the user exactly. About 3.7k items took about 77 s on the emulator, most of it per-item segment requests.
+  - Second sync: `incremental since …, 0 items fetched` for both libraries, then the reconcile pass; 2.9 s in total.
 
 ## Phase 1 verification (2026-10-05)
 
@@ -122,3 +148,6 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 
 - When D-pad focus enters the TV drawer, it should land on the selected destination.
 - On a focused tile, the muted subtitle color has low contrast. This will be tuned with the theme work in Phase 8.
+- The `collections` column (box-set membership) is still empty. Fill it during reconciliation when channel templates need it (Phase 4).
+- Movie sync is covered by the derived fixture only. Give the test account a movie library to check it against a real server.
+- The first sync spends most of its time on per-item segment requests (about 50 s for 3.4k items on the emulator). Measure on the Fire TV Stick in Phase 11.

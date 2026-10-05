@@ -11,5 +11,10 @@ dependencies {
     // jellyfin-core uses the OkHttp-based API client, so the app keeps a single OkHttpClient.
     api(libs.jellyfin.sdk.core)
     api(libs.okhttp)
+    implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
+
+    // Mapper tests decode recorded server JSON with the SDK's own serializer.
+    testImplementation(libs.kotlinx.serialization.json)
+    testRuntimeOnly(libs.slf4j.nop)
 }

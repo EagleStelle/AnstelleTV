@@ -11,8 +11,8 @@ import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.SegmentType
 
 /**
- * A Jellyfin server. Local and remote URLs are matched by [jellyfinServerId] because a
- * server behind a reverse proxy reports a loopback `LocalAddress`. Access tokens are
+ * A Jellyfin server, identified by [jellyfinServerId]: adding the same server again under
+ * another address updates this row instead of creating a second one. Access tokens are
  * never stored here; they live in the Keystore-backed token store.
  */
 @Entity(
@@ -23,17 +23,25 @@ data class MediaServerEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val jellyfinServerId: String,
     val name: String,
-    /** URL currently in use (local when reachable). */
+    /** The address the user connected with, e.g. `http://192.168.1.20:8096` or `https://jellyfin.example.com`. */
     val baseUrl: String,
-    val localUrl: String?,
-    val remoteUrl: String?,
     val userId: String?,
     val userName: String?,
-    val isLocal: Boolean,
     val serverVersion: String?,
     val createdAtUtcMs: Long,
+    /** Device time of the last finished sync, successful or not. */
+    val lastSyncUtcMs: Long? = null,
+    /** Why the last sync failed, or null when it succeeded. */
+    val lastSyncError: String? = null,
+    /** Device time of the last ID-only reconciliation (deletions and played state). */
+    val lastReconcileUtcMs: Long? = null,
 )
 
+/**
+ * A library (Jellyfin collection folder) the signed-in user can see. Grouped views such as
+ * a combined "TV Shows" view are resolved to their underlying libraries, so each one keeps
+ * its own role.
+ */
 @Entity(
     tableName = "library",
     foreignKeys = [
@@ -54,15 +62,18 @@ data class LibraryEntity(
     val collectionType: String?,
     val role: LibraryRole,
     val isEnabled: Boolean,
-    /** Server `DateLastSaved` high-water mark used for incremental sync. */
+    /**
+     * Server clock at the start of the last successful sync of this library. The next sync
+     * asks only for items with `DateLastSaved` after it. Null forces a full fetch.
+     */
     val lastSyncUtcMs: Long?,
-    val lastFullSyncUtcMs: Long?,
 )
 
 /**
  * A synced Jellyfin item. Multi-valued metadata (genres, studios, tags, collections) is
  * stored pipe-delimited (`|Comedy|Family|`) for compact rows and cheap `LIKE` matching;
- * rule matching happens in memory.
+ * rule matching happens in memory. Episodes without their own genres, studios, tags or
+ * rating inherit the series' values at sync time.
  */
 @Entity(
     tableName = "media_item",
@@ -116,11 +127,13 @@ data class MediaItemEntity(
     val audioChannels: Int?,
     val mediaSourceId: String?,
     val primaryImageTag: String?,
+    /** Comma-separated chapter start positions in ms, without the chapter at 0. */
     val chapterStartsMs: String?,
     /** Played state on the server at last sync, used by the REPORT_NO_MARK report mode. */
     val playedOnServer: Boolean,
-    /** Server `DateLastSaved`. */
-    val dateLastSavedUtcMs: Long,
+    /** False until the item's media segments (intro, outro, …) are cached locally. */
+    val segmentsFetched: Boolean,
+    /** Device time of the sync that last wrote this row. */
     val updatedAtUtcMs: Long,
 )
 

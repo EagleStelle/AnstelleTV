@@ -19,6 +19,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import androidx.tv.material3.NavigationDrawerItem
@@ -30,6 +31,9 @@ import tv.anstelle.feature.ondemand.OnDemandScreen
 import tv.anstelle.feature.player.PlayerScreen
 import tv.anstelle.feature.profiles.ProfilePickerScreen
 import tv.anstelle.feature.settings.SettingsScreen
+import tv.anstelle.feature.settings.servers.AddServerScreen
+import tv.anstelle.feature.settings.servers.ServerDetailScreen
+import tv.anstelle.feature.settings.servers.ServersScreen
 
 @Composable
 fun AnstelleApp(isTv: Boolean) {
@@ -78,7 +82,32 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         }
         composable<OnDemandRoute> { OnDemandScreen() }
         composable<DashboardRoute> { DashboardScreen() }
-        composable<SettingsRoute> { SettingsScreen() }
+        navigation<SettingsGraph>(startDestination = SettingsRoute) {
+            composable<SettingsRoute> { SettingsScreen(onOpenServers = { navController.navigate(ServersRoute) }) }
+            composable<ServersRoute> {
+                ServersScreen(
+                    onAddServer = { navController.navigate(AddServerRoute()) },
+                    onOpenServer = { navController.navigate(ServerDetailRoute(it)) },
+                )
+            }
+            composable<ServerDetailRoute> {
+                ServerDetailScreen(
+                    onSignIn = { navController.navigate(AddServerRoute(it)) },
+                    onRemoved = { navController.popBackStack() },
+                )
+            }
+            composable<AddServerRoute> {
+                AddServerScreen(
+                    onSignedIn = { serverId ->
+                        // Land on the server's page, with the server list behind it.
+                        navController.navigate(ServerDetailRoute(serverId)) {
+                            popUpTo<ServersRoute>()
+                        }
+                    },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+        }
         composable<PlayerRoute> { entry ->
             PlayerScreen(channelNumber = entry.toRoute<PlayerRoute>().channelNumber)
         }

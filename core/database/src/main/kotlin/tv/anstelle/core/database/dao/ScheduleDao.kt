@@ -83,6 +83,22 @@ interface ScheduleDao {
     @Upsert
     suspend fun upsertState(state: ScheduleStateEntity)
 
+    /**
+     * Marks the schedules of channels with future slots airing any of [mediaItemIds] as
+     * stale. A zero inputs hash never matches, so the extension worker regenerates them
+     * after the current and next airings.
+     */
+    @Query(
+        """
+        UPDATE schedule_state SET inputsHash = 0
+        WHERE channelId IN (
+            SELECT DISTINCT channelId FROM schedule_slot
+            WHERE mediaItemId IN (:mediaItemIds) AND endUtcMs > :nowUtcMs
+        )
+        """,
+    )
+    suspend fun invalidateForItems(mediaItemIds: List<Long>, nowUtcMs: Long): Int
+
     @Query("SELECT MAX(generatedUntilUtcMs) FROM schedule_state")
     fun observeGeneratedUntil(): Flow<Long?>
 

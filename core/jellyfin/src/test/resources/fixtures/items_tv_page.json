@@ -1,0 +1,602 @@
+{
+  "Items": [
+    {
+      "Name": "Example Drama",
+      "ServerId": "fa110000000000000000000000000001",
+      "Id": "fa110000000000000000000000000013",
+      "SortName": "example drama",
+      "PremiereDate": "2023-12-03T16:00:00.0000000Z",
+      "ChannelId": null,
+      "Overview": "Synthetic overview used by the tests.",
+      "Genres": [
+        "Drama",
+        "Suspense",
+        "Thriller",
+        "Mystery"
+      ],
+      "RunTimeTicks": 21000000000,
+      "ProductionYear": 2023,
+      "IsFolder": true,
+      "Type": "Series",
+      "Studios": [
+        {
+          "Name": "Example Network",
+          "Id": "fa110000000000000000000000000014"
+        }
+      ],
+      "GenreItems": [
+        {
+          "Name": "Drama",
+          "Id": "fa110000000000000000000000000015"
+        },
+        {
+          "Name": "Suspense",
+          "Id": "fa110000000000000000000000000016"
+        },
+        {
+          "Name": "Thriller",
+          "Id": "fa110000000000000000000000000017"
+        },
+        {
+          "Name": "Mystery",
+          "Id": "fa110000000000000000000000000018"
+        }
+      ],
+      "UserData": {
+        "PlayedPercentage": 100,
+        "UnplayedItemCount": 0,
+        "PlaybackPositionTicks": 0,
+        "PlayCount": 0,
+        "IsFavorite": false,
+        "Played": true,
+        "Key": "fa110000-0000-0000-0000-000000000013",
+        "ItemId": "fa110000000000000000000000000013"
+      },
+      "Status": "Ended",
+      "AirTime": "00:00",
+      "AirDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday"
+      ],
+      "Tags": [],
+      "ImageTags": {
+        "Primary": "fa110000000000000000000000000019"
+      },
+      "Chapters": [],
+      "LocationType": "FileSystem",
+      "MediaType": "Unknown",
+      "EndDate": "2023-01-20T16:12:00.0000000Z"
+    },
+    {
+      "Name": "Example Comedy",
+      "ServerId": "fa110000000000000000000000000001",
+      "Id": "fa11000000000000000000000000001a",
+      "SortName": "example comedy",
+      "PremiereDate": "2002-04-07T16:00:00.0000000Z",
+      "OfficialRating": "TV-PG",
+      "ChannelId": null,
+      "Overview": "Synthetic overview used by the tests.",
+      "Genres": [
+        "Comedy",
+        "Animation",
+        "Cartoons"
+      ],
+      "CommunityRating": 8,
+      "RunTimeTicks": 14400000000,
+      "ProductionYear": 2002,
+      "IsFolder": true,
+      "Type": "Series",
+      "Studios": [
+        {
+          "Name": "Example TV",
+          "Id": "fa11000000000000000000000000001b"
+        },
+        {
+          "Name": "Example Studio",
+          "Id": "fa11000000000000000000000000001c"
+        }
+      ],
+      "GenreItems": [
+        {
+          "Name": "Comedy",
+          "Id": "fa11000000000000000000000000001d"
+        },
+        {
+          "Name": "Animation",
+          "Id": "fa11000000000000000000000000001e"
+        },
+        {
+          "Name": "Cartoons",
+          "Id": "fa11000000000000000000000000001f"
+        }
+      ],
+      "UserData": {
+        "PlayedPercentage": 3.8461538461538463,
+        "UnplayedItemCount": 25,
+        "PlaybackPositionTicks": 0,
+        "PlayCount": 0,
+        "IsFavorite": false,
+        "Played": false,
+        "Key": "fa110000-0000-0000-0000-00000000001a",
+        "ItemId": "fa11000000000000000000000000001a"
+      },
+      "Status": "Ended",
+      "AirDays": [],
+      "Tags": [
+        "school",
+        "slice of life",
+        "based on manga",
+        "comedy"
+      ],
+      "ImageTags": {
+        "Primary": "fa110000000000000000000000000020"
+      },
+      "Chapters": [],
+      "LocationType": "FileSystem",
+      "MediaType": "Unknown",
+      "EndDate": "2002-01-29T16:09:00.0000000Z"
+    },
+    {
+      "Name": "Example Fantasy",
+      "ServerId": "fa110000000000000000000000000001",
+      "Id": "fa110000000000000000000000000021",
+      "SortName": "example fantasy",
+      "PremiereDate": "2026-07-02T16:00:00.0000000Z",
+      "OfficialRating": "16",
+      "ChannelId": null,
+      "Overview": "Synthetic overview used by the tests.",
+      "Genres": [
+        "Fantasy",
+        "Comedy",
+        "Animation",
+        "Cartoons"
+      ],
+      "CommunityRating": 5.6,
+      "RunTimeTicks": 14400000000,
+      "ProductionYear": 2026,
+      "IsFolder": true,
+      "Type": "Series",
+      "Studios": [
+        {
+          "Name": "Example TV Two",
+          "Id": "fa110000000000000000000000000022"
+        },
+        {
+          "Name": "Example Animation",
+          "Id": "fa110000000000000000000000000023"
+        }
+      ],
+      "GenreItems": [
+        {
+          "Name": "Fantasy",
+          "Id": "fa110000000000000000000000000024"
+        },
+        {
+          "Name": "Comedy",
+          "Id": "fa11000000000000000000000000001d"
+        },
+        {
+          "Name": "Animation",
+          "Id": "fa11000000000000000000000000001e"
+        },
+        {
+          "Name": "Cartoons",
+          "Id": "fa11000000000000000000000000001f"
+        }
+      ],
+      "UserData": {
+        "PlayedPercentage": 0,
+        "UnplayedItemCount": 12,
+        "PlaybackPositionTicks": 0,
+        "PlayCount": 0,
+        "IsFavorite": false,
+        "Played": false,
+        "Key": "fa110000-0000-0000-0000-000000000021",
+        "ItemId": "fa110000000000000000000000000021"
+      },
+      "Status": "Continuing",
+      "AirTime": "00:30",
+      "AirDays": [
+        "Friday"
+      ],
+      "Tags": [
+        "fantasy",
+        "urban fantasy",
+        "based on manga"
+      ],
+      "ImageTags": {
+        "Primary": "fa110000000000000000000000000025"
+      },
+      "Chapters": [],
+      "LocationType": "FileSystem",
+      "MediaType": "Unknown",
+      "EndDate": "2026-07-02T16:00:00.0000000Z"
+    },
+    {
+      "Name": "Pilot",
+      "ServerId": "fa110000000000000000000000000001",
+      "Id": "fa110000000000000000000000000026",
+      "HasSubtitles": true,
+      "Container": "mkv",
+      "SortName": "001 - 0001 - Pilot",
+      "PremiereDate": "2023-12-03T16:00:00.0000000Z",
+      "MediaSources": [
+        {
+          "Protocol": "File",
+          "Id": "fa110000000000000000000000000026",
+          "Type": "Default",
+          "Container": "mkv",
+          "Size": 589975302,
+          "Name": "S01E01 - Example Drama",
+          "IsRemote": false,
+          "ETag": "fa110000000000000000000000000027",
+          "RunTimeTicks": 22157210000,
+          "ReadAtNativeFramerate": false,
+          "IgnoreDts": false,
+          "IgnoreIndex": false,
+          "GenPtsInput": false,
+          "SupportsTranscoding": true,
+          "SupportsDirectStream": true,
+          "SupportsDirectPlay": true,
+          "IsInfiniteStream": false,
+          "UseMostCompatibleTranscodingProfile": false,
+          "RequiresOpening": false,
+          "RequiresClosing": false,
+          "RequiresLooping": false,
+          "SupportsProbing": true,
+          "VideoType": "VideoFile",
+          "MediaStreams": [
+            {
+              "Codec": "h264",
+              "ColorSpace": "bt709",
+              "ColorTransfer": "bt709",
+              "ColorPrimaries": "bt709",
+              "TimeBase": "1/1000",
+              "VideoRange": "SDR",
+              "VideoRangeType": "SDR",
+              "AudioSpatialFormat": "None",
+              "DisplayTitle": "1080p H264 SDR",
+              "NalLengthSize": "4",
+              "IsInterlaced": false,
+              "IsAVC": true,
+              "BitRate": 2130142,
+              "BitDepth": 8,
+              "RefFrames": 1,
+              "IsDefault": true,
+              "IsForced": false,
+              "IsHearingImpaired": false,
+              "IsOriginal": false,
+              "Height": 1080,
+              "Width": 1920,
+              "AverageFrameRate": 29.97003,
+              "RealFrameRate": 29.97003,
+              "ReferenceFrameRate": 29.97003,
+              "Profile": "High",
+              "Type": "Video",
+              "AspectRatio": "16:9",
+              "Index": 0,
+              "IsExternal": false,
+              "IsTextSubtitleStream": false,
+              "SupportsExternalStream": false,
+              "PixelFormat": "yuv420p",
+              "Level": 40,
+              "IsAnamorphic": false
+            },
+            {
+              "Codec": "opus",
+              "TimeBase": "1/1000",
+              "VideoRange": "Unknown",
+              "VideoRangeType": "Unknown",
+              "AudioSpatialFormat": "None",
+              "LocalizedDefault": "Default",
+              "LocalizedExternal": "External",
+              "LocalizedOriginal": "Original",
+              "DisplayTitle": "OPUS - Stereo - Default",
+              "IsInterlaced": false,
+              "IsAVC": false,
+              "ChannelLayout": "stereo",
+              "BitRate": 67954,
+              "Channels": 2,
+              "SampleRate": 48000,
+              "IsDefault": true,
+              "IsForced": false,
+              "IsHearingImpaired": false,
+              "IsOriginal": false,
+              "Type": "Audio",
+              "Index": 1,
+              "IsExternal": false,
+              "IsTextSubtitleStream": false,
+              "SupportsExternalStream": false,
+              "Level": 0
+            },
+            {
+              "Codec": "subrip",
+              "Language": "eng",
+              "TimeBase": "1/1000",
+              "Title": "English",
+              "VideoRange": "Unknown",
+              "VideoRangeType": "Unknown",
+              "AudioSpatialFormat": "None",
+              "LocalizedUndefined": "Undefined",
+              "LocalizedDefault": "Default",
+              "LocalizedForced": "Forced",
+              "LocalizedExternal": "External",
+              "LocalizedHearingImpaired": "Hearing Impaired",
+              "LocalizedLanguage": "English",
+              "DisplayTitle": "English - SUBRIP",
+              "IsInterlaced": false,
+              "IsAVC": false,
+              "IsDefault": false,
+              "IsForced": false,
+              "IsHearingImpaired": false,
+              "IsOriginal": false,
+              "Height": 0,
+              "Width": 0,
+              "Type": "Subtitle",
+              "Index": 2,
+              "Score": 10111221,
+              "IsExternal": false,
+              "IsTextSubtitleStream": true,
+              "SupportsExternalStream": true,
+              "Level": 0
+            }
+          ],
+          "MediaAttachments": [],
+          "Formats": [],
+          "Bitrate": 2198096,
+          "RequiredHttpHeaders": {},
+          "TranscodingSubProtocol": "http",
+          "DefaultAudioStreamIndex": 1,
+          "DefaultSubtitleStreamIndex": 2,
+          "HasSegments": true
+        }
+      ],
+      "ChannelId": null,
+      "Overview": "Synthetic overview used by the tests.",
+      "Genres": [],
+      "RunTimeTicks": 22157210000,
+      "ProductionYear": 2023,
+      "IndexNumber": 1,
+      "ParentIndexNumber": 1,
+      "IsFolder": false,
+      "Type": "Episode",
+      "Studios": [],
+      "GenreItems": [],
+      "UserData": {
+        "PlaybackPositionTicks": 0,
+        "PlayCount": 1,
+        "IsFavorite": false,
+        "LastPlayedDate": "2024-01-01T00:00:00.0000000Z",
+        "Played": true,
+        "Key": "100000000001",
+        "ItemId": "fa110000000000000000000000000026"
+      },
+      "SeriesName": "Example Drama",
+      "SeriesId": "fa110000000000000000000000000013",
+      "SeasonId": "fa110000000000000000000000000028",
+      "Tags": [],
+      "SeriesPrimaryImageTag": "fa110000000000000000000000000019",
+      "SeasonName": "Season 1",
+      "VideoType": "VideoFile",
+      "ImageTags": {
+        "Primary": "fa110000000000000000000000000029"
+      },
+      "ParentPrimaryImageItemId": "fa110000000000000000000000000013",
+      "ParentPrimaryImageTag": "fa110000000000000000000000000019",
+      "Chapters": [
+        {
+          "StartPositionTicks": 0,
+          "Name": "Opening",
+          "ImageDateModified": "0001-01-01T00:00:00.0000000Z"
+        },
+        {
+          "StartPositionTicks": 313700000,
+          "Name": "Episode",
+          "ImageDateModified": "0001-01-01T00:00:00.0000000Z"
+        },
+        {
+          "StartPositionTicks": 21529900000,
+          "Name": "Ending",
+          "ImageDateModified": "0001-01-01T00:00:00.0000000Z"
+        }
+      ],
+      "LocationType": "FileSystem",
+      "MediaType": "Video"
+    },
+    {
+      "Name": "Second Episode",
+      "ServerId": "fa110000000000000000000000000001",
+      "Id": "fa11000000000000000000000000002a",
+      "HasSubtitles": true,
+      "Container": "mkv",
+      "SortName": "001 - 0002 - Second Episode",
+      "PremiereDate": "2023-12-03T16:00:00.0000000Z",
+      "MediaSources": [
+        {
+          "Protocol": "File",
+          "Id": "fa11000000000000000000000000002a",
+          "Type": "Default",
+          "Container": "mkv",
+          "Size": 662853781,
+          "Name": "S01E02 - Example Drama",
+          "IsRemote": false,
+          "ETag": "fa11000000000000000000000000002b",
+          "RunTimeTicks": 21594210000,
+          "ReadAtNativeFramerate": false,
+          "IgnoreDts": false,
+          "IgnoreIndex": false,
+          "GenPtsInput": false,
+          "SupportsTranscoding": true,
+          "SupportsDirectStream": true,
+          "SupportsDirectPlay": true,
+          "IsInfiniteStream": false,
+          "UseMostCompatibleTranscodingProfile": false,
+          "RequiresOpening": false,
+          "RequiresClosing": false,
+          "RequiresLooping": false,
+          "SupportsProbing": true,
+          "VideoType": "VideoFile",
+          "MediaStreams": [
+            {
+              "Codec": "h264",
+              "ColorSpace": "bt709",
+              "ColorTransfer": "bt709",
+              "ColorPrimaries": "bt709",
+              "TimeBase": "1/1000",
+              "VideoRange": "SDR",
+              "VideoRangeType": "SDR",
+              "AudioSpatialFormat": "None",
+              "DisplayTitle": "1080p H264 SDR",
+              "NalLengthSize": "4",
+              "IsInterlaced": false,
+              "IsAVC": true,
+              "BitRate": 2455672,
+              "BitDepth": 8,
+              "RefFrames": 1,
+              "IsDefault": true,
+              "IsForced": false,
+              "IsHearingImpaired": false,
+              "IsOriginal": false,
+              "Height": 1080,
+              "Width": 1920,
+              "AverageFrameRate": 29.97003,
+              "RealFrameRate": 29.97003,
+              "ReferenceFrameRate": 29.97003,
+              "Profile": "High",
+              "Type": "Video",
+              "AspectRatio": "16:9",
+              "Index": 0,
+              "IsExternal": false,
+              "IsTextSubtitleStream": false,
+              "SupportsExternalStream": false,
+              "PixelFormat": "yuv420p",
+              "Level": 40,
+              "IsAnamorphic": false
+            },
+            {
+              "Codec": "opus",
+              "TimeBase": "1/1000",
+              "VideoRange": "Unknown",
+              "VideoRangeType": "Unknown",
+              "AudioSpatialFormat": "None",
+              "LocalizedDefault": "Default",
+              "LocalizedExternal": "External",
+              "LocalizedOriginal": "Original",
+              "DisplayTitle": "OPUS - Stereo - Default",
+              "IsInterlaced": false,
+              "IsAVC": false,
+              "ChannelLayout": "stereo",
+              "BitRate": 68958,
+              "Channels": 2,
+              "SampleRate": 48000,
+              "IsDefault": true,
+              "IsForced": false,
+              "IsHearingImpaired": false,
+              "IsOriginal": false,
+              "Type": "Audio",
+              "Index": 1,
+              "IsExternal": false,
+              "IsTextSubtitleStream": false,
+              "SupportsExternalStream": false,
+              "Level": 0
+            },
+            {
+              "Codec": "subrip",
+              "Language": "eng",
+              "TimeBase": "1/1000",
+              "Title": "English",
+              "VideoRange": "Unknown",
+              "VideoRangeType": "Unknown",
+              "AudioSpatialFormat": "None",
+              "LocalizedUndefined": "Undefined",
+              "LocalizedDefault": "Default",
+              "LocalizedForced": "Forced",
+              "LocalizedExternal": "External",
+              "LocalizedHearingImpaired": "Hearing Impaired",
+              "LocalizedLanguage": "English",
+              "DisplayTitle": "English - SUBRIP",
+              "IsInterlaced": false,
+              "IsAVC": false,
+              "IsDefault": false,
+              "IsForced": false,
+              "IsHearingImpaired": false,
+              "IsOriginal": false,
+              "Height": 0,
+              "Width": 0,
+              "Type": "Subtitle",
+              "Index": 2,
+              "Score": 10111221,
+              "IsExternal": false,
+              "IsTextSubtitleStream": true,
+              "SupportsExternalStream": true,
+              "Level": 0
+            }
+          ],
+          "MediaAttachments": [],
+          "Formats": [],
+          "Bitrate": 2524630,
+          "RequiredHttpHeaders": {},
+          "TranscodingSubProtocol": "http",
+          "DefaultAudioStreamIndex": 1,
+          "DefaultSubtitleStreamIndex": 2,
+          "HasSegments": true
+        }
+      ],
+      "ChannelId": null,
+      "Overview": "Synthetic overview used by the tests.",
+      "Genres": [],
+      "RunTimeTicks": 21594210000,
+      "ProductionYear": 2023,
+      "IndexNumber": 2,
+      "ParentIndexNumber": 1,
+      "IsFolder": false,
+      "Type": "Episode",
+      "Studios": [],
+      "GenreItems": [],
+      "UserData": {
+        "PlaybackPositionTicks": 0,
+        "PlayCount": 1,
+        "IsFavorite": false,
+        "LastPlayedDate": "2024-01-01T00:00:00.0000000Z",
+        "Played": true,
+        "Key": "100000000002",
+        "ItemId": "fa11000000000000000000000000002a"
+      },
+      "SeriesName": "Example Drama",
+      "SeriesId": "fa110000000000000000000000000013",
+      "SeasonId": "fa110000000000000000000000000028",
+      "Tags": [],
+      "SeriesPrimaryImageTag": "fa110000000000000000000000000019",
+      "SeasonName": "Season 1",
+      "VideoType": "VideoFile",
+      "ImageTags": {
+        "Primary": "fa11000000000000000000000000002c"
+      },
+      "ParentPrimaryImageItemId": "fa110000000000000000000000000013",
+      "ParentPrimaryImageTag": "fa110000000000000000000000000019",
+      "Chapters": [
+        {
+          "StartPositionTicks": 0,
+          "Name": "Opening",
+          "ImageDateModified": "0001-01-01T00:00:00.0000000Z"
+        },
+        {
+          "StartPositionTicks": 313700000,
+          "Name": "Episode",
+          "ImageDateModified": "0001-01-01T00:00:00.0000000Z"
+        },
+        {
+          "StartPositionTicks": 20967000000,
+          "Name": "Ending",
+          "ImageDateModified": "0001-01-01T00:00:00.0000000Z"
+        }
+      ],
+      "LocationType": "FileSystem",
+      "MediaType": "Video"
+    }
+  ],
+  "TotalRecordCount": 5,
+  "StartIndex": 0
+}

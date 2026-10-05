@@ -82,7 +82,7 @@ abstract class AnstelleDatabase : RoomDatabase() {
     abstract fun settingDao(): SettingDao
 
     companion object {
-        const val VERSION = 1
+        const val VERSION = 2
         const val NAME = "anstelle.db"
 
         /** Tables the web UI can subscribe to for live updates. */
@@ -101,7 +101,11 @@ abstract class AnstelleDatabase : RoomDatabase() {
         fun build(context: Context, allowDestructiveMigration: Boolean): AnstelleDatabase =
             Room.databaseBuilder(context, AnstelleDatabase::class.java, NAME)
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
+                // Schemas from before the first public release hold nothing worth migrating.
+                .fallbackToDestructiveMigrationFrom(true, *PRE_RELEASE_VERSIONS)
                 .apply { if (allowDestructiveMigration) fallbackToDestructiveMigration(dropAllTables = true) }
                 .build()
+
+        private val PRE_RELEASE_VERSIONS = intArrayOf(1)
     }
 }
