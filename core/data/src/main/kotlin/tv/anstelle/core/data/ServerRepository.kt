@@ -30,7 +30,6 @@ import tv.anstelle.core.jellyfin.auth.AuthSession
 import tv.anstelle.core.jellyfin.auth.JellyfinAuth
 import tv.anstelle.core.jellyfin.auth.TokenStore
 import tv.anstelle.core.jellyfin.sync.LibraryRules
-import tv.anstelle.core.model.LibraryRole
 import tv.anstelle.core.model.MediaServer
 import tv.anstelle.core.model.PublicServerInfo
 import tv.anstelle.core.model.ServerConnectException
@@ -82,7 +81,7 @@ class ServerRepository @Inject constructor(
 
     /** False for library types AnstelleTV cannot air yet (music, photos, books, …). */
     fun canAir(collectionType: String?): Boolean =
-        LibraryRules.itemKinds(LibraryRole.CONTENT, collectionType).isNotEmpty()
+        LibraryRules.itemKinds(collectionType).isNotEmpty()
 
     /** Finds the Jellyfin server behind an address the user typed (an IP address or a URL). */
     suspend fun findServer(address: String): ServerCandidate {
@@ -126,13 +125,13 @@ class ServerRepository @Inject constructor(
     }
 
     /**
-     * Changes what a library is used for. Its items are fetched again so they are
-     * reclassified; an ignored library's items are deleted right away.
+     * Turns syncing a library on or off. A library turned on is fetched in full; a library
+     * turned off loses its items right away.
      */
-    suspend fun setLibraryRole(libraryId: Long, role: LibraryRole) {
+    suspend fun setLibraryEnabled(libraryId: Long, enabled: Boolean) {
         val library = libraryDao.byId(libraryId) ?: return
-        libraryDao.setRole(libraryId, role)
-        if (role == LibraryRole.IGNORED) syncer.removeItems(itemDao.idsInLibrary(libraryId))
+        libraryDao.setEnabled(libraryId, enabled)
+        if (!enabled) syncer.removeItems(itemDao.idsInLibrary(libraryId))
         syncNow(library.serverId, forceReconcile = true)
     }
 

@@ -21,7 +21,6 @@ import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelGroupEntity
 import tv.anstelle.core.database.entity.ChannelRuleEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
-import tv.anstelle.core.database.entity.FillerRuleEntity
 import tv.anstelle.core.database.entity.LibraryEntity
 import tv.anstelle.core.database.entity.LiveChannelEntity
 import tv.anstelle.core.database.entity.LiveProgramEntity
@@ -53,7 +52,6 @@ import tv.anstelle.core.database.entity.WatchEventEntity
         ChannelRuleEntity::class,
         ChannelSeasonEntity::class,
         ChannelDaypartEntity::class,
-        FillerRuleEntity::class,
         LiveSourceEntity::class,
         LiveChannelEntity::class,
         LiveProgramEntity::class,
@@ -88,9 +86,8 @@ abstract class AnstelleDatabase : RoomDatabase() {
         /** Tables the web UI can subscribe to for live updates. */
         val OBSERVED_TABLES = arrayOf(
             "media_server", "profile", "library", "media_item", "channel_group", "channel",
-            "channel_rule", "channel_season", "channel_daypart", "filler_rule", "live_source",
-            "live_channel", "live_program", "schedule_slot", "theme", "watch_event",
-            "paired_client", "setting",
+            "channel_rule", "channel_season", "channel_daypart", "live_source", "live_channel",
+            "live_program", "schedule_slot", "theme", "watch_event", "paired_client", "setting",
         )
 
         /**

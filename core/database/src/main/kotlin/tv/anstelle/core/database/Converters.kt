@@ -1,12 +1,8 @@
 package tv.anstelle.core.database
 
 import androidx.room.TypeConverter
-import tv.anstelle.core.model.BreakMode
 import tv.anstelle.core.model.ChannelKind
-import tv.anstelle.core.model.FillerKind
-import tv.anstelle.core.model.FillerSource
 import tv.anstelle.core.model.HdrType
-import tv.anstelle.core.model.LibraryRole
 import tv.anstelle.core.model.LiveSourceType
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.PlaybackOrder
@@ -40,18 +36,6 @@ internal class Converters {
 
     @TypeConverter fun fromSeasonMode(value: SeasonMode): Int = value.code
     @TypeConverter fun toSeasonMode(code: Int): SeasonMode = codeOf(code)
-
-    @TypeConverter fun fromFillerKind(value: FillerKind): Int = value.code
-    @TypeConverter fun toFillerKind(code: Int): FillerKind = codeOf(code)
-
-    @TypeConverter fun fromFillerSource(value: FillerSource): Int = value.code
-    @TypeConverter fun toFillerSource(code: Int): FillerSource = codeOf(code)
-
-    @TypeConverter fun fromBreakMode(value: BreakMode): Int = value.code
-    @TypeConverter fun toBreakMode(code: Int): BreakMode = codeOf(code)
-
-    @TypeConverter fun fromLibraryRole(value: LibraryRole): Int = value.code
-    @TypeConverter fun toLibraryRole(code: Int): LibraryRole = codeOf(code)
 
     @TypeConverter fun fromLiveSourceType(value: LiveSourceType): Int = value.code
     @TypeConverter fun toLiveSourceType(code: Int): LiveSourceType = codeOf(code)

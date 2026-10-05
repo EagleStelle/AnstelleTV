@@ -2,7 +2,6 @@ import type { Component } from 'svelte';
 import Antenna from '~icons/ic/baseline-settings-input-antenna';
 import Backup from '~icons/ic/baseline-backup';
 import BarChart from '~icons/ic/baseline-bar-chart';
-import Campaign from '~icons/ic/baseline-campaign';
 import Category from '~icons/ic/baseline-category';
 import Dns from '~icons/ic/baseline-dns';
 import LiveTv from '~icons/ic/baseline-live-tv';
@@ -22,7 +21,6 @@ export interface ConfigurePage {
 
 export const configurePages: ConfigurePage[] = [
 	{ slug: 'channels', title: 'Channels', description: 'Build, number, hide and favorite channels.', icon: LiveTv, phase: 4 },
-	{ slug: 'commercials', title: 'Commercials', description: 'Commercial, bumper and station ID sources.', icon: Campaign, phase: 4 },
 	{ slug: 'groups', title: 'Groups', description: 'Organize the guide into categories.', icon: Category, phase: 4 },
 	{ slug: 'schedules', title: 'Schedules', description: 'View and regenerate channel schedules.', icon: Schedule, phase: 3 },
 	{ slug: 'themes', title: 'Themes', description: 'Pick a guide theme or design your own.', icon: Palette, phase: 8 },

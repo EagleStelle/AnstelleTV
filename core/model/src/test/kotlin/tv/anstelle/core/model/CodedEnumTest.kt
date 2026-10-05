@@ -7,8 +7,7 @@ import kotlin.test.assertFailsWith
 class CodedEnumTest {
     private val all: List<List<CodedEnum>> = listOf(
         MediaType.entries, PlaybackOrder.entries, SlotKind.entries, ChannelKind.entries,
-        RuleField.entries, RuleOp.entries, SeasonMode.entries, FillerKind.entries,
-        FillerSource.entries, BreakMode.entries, LibraryRole.entries, LiveSourceType.entries,
+        RuleField.entries, RuleOp.entries, SeasonMode.entries, LiveSourceType.entries,
         SegmentType.entries, HdrType.entries, WatchSource.entries, WatchReportMode.entries,
     )
 
@@ -29,13 +28,5 @@ class CodedEnumTest {
     @Test
     fun unknownCodeFails() {
         assertFailsWith<IllegalArgumentException> { codeOf<SlotKind>(99) }
-    }
-
-    @Test
-    fun fillerTypesAreFlagged() {
-        assertEquals(
-            setOf(MediaType.COMMERCIAL, MediaType.BUMPER, MediaType.STATION_ID, MediaType.CARD),
-            MediaType.entries.filter { it.isFiller }.toSet(),
-        )
     }
 }

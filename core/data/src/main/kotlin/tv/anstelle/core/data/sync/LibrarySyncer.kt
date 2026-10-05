@@ -31,7 +31,6 @@ import tv.anstelle.core.jellyfin.sync.RatingScores
 import tv.anstelle.core.jellyfin.sync.RemoteLibrary
 import tv.anstelle.core.jellyfin.sync.SyncContext
 import tv.anstelle.core.jellyfin.toJellyfinId
-import tv.anstelle.core.model.LibraryRole
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.ServerConnectException
 import tv.anstelle.core.model.ServerProblem
@@ -138,26 +137,26 @@ class LibrarySyncer @Inject constructor(
         if (options.forceReconcile || options.fullRefresh || reconcileDue) reconcile(server, libraries, source)
     }
 
-    /** Stores newly found libraries with a default role and drops the ones that are gone. */
+    /** Stores newly found libraries (on when their type can air) and drops the ones that are gone. */
     private suspend fun refreshLibraries(server: MediaServerEntity, remote: List<RemoteLibrary>): List<LibraryEntity> {
         val local = libraryDao.forServer(server.id).associateBy { it.remoteId }
         for (library in remote) {
             val existing = local[library.id]
             when {
                 existing == null -> {
-                    val role = LibraryRules.defaultRole(library.name, library.collectionType)
+                    val enabled = LibraryRules.itemKinds(library.collectionType).isNotEmpty()
                     libraryDao.upsert(
                         LibraryEntity(
                             serverId = server.id,
                             remoteId = library.id,
                             name = library.name,
                             collectionType = library.collectionType,
-                            role = role,
-                            isEnabled = role != LibraryRole.IGNORED,
+                            isEnabled = enabled,
                             lastSyncUtcMs = null,
                         ),
                     )
-                    AppLog.i(TAG, "${server.name}: new library ${library.name} (${library.collectionType ?: "mixed"}) as $role")
+                    val state = if (enabled) "synced" else "not synced"
+                    AppLog.i(TAG, "${server.name}: new library ${library.name} (${library.collectionType ?: "mixed"}), $state")
                 }
                 existing.name != library.name || existing.collectionType != library.collectionType ->
                     libraryDao.upsert(existing.copy(name = library.name, collectionType = library.collectionType))
@@ -179,20 +178,20 @@ class LibrarySyncer @Inject constructor(
         ratings: RatingScores,
         serverNow: Long,
     ) {
-        val kinds = LibraryRules.itemKinds(library.role, library.collectionType)
+        val kinds = library.syncedKinds()
         if (kinds.isEmpty()) {
-            // Ignored (or switched to ignored): nothing of it may stay in the database.
+            // Not synced (or just turned off): nothing of it may stay in the database.
             val stale = itemDao.idsInLibrary(library.id)
             if (stale.isNotEmpty()) {
                 removeItems(stale)
-                AppLog.i(TAG, "${server.name}/${library.name}: ignored; removed ${stale.size} items")
+                AppLog.i(TAG, "${server.name}/${library.name}: not synced; removed ${stale.size} items")
             }
             return
         }
         val since = library.lastSyncUtcMs?.let { it - WATERMARK_OVERLAP_MS }
         val label = "${server.name}/${library.name}"
         val context = { series: Map<String, SeriesMetadataRow> ->
-            SyncContext(server.id, library.id, library.role, ratings, series, time.nowUtcMs())
+            SyncContext(server.id, library.id, ratings, series, time.nowUtcMs())
         }
 
         var fetched = 0
@@ -286,7 +285,7 @@ class LibrarySyncer @Inject constructor(
         val remoteIds = HashSet<String>()
         val played = ArrayList<String>()
         for (library in libraries) {
-            val kinds = LibraryRules.itemKinds(library.role, library.collectionType)
+            val kinds = library.syncedKinds()
             if (kinds.isEmpty()) continue
             remoteIds += source.itemIds(library.remoteId, kinds, playedOnly = false)
             played += source.itemIds(library.remoteId, kinds, playedOnly = true)
@@ -329,6 +328,10 @@ class LibrarySyncer @Inject constructor(
         const val RECONCILE_INTERVAL_MS = 6 * 60 * 60 * 1000L
     }
 }
+
+/** Item kinds to sync from this library; empty when it is turned off or holds nothing to air. */
+private fun LibraryEntity.syncedKinds() =
+    if (isEnabled) LibraryRules.itemKinds(collectionType) else emptySet()
 
 /** A short explanation for the settings screen. */
 fun ServerConnectException.userMessage(): String = when (problem) {

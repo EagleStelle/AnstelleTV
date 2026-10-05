@@ -27,15 +27,6 @@ enum class MediaType(override val code: Int) : CodedEnum {
     MOVIE(2),
     MUSIC(3),
     MUSIC_VIDEO(4),
-    COMMERCIAL(10),
-    BUMPER(11),
-    STATION_ID(12),
-
-    /** "We'll be right back" style interstitial card. */
-    CARD(13),
-    ;
-
-    val isFiller: Boolean get() = code >= COMMERCIAL.code
 }
 
 enum class PlaybackOrder(override val code: Int) : CodedEnum {
@@ -51,8 +42,8 @@ enum class PlaybackOrder(override val code: Int) : CodedEnum {
 enum class SlotKind(override val code: Int) : CodedEnum {
     PROGRAM(0),
 
-    /** One commercial break. Its items are expanded at tune time from a seed. */
-    FILLER(1),
+    /** Nothing may air (e.g. no item passes a daypart's rating limit); the TV shows an off-air screen. */
+    OFF_AIR(1),
 }
 
 enum class ChannelKind(override val code: Int) : CodedEnum {
@@ -99,32 +90,6 @@ enum class SeasonMode(override val code: Int) : CodedEnum {
     OVERRIDE_RULES(1),
 }
 
-enum class FillerKind(override val code: Int) : CodedEnum {
-    COMMERCIAL(0),
-    BUMPER(1),
-    STATION_ID(2),
-    CARD(3),
-}
-
-enum class FillerSource(override val code: Int) : CodedEnum {
-    LIBRARY(0),
-    TAG(1),
-}
-
-enum class BreakMode(override val code: Int) : CodedEnum {
-    BETWEEN_EPISODES(0),
-    CHAPTERS(1),
-    BOTH(2),
-}
-
-enum class LibraryRole(override val code: Int) : CodedEnum {
-    CONTENT(0),
-    COMMERCIALS(1),
-    BUMPERS(2),
-    STATION_IDS(3),
-    IGNORED(4),
-}
-
 enum class LiveSourceType(override val code: Int) : CodedEnum {
     JELLYFIN(0),
     M3U(1),
@@ -137,7 +102,6 @@ enum class SegmentType(override val code: Int) : CodedEnum {
     OUTRO(1),
     RECAP(2),
     PREVIEW(3),
-    COMMERCIAL(4),
     UNKNOWN(9),
 }
 

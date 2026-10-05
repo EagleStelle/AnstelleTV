@@ -13,7 +13,6 @@ import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelGroupEntity
 import tv.anstelle.core.database.entity.ChannelRuleEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
-import tv.anstelle.core.database.entity.FillerRuleEntity
 
 @Dao
 interface ChannelDao {
@@ -82,15 +81,4 @@ interface ChannelDao {
 
     @Delete
     suspend fun deleteGroup(group: ChannelGroupEntity)
-
-    @Query(
-        """
-        SELECT * FROM filler_rule
-        WHERE profileId = :profileId AND (channelId IS NULL OR channelId = :channelId)
-        """,
-    )
-    suspend fun fillerRules(profileId: Long, channelId: Long): List<FillerRuleEntity>
-
-    @Upsert
-    suspend fun upsertFillerRule(rule: FillerRuleEntity): Long
 }

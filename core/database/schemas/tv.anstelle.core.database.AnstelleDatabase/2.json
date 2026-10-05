@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 2,
-    "identityHash": "562aa256e751b45f19fc53b45a3880a6",
+    "identityHash": "a6f0a1358b326b563b7ccdb7bcdc2468",
     "entities": [
       {
         "tableName": "media_server",
@@ -185,7 +185,7 @@
       },
       {
         "tableName": "library",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `serverId` INTEGER NOT NULL, `remoteId` TEXT NOT NULL, `name` TEXT NOT NULL, `collectionType` TEXT, `role` INTEGER NOT NULL, `isEnabled` INTEGER NOT NULL, `lastSyncUtcMs` INTEGER, FOREIGN KEY(`serverId`) REFERENCES `media_server`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `serverId` INTEGER NOT NULL, `remoteId` TEXT NOT NULL, `name` TEXT NOT NULL, `collectionType` TEXT, `isEnabled` INTEGER NOT NULL, `lastSyncUtcMs` INTEGER, FOREIGN KEY(`serverId`) REFERENCES `media_server`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -215,12 +215,6 @@
             "fieldPath": "collectionType",
             "columnName": "collectionType",
             "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "role",
-            "columnName": "role",
-            "affinity": "INTEGER",
-            "notNull": true
           },
           {
             "fieldPath": "isEnabled",
@@ -268,7 +262,7 @@
       },
       {
         "tableName": "media_item",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `serverId` INTEGER NOT NULL, `libraryId` INTEGER, `remoteId` TEXT NOT NULL, `type` INTEGER NOT NULL, `title` TEXT NOT NULL, `sortTitle` TEXT, `seriesRemoteId` TEXT, `showTitle` TEXT, `season` INTEGER, `episode` INTEGER, `durationMs` INTEGER NOT NULL, `genres` TEXT NOT NULL, `studios` TEXT NOT NULL, `tags` TEXT NOT NULL, `collections` TEXT NOT NULL, `year` INTEGER, `premiereDateUtcMs` INTEGER, `officialRating` TEXT, `ratingScore` INTEGER, `overview` TEXT, `communityRating` REAL, `hdrType` INTEGER NOT NULL, `audioFormat` TEXT, `videoCodec` TEXT, `audioCodec` TEXT, `container` TEXT, `width` INTEGER, `height` INTEGER, `videoBitDepth` INTEGER, `audioChannels` INTEGER, `mediaSourceId` TEXT, `primaryImageTag` TEXT, `chapterStartsMs` TEXT, `playedOnServer` INTEGER NOT NULL, `segmentsFetched` INTEGER NOT NULL, `updatedAtUtcMs` INTEGER NOT NULL, FOREIGN KEY(`serverId`) REFERENCES `media_server`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `serverId` INTEGER NOT NULL, `libraryId` INTEGER, `remoteId` TEXT NOT NULL, `type` INTEGER NOT NULL, `title` TEXT NOT NULL, `sortTitle` TEXT, `seriesRemoteId` TEXT, `showTitle` TEXT, `season` INTEGER, `episode` INTEGER, `durationMs` INTEGER NOT NULL, `genres` TEXT NOT NULL, `studios` TEXT NOT NULL, `tags` TEXT NOT NULL, `collections` TEXT NOT NULL, `year` INTEGER, `premiereDateUtcMs` INTEGER, `officialRating` TEXT, `ratingScore` INTEGER, `overview` TEXT, `communityRating` REAL, `hdrType` INTEGER NOT NULL, `audioFormat` TEXT, `videoCodec` TEXT, `audioCodec` TEXT, `container` TEXT, `width` INTEGER, `height` INTEGER, `videoBitDepth` INTEGER, `audioChannels` INTEGER, `mediaSourceId` TEXT, `primaryImageTag` TEXT, `playedOnServer` INTEGER NOT NULL, `segmentsFetched` INTEGER NOT NULL, `updatedAtUtcMs` INTEGER NOT NULL, FOREIGN KEY(`serverId`) REFERENCES `media_server`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -444,11 +438,6 @@
           {
             "fieldPath": "primaryImageTag",
             "columnName": "primaryImageTag",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "chapterStartsMs",
-            "columnName": "chapterStartsMs",
             "affinity": "TEXT"
           },
           {
@@ -659,7 +648,7 @@
       },
       {
         "tableName": "channel",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `profileId` INTEGER NOT NULL, `number` INTEGER NOT NULL, `name` TEXT NOT NULL, `logoUri` TEXT, `kind` INTEGER NOT NULL, `seed` INTEGER NOT NULL, `playbackOrder` INTEGER NOT NULL, `blockSize` INTEGER NOT NULL, `isHidden` INTEGER NOT NULL, `isFavorite` INTEGER NOT NULL, `groupId` INTEGER, `slotMinutes` INTEGER NOT NULL, `commercialsEnabled` INTEGER NOT NULL, `breakMode` INTEGER NOT NULL, `maxBreakSeconds` INTEGER, `templateId` TEXT, `createdAtUtcMs` INTEGER NOT NULL, `updatedAtUtcMs` INTEGER NOT NULL, FOREIGN KEY(`profileId`) REFERENCES `profile`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`groupId`) REFERENCES `channel_group`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `profileId` INTEGER NOT NULL, `number` INTEGER NOT NULL, `name` TEXT NOT NULL, `logoUri` TEXT, `kind` INTEGER NOT NULL, `seed` INTEGER NOT NULL, `playbackOrder` INTEGER NOT NULL, `blockSize` INTEGER NOT NULL, `isHidden` INTEGER NOT NULL, `isFavorite` INTEGER NOT NULL, `groupId` INTEGER, `templateId` TEXT, `createdAtUtcMs` INTEGER NOT NULL, `updatedAtUtcMs` INTEGER NOT NULL, FOREIGN KEY(`profileId`) REFERENCES `profile`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`groupId`) REFERENCES `channel_group`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
         "fields": [
           {
             "fieldPath": "id",
@@ -729,29 +718,6 @@
           {
             "fieldPath": "groupId",
             "columnName": "groupId",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "slotMinutes",
-            "columnName": "slotMinutes",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "commercialsEnabled",
-            "columnName": "commercialsEnabled",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "breakMode",
-            "columnName": "breakMode",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "maxBreakSeconds",
-            "columnName": "maxBreakSeconds",
             "affinity": "INTEGER"
           },
           {
@@ -1093,123 +1059,6 @@
         ]
       },
       {
-        "tableName": "filler_rule",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `profileId` INTEGER NOT NULL, `channelId` INTEGER, `kind` INTEGER NOT NULL, `source` INTEGER NOT NULL, `sourceValue` TEXT NOT NULL, `isEnabled` INTEGER NOT NULL, `maxBreakSeconds` INTEGER, `yearFrom` INTEGER, `yearTo` INTEGER, `tagFilter` TEXT, FOREIGN KEY(`channelId`) REFERENCES `channel`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`profileId`) REFERENCES `profile`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
-        "fields": [
-          {
-            "fieldPath": "id",
-            "columnName": "id",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "profileId",
-            "columnName": "profileId",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "channelId",
-            "columnName": "channelId",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "kind",
-            "columnName": "kind",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "source",
-            "columnName": "source",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "sourceValue",
-            "columnName": "sourceValue",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "isEnabled",
-            "columnName": "isEnabled",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "maxBreakSeconds",
-            "columnName": "maxBreakSeconds",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "yearFrom",
-            "columnName": "yearFrom",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "yearTo",
-            "columnName": "yearTo",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "tagFilter",
-            "columnName": "tagFilter",
-            "affinity": "TEXT"
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": true,
-          "columnNames": [
-            "id"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_filler_rule_channelId",
-            "unique": false,
-            "columnNames": [
-              "channelId"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_filler_rule_channelId` ON `${TABLE_NAME}` (`channelId`)"
-          },
-          {
-            "name": "index_filler_rule_profileId",
-            "unique": false,
-            "columnNames": [
-              "profileId"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_filler_rule_profileId` ON `${TABLE_NAME}` (`profileId`)"
-          }
-        ],
-        "foreignKeys": [
-          {
-            "table": "channel",
-            "onDelete": "CASCADE",
-            "onUpdate": "NO ACTION",
-            "columns": [
-              "channelId"
-            ],
-            "referencedColumns": [
-              "id"
-            ]
-          },
-          {
-            "table": "profile",
-            "onDelete": "CASCADE",
-            "onUpdate": "NO ACTION",
-            "columns": [
-              "profileId"
-            ],
-            "referencedColumns": [
-              "id"
-            ]
-          }
-        ]
-      },
-      {
         "tableName": "live_source",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `profileId` INTEGER NOT NULL, `type` INTEGER NOT NULL, `name` TEXT NOT NULL, `url` TEXT, `epgUrl` TEXT, `serverId` INTEGER, `deviceId` TEXT, `refreshIntervalMinutes` INTEGER NOT NULL, `lastRefreshUtcMs` INTEGER, `isEnabled` INTEGER NOT NULL, FOREIGN KEY(`profileId`) REFERENCES `profile`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`serverId`) REFERENCES `media_server`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
@@ -1539,7 +1388,7 @@
       },
       {
         "tableName": "schedule_slot",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `channelId` INTEGER NOT NULL, `kind` INTEGER NOT NULL, `mediaItemId` INTEGER, `startUtcMs` INTEGER NOT NULL, `endUtcMs` INTEGER NOT NULL, `mediaOffsetMs` INTEGER NOT NULL, `airingStartUtcMs` INTEGER NOT NULL, `airingEndUtcMs` INTEGER NOT NULL, `fillerSeed` INTEGER NOT NULL, FOREIGN KEY(`channelId`) REFERENCES `channel`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `channelId` INTEGER NOT NULL, `kind` INTEGER NOT NULL, `mediaItemId` INTEGER, `startUtcMs` INTEGER NOT NULL, `endUtcMs` INTEGER NOT NULL, FOREIGN KEY(`channelId`) REFERENCES `channel`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -1573,30 +1422,6 @@
           {
             "fieldPath": "endUtcMs",
             "columnName": "endUtcMs",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "mediaOffsetMs",
-            "columnName": "mediaOffsetMs",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "airingStartUtcMs",
-            "columnName": "airingStartUtcMs",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "airingEndUtcMs",
-            "columnName": "airingEndUtcMs",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "fillerSeed",
-            "columnName": "fillerSeed",
             "affinity": "INTEGER",
             "notNull": true
           }
@@ -1938,7 +1763,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '562aa256e751b45f19fc53b45a3880a6')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a6f0a1358b326b563b7ccdb7bcdc2468')"
     ]
   }
 }

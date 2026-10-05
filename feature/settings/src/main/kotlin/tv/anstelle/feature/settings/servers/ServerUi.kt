@@ -11,7 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import tv.anstelle.core.database.dao.TypeCount
-import tv.anstelle.core.model.LibraryRole
 import tv.anstelle.core.model.MediaServer
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.theme.LocalAnstelleTheme
@@ -91,31 +90,8 @@ private fun MediaType.label(count: Int): String {
         MediaType.MOVIE -> if (one) "movie" else "movies"
         MediaType.MUSIC -> if (one) "song" else "songs"
         MediaType.MUSIC_VIDEO -> if (one) "music video" else "music videos"
-        MediaType.COMMERCIAL -> if (one) "commercial" else "commercials"
-        MediaType.BUMPER -> if (one) "bumper" else "bumpers"
-        MediaType.STATION_ID -> if (one) "station ID" else "station IDs"
-        MediaType.CARD -> if (one) "card" else "cards"
     }
 }
-
-internal val LibraryRole.label: String
-    get() = when (this) {
-        LibraryRole.CONTENT -> "Shows and movies"
-        LibraryRole.COMMERCIALS -> "Commercials"
-        LibraryRole.BUMPERS -> "Bumpers"
-        LibraryRole.STATION_IDS -> "Station IDs"
-        LibraryRole.IGNORED -> "Not used"
-    }
-
-/** The role that selecting a library tile switches to. */
-internal val LibraryRole.next: LibraryRole
-    get() = when (this) {
-        LibraryRole.CONTENT -> LibraryRole.COMMERCIALS
-        LibraryRole.COMMERCIALS -> LibraryRole.BUMPERS
-        LibraryRole.BUMPERS -> LibraryRole.STATION_IDS
-        LibraryRole.STATION_IDS -> LibraryRole.IGNORED
-        LibraryRole.IGNORED -> LibraryRole.CONTENT
-    }
 
 internal fun collectionLabel(collectionType: String?): String = when (collectionType) {
     "movies" -> "Movies"

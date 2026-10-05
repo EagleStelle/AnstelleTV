@@ -10,12 +10,12 @@ import kotlinx.coroutines.flow.Flow
 import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.database.entity.ScheduleStateEntity
 
-/** Guide-cell projection: one row per airing, without the filler and chapter parts. */
+/** Guide-cell projection of a program row. */
 data class GuideAiring(
     val channelId: Long,
-    val mediaItemId: Long?,
-    val airingStartUtcMs: Long,
-    val airingEndUtcMs: Long,
+    val mediaItemId: Long,
+    val startUtcMs: Long,
+    val endUtcMs: Long,
 )
 
 @Dao
@@ -46,19 +46,19 @@ interface ScheduleDao {
     suspend fun slotsFrom(channelId: Long, afterUtcMs: Long, limit: Int): List<ScheduleSlotEntity>
 
     /**
-     * Guide cells overlapping `[fromUtcMs, toUtcMs)` for the visible channels.
+     * Program cells overlapping `[fromUtcMs, toUtcMs)` for the visible channels.
      * [maxSlotMs] bounds the index range scan from below (`startUtcMs > from - maxSlot`)
      * so SQLite never walks the channel's history.
      */
     @Query(
         """
-        SELECT channelId, mediaItemId, airingStartUtcMs, airingEndUtcMs
+        SELECT channelId, mediaItemId, startUtcMs, endUtcMs
         FROM schedule_slot
         WHERE channelId IN (:channelIds)
-          AND kind = 0 AND startUtcMs = airingStartUtcMs
+          AND kind = 0
           AND startUtcMs > :fromUtcMs - :maxSlotMs AND startUtcMs < :toUtcMs
-          AND airingEndUtcMs > :fromUtcMs
-        ORDER BY channelId, airingStartUtcMs
+          AND endUtcMs > :fromUtcMs
+        ORDER BY channelId, startUtcMs
         """,
     )
     suspend fun guideWindow(

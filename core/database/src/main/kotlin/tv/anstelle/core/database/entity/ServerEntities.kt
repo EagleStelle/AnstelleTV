@@ -6,7 +6,6 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import tv.anstelle.core.model.HdrType
-import tv.anstelle.core.model.LibraryRole
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.SegmentType
 
@@ -39,8 +38,8 @@ data class MediaServerEntity(
 
 /**
  * A library (Jellyfin collection folder) the signed-in user can see. Grouped views such as
- * a combined "TV Shows" view are resolved to their underlying libraries, so each one keeps
- * its own role.
+ * a combined "TV Shows" view are resolved to their underlying libraries, so each one can
+ * be turned on or off by itself.
  */
 @Entity(
     tableName = "library",
@@ -60,7 +59,7 @@ data class LibraryEntity(
     val remoteId: String,
     val name: String,
     val collectionType: String?,
-    val role: LibraryRole,
+    /** False when the library isn't synced: its type holds nothing to air, or the user turned it off. */
     val isEnabled: Boolean,
     /**
      * Server clock at the start of the last successful sync of this library. The next sync
@@ -127,8 +126,6 @@ data class MediaItemEntity(
     val audioChannels: Int?,
     val mediaSourceId: String?,
     val primaryImageTag: String?,
-    /** Comma-separated chapter start positions in ms, without the chapter at 0. */
-    val chapterStartsMs: String?,
     /** Played state on the server at last sync, used by the REPORT_NO_MARK report mode. */
     val playedOnServer: Boolean,
     /** False until the item's media segments (intro, outro, …) are cached locally. */

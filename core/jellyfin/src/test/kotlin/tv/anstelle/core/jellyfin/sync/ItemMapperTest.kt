@@ -8,7 +8,6 @@ import tv.anstelle.core.database.dao.SeriesMetadataRow
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.jellyfin.Fixtures
 import tv.anstelle.core.model.HdrType
-import tv.anstelle.core.model.LibraryRole
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.SegmentType
 import java.time.Instant
@@ -33,8 +32,8 @@ class ItemMapperTest {
 
     private fun item(page: List<BaseItemDto>, name: String) = page.single { it.name == name }
 
-    private fun context(role: LibraryRole = LibraryRole.CONTENT, series: Map<String, SeriesMetadataRow> = emptyMap()) =
-        SyncContext(serverId = 7, libraryId = 3, role = role, ratings = ratings, series = series, nowUtcMs = 1_000L)
+    private fun context(series: Map<String, SeriesMetadataRow> = emptyMap()) =
+        SyncContext(serverId = 7, libraryId = 3, ratings = ratings, series = series, nowUtcMs = 1_000L)
 
     /** Maps the series in the page first, like the syncer does, and returns their inheritable metadata. */
     private fun seriesRows(): Map<String, SeriesMetadataRow> = tvPage
@@ -42,8 +41,7 @@ class ItemMapperTest {
         .filter { it.type == MediaType.SERIES }
         .associate { it.remoteId to SeriesMetadataRow(it.remoteId, it.genres, it.studios, it.tags, it.officialRating, it.ratingScore) }
 
-    private fun map(dto: BaseItemDto, role: LibraryRole = LibraryRole.CONTENT): MediaItemEntity? =
-        ItemMapper.map(dto, context(role, seriesRows()))
+    private fun map(dto: BaseItemDto): MediaItemEntity? = ItemMapper.map(dto, context(seriesRows()))
 
     @Test
     fun `series keeps its own metadata and rating`() {
@@ -96,7 +94,6 @@ class ItemMapperTest {
         assertEquals(2, episode.audioChannels)
         assertEquals("fa110000000000000000000000000026", episode.mediaSourceId)
         assertEquals("fa110000000000000000000000000029", episode.primaryImageTag)
-        assertEquals("31370,2152990", episode.chapterStartsMs)
         assertTrue(episode.playedOnServer)
         assertFalse(episode.segmentsFetched, "the server reports segments for this episode")
         assertEquals(1_000L, episode.updatedAtUtcMs)
@@ -119,26 +116,7 @@ class ItemMapperTest {
         assertEquals("PG-13", movie.officialRating)
         assertEquals(13, movie.ratingScore)
         assertEquals("|Example Pictures|", movie.studios)
-        assertNull(movie.chapterStartsMs, "a single chapter at 0 is not a break point")
         assertTrue(movie.segmentsFetched, "the server reports no segments")
-    }
-
-    @Test
-    fun `tagged video in a content library is filler`() {
-        val ad = map(item(moviePage, "Derived Test Commercial"))!!
-        assertEquals(MediaType.COMMERCIAL, ad.type)
-        assertEquals(30_000L, ad.durationMs)
-        assertEquals("AAC", ad.audioFormat)
-        assertTrue(ad.segmentsFetched)
-    }
-
-    @Test
-    fun `filler library turns episodes into filler and skips series`() {
-        val bumper = map(item(tvPage, "Pilot"), LibraryRole.BUMPERS)!!
-        assertEquals(MediaType.BUMPER, bumper.type)
-        assertTrue(bumper.segmentsFetched)
-        assertNull(map(item(tvPage, "Example Drama"), LibraryRole.BUMPERS))
-        assertNull(map(item(tvPage, "Example Drama"), LibraryRole.IGNORED))
     }
 
     @Test

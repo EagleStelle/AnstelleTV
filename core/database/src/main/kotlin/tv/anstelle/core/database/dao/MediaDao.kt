@@ -10,7 +10,6 @@ import tv.anstelle.core.database.entity.LibraryEntity
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.database.entity.MediaSegmentEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
-import tv.anstelle.core.model.LibraryRole
 import tv.anstelle.core.model.MediaType
 
 /** Local row id for a Jellyfin item id. */
@@ -81,8 +80,8 @@ interface LibraryDao {
     @Query("UPDATE library SET lastSyncUtcMs = NULL WHERE serverId = :serverId")
     suspend fun clearWatermarks(serverId: Long)
 
-    @Query("UPDATE library SET role = :role, lastSyncUtcMs = NULL WHERE id = :id")
-    suspend fun setRole(id: Long, role: LibraryRole)
+    @Query("UPDATE library SET isEnabled = :enabled, lastSyncUtcMs = NULL WHERE id = :id")
+    suspend fun setEnabled(id: Long, enabled: Boolean)
 
     @Query("DELETE FROM library WHERE id = :id")
     suspend fun delete(id: Long)

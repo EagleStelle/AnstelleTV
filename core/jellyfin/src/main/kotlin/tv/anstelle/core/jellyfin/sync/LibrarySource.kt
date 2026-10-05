@@ -183,7 +183,6 @@ internal class JellyfinLibrarySource(
             // The source id, container, streams and HasSegments. Streams are most of each
             // item's size (~8 KB), so pages stay small.
             ItemFields.MEDIA_SOURCES,
-            ItemFields.CHAPTERS,
         )
     }
 }

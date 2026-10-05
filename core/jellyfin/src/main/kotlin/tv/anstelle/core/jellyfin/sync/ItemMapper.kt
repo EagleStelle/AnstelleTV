@@ -13,7 +13,6 @@ import tv.anstelle.core.database.entity.MediaSegmentEntity
 import tv.anstelle.core.jellyfin.toEpochMs
 import tv.anstelle.core.jellyfin.toJellyfinId
 import tv.anstelle.core.model.HdrType
-import tv.anstelle.core.model.LibraryRole
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.SegmentType
 
@@ -21,7 +20,6 @@ import tv.anstelle.core.model.SegmentType
 class SyncContext(
     val serverId: Long,
     val libraryId: Long,
-    val role: LibraryRole,
     val ratings: RatingScores,
     /** Series rows by Jellyfin id, for episodes that inherit metadata. */
     val series: Map<String, SeriesMetadataRow>,
@@ -32,20 +30,18 @@ class SyncContext(
 object ItemMapper {
     private const val TICKS_PER_MS = 10_000L
 
-    /** Item types worth fetching segments for (Skip Intro, chapter-free break points). */
+    /** Item types worth fetching segments for (Skip Intro). */
     private val SegmentTypes = setOf(MediaType.EPISODE, MediaType.MOVIE, MediaType.MUSIC_VIDEO)
 
     /**
-     * Maps one item, or returns null when it is not used (an unsupported kind, or a series
-     * in a filler library). [existingId] keeps the local row id of an item seen before.
+     * Maps one item, or returns null when its kind can't air. [existingId] keeps the local
+     * row id of an item seen before.
      */
     fun map(item: BaseItemDto, context: SyncContext, existingId: Long = 0): MediaItemEntity? {
         val seriesRemoteId = item.seriesId?.toJellyfinId()
         val series = seriesRemoteId?.let(context.series::get)
-        val ownTags = item.tags.orEmpty()
-        val tags = pipeJoin(ownTags).ifEmpty { series?.tags.orEmpty() }
-        val type = LibraryRules.mediaType(item.type, context.role, ownTags.ifEmpty { pipeSplit(series?.tags) })
-            ?: return null
+        val tags = pipeJoin(item.tags.orEmpty()).ifEmpty { series?.tags.orEmpty() }
+        val type = LibraryRules.mediaType(item.type) ?: return null
         val isEpisode = type == MediaType.EPISODE || item.seriesId != null
 
         val source = item.mediaSources?.firstOrNull()
@@ -91,11 +87,6 @@ object ItemMapper {
             audioChannels = audio?.channels,
             mediaSourceId = source?.id ?: remoteId.takeIf { type != MediaType.SERIES },
             primaryImageTag = item.imageTags?.get(ImageType.PRIMARY),
-            chapterStartsMs = item.chapters.orEmpty()
-                .map { it.startPositionTicks / TICKS_PER_MS }
-                .filter { it > 0 }
-                .takeIf { it.isNotEmpty() }
-                ?.joinToString(","),
             playedOnServer = item.userData?.played ?: false,
             // Only items the server says have segments need a segment request.
             segmentsFetched = type !in SegmentTypes || source?.hasSegments != true,
@@ -110,8 +101,7 @@ object ItemMapper {
             MediaSegmentType.OUTRO -> SegmentType.OUTRO
             MediaSegmentType.RECAP -> SegmentType.RECAP
             MediaSegmentType.PREVIEW -> SegmentType.PREVIEW
-            MediaSegmentType.COMMERCIAL -> SegmentType.COMMERCIAL
-            MediaSegmentType.UNKNOWN -> SegmentType.UNKNOWN
+            else -> SegmentType.UNKNOWN
         },
         startMs = dto.startTicks / TICKS_PER_MS,
         endMs = dto.endTicks / TICKS_PER_MS,

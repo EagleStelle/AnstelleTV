@@ -13,10 +13,7 @@ class SplitMix64(seed: Long) {
 
     fun nextLong(): Long {
         state += GOLDEN_GAMMA
-        var z = state
-        z = (z xor (z ushr 30)) * MIX_1
-        z = (z xor (z ushr 27)) * MIX_2
-        return z xor (z ushr 31)
+        return mix64(state)
     }
 
     /** Uniform value in `[0, bound)`, without modulo bias. */
@@ -34,10 +31,18 @@ class SplitMix64(seed: Long) {
     /** Uniform value in `[0, 1)` with 53 bits of precision. */
     fun nextDouble(): Double = (nextLong() ushr 11) * DOUBLE_UNIT
 
-    private companion object {
+    internal companion object {
         const val GOLDEN_GAMMA = -0x61c8864680b583ebL // 0x9E3779B97F4A7C15
-        const val MIX_1 = -0x40a7b892e31b1a47L // 0xBF58476D1CE4E5B9
-        const val MIX_2 = -0x6b2fb644ecceee15L // 0x94D049BB133111EB
-        const val DOUBLE_UNIT = 1.0 / (1L shl 53)
+        private const val MIX_1 = -0x40a7b892e31b1a47L // 0xBF58476D1CE4E5B9
+        private const val MIX_2 = -0x6b2fb644ecceee15L // 0x94D049BB133111EB
+        private const val DOUBLE_UNIT = 1.0 / (1L shl 53)
+
+        /** The SplitMix64 output finalizer; also used to hash schedule inputs. */
+        fun mix64(value: Long): Long {
+            var z = value
+            z = (z xor (z ushr 30)) * MIX_1
+            z = (z xor (z ushr 27)) * MIX_2
+            return z xor (z ushr 31)
+        }
     }
 }

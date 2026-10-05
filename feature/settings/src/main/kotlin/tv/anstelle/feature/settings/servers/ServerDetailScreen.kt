@@ -71,8 +71,8 @@ class ServerDetailViewModel @Inject constructor(
 
     fun syncNow(full: Boolean) = repository.syncNow(serverId, fullRefresh = full, forceReconcile = true)
 
-    fun cycleRole(library: LibraryEntity) {
-        viewModelScope.launch { repository.setLibraryRole(library.id, library.role.next) }
+    fun toggle(library: LibraryEntity) {
+        viewModelScope.launch { repository.setLibraryEnabled(library.id, !library.isEnabled) }
     }
 
     fun remove(onRemoved: () -> Unit) {
@@ -83,7 +83,7 @@ class ServerDetailViewModel @Inject constructor(
     }
 }
 
-/** One server: connection, sync status, item counts and what each library is used for. */
+/** One server: connection, sync status, item counts and which libraries are synced. */
 @Composable
 fun ServerDetailScreen(
     onSignIn: (Long) -> Unit,
@@ -126,12 +126,13 @@ fun ServerDetailScreen(
             FocusTile(
                 title = library.name,
                 subtitle = if (supported) {
-                    "${collectionLabel(library.collectionType)} · ${library.role.label}. Select to change."
+                    val use = if (library.isEnabled) "Used for channels" else "Not used"
+                    "${collectionLabel(library.collectionType)} · $use. Select to change."
                 } else {
                     "${collectionLabel(library.collectionType)} · not supported yet"
                 },
                 icon = if (supported && library.isEnabled) Icons.Filled.VideoLibrary else Icons.Filled.VideocamOff,
-                onClick = { if (supported) viewModel.cycleRole(library) },
+                onClick = { if (supported) viewModel.toggle(library) },
                 modifier = Modifier.fillMaxWidth(),
             )
         }

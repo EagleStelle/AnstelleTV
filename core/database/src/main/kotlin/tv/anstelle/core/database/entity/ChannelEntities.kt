@@ -4,10 +4,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import tv.anstelle.core.model.BreakMode
 import tv.anstelle.core.model.ChannelKind
-import tv.anstelle.core.model.FillerKind
-import tv.anstelle.core.model.FillerSource
 import tv.anstelle.core.model.PlaybackOrder
 import tv.anstelle.core.model.RuleField
 import tv.anstelle.core.model.RuleOp
@@ -68,12 +65,6 @@ data class ChannelEntity(
     val isHidden: Boolean,
     val isFavorite: Boolean,
     val groupId: Long?,
-    /** Slot alignment in minutes: 0 (off), 15, 30 or 60. */
-    val slotMinutes: Int,
-    val commercialsEnabled: Boolean,
-    val breakMode: BreakMode,
-    /** Maximum length of one commercial break; null uses the global setting. */
-    val maxBreakSeconds: Int?,
     /** Template this channel was generated from, or null for custom channels. */
     val templateId: String?,
     val createdAtUtcMs: Long,
@@ -162,39 +153,4 @@ data class ChannelDaypartEntity(
     val minRatingScore: Int?,
     /** Optional extra rule group applied only inside the window. */
     val ruleLogicGroup: Int?,
-)
-
-/** Where commercials, bumpers and station IDs come from. Null [channelId] means global. */
-@Entity(
-    tableName = "filler_rule",
-    foreignKeys = [
-        ForeignKey(
-            entity = ChannelEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["channelId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-        ForeignKey(
-            entity = ProfileEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["profileId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
-    indices = [Index(value = ["channelId"]), Index(value = ["profileId"])],
-)
-data class FillerRuleEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val profileId: Long,
-    val channelId: Long?,
-    val kind: FillerKind,
-    val source: FillerSource,
-    /** Library id or tag name, depending on [source]. */
-    val sourceValue: String,
-    val isEnabled: Boolean,
-    val maxBreakSeconds: Int?,
-    /** Only use filler from these years (era matching), e.g. 1980–1989. */
-    val yearFrom: Int?,
-    val yearTo: Int?,
-    val tagFilter: String?,
 )

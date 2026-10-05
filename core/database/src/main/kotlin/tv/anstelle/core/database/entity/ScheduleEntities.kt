@@ -7,12 +7,9 @@ import androidx.room.PrimaryKey
 import tv.anstelle.core.model.SlotKind
 
 /**
- * One scheduled slot on a generated channel.
- *
- * PROGRAM rows point at a media item; a program split at chapter markers becomes several
- * rows with increasing [mediaOffsetMs]. FILLER rows are one whole commercial break whose
- * items are expanded at tune time from [fillerSeed], so a 30-day schedule stays small.
- * All rows of one guide cell share [airingStartUtcMs] / [airingEndUtcMs].
+ * One airing on a generated channel, which is also its guide cell. Programs run back to
+ * back: a PROGRAM row lasts exactly as long as its media item, and the next row starts
+ * where it ends. OFF_AIR rows (no [mediaItemId]) cover times when nothing may air.
  *
  * No foreign key on [mediaItemId]: deleted items are handled by regenerating the
  * affected future slots, which is cheaper than cascading on every sync.
@@ -36,10 +33,6 @@ data class ScheduleSlotEntity(
     val mediaItemId: Long?,
     val startUtcMs: Long,
     val endUtcMs: Long,
-    val mediaOffsetMs: Long,
-    val airingStartUtcMs: Long,
-    val airingEndUtcMs: Long,
-    val fillerSeed: Long,
 )
 
 /** Resumable engine state so extending a schedule equals generating it in one run. */
