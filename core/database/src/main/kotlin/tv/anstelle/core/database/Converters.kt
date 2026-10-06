@@ -9,7 +9,6 @@ import tv.anstelle.core.model.PlaybackOrder
 import tv.anstelle.core.model.RuleField
 import tv.anstelle.core.model.RuleOp
 import tv.anstelle.core.model.SeasonMode
-import tv.anstelle.core.model.SegmentType
 import tv.anstelle.core.model.SlotKind
 import tv.anstelle.core.model.WatchSource
 import tv.anstelle.core.model.codeOf
@@ -39,9 +38,6 @@ internal class Converters {
 
     @TypeConverter fun fromLiveSourceType(value: LiveSourceType): Int = value.code
     @TypeConverter fun toLiveSourceType(code: Int): LiveSourceType = codeOf(code)
-
-    @TypeConverter fun fromSegmentType(value: SegmentType): Int = value.code
-    @TypeConverter fun toSegmentType(code: Int): SegmentType = codeOf(code)
 
     @TypeConverter fun fromHdrType(value: HdrType): Int = value.code
     @TypeConverter fun toHdrType(code: Int): HdrType = codeOf(code)

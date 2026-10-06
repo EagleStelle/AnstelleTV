@@ -26,7 +26,6 @@ import tv.anstelle.core.database.entity.LiveChannelEntity
 import tv.anstelle.core.database.entity.LiveProgramEntity
 import tv.anstelle.core.database.entity.LiveSourceEntity
 import tv.anstelle.core.database.entity.MediaItemEntity
-import tv.anstelle.core.database.entity.MediaSegmentEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.core.database.entity.ProfileEntity
@@ -46,7 +45,6 @@ import tv.anstelle.core.database.entity.WatchEventEntity
         ProfileEntity::class,
         LibraryEntity::class,
         MediaItemEntity::class,
-        MediaSegmentEntity::class,
         ChannelGroupEntity::class,
         ChannelEntity::class,
         ChannelRuleEntity::class,

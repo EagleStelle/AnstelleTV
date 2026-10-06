@@ -2,14 +2,12 @@ package tv.anstelle.core.jellyfin.sync
 
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemDtoQueryResult
-import org.jellyfin.sdk.model.api.MediaSegmentDtoQueryResult
 import org.jellyfin.sdk.model.api.ParentalRating
 import tv.anstelle.core.database.dao.SeriesMetadataRow
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.jellyfin.Fixtures
 import tv.anstelle.core.model.HdrType
 import tv.anstelle.core.model.MediaType
-import tv.anstelle.core.model.SegmentType
 import java.time.Instant
 import java.util.TimeZone
 import kotlin.test.AfterTest
@@ -57,7 +55,6 @@ class ItemMapperTest {
         assertEquals(8f, series.communityRating)
         assertNull(series.mediaSourceId)
         assertNull(series.season)
-        assertTrue(series.segmentsFetched, "series have no segments to fetch")
         assertFalse(series.playedOnServer)
     }
 
@@ -98,7 +95,6 @@ class ItemMapperTest {
         assertEquals("fa110000000000000000000000000026", episode.mediaSourceId)
         assertEquals("fa110000000000000000000000000029", episode.primaryImageTag)
         assertTrue(episode.playedOnServer)
-        assertFalse(episode.segmentsFetched, "the server reports segments for this episode")
         assertEquals(1_000L, episode.updatedAtUtcMs)
     }
 
@@ -119,19 +115,6 @@ class ItemMapperTest {
         assertEquals("PG-13", movie.officialRating)
         assertEquals(13, movie.ratingScore)
         assertEquals("|Example Pictures|", movie.studios)
-        assertTrue(movie.segmentsFetched, "the server reports no segments")
-    }
-
-    @Test
-    fun `segments map to milliseconds`() {
-        val segments = Fixtures.decode<MediaSegmentDtoQueryResult>("media_segments.json").items
-            .map { ItemMapper.segment(it, mediaItemId = 42) }
-        assertEquals(listOf(SegmentType.INTRO, SegmentType.OUTRO), segments.map { it.type })
-        assertEquals(0L, segments[0].startMs)
-        assertEquals(31_372L, segments[0].endMs)
-        assertEquals(2_110_986L, segments[1].startMs)
-        assertEquals(2_215_721L, segments[1].endMs)
-        assertTrue(segments.all { it.mediaItemId == 42L })
     }
 
     @Test

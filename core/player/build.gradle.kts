@@ -15,4 +15,8 @@ dependencies {
     // Software audio decoders (AC3, E-AC3, DTS, TrueHD) used only when the device has no decoder.
     implementation(libs.jellyfin.media3.ffmpeg)
     implementation(libs.kotlinx.coroutines.android)
+
+    // FfmpegDecoderTest decodes sample files on a device.
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
 }

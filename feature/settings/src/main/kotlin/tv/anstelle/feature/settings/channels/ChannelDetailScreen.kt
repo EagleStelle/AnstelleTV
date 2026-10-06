@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -205,6 +206,7 @@ class ChannelDetailViewModel @Inject constructor(
 /** One channel: what's on, its lineup, playback order, number, group, logo and flags. */
 @Composable
 fun ChannelDetailScreen(
+    onWatch: (channelNumber: Int) -> Unit,
     onEditLineup: (Long) -> Unit,
     onDeleted: () -> Unit,
     modifier: Modifier = Modifier,
@@ -246,13 +248,22 @@ fun ChannelDetailScreen(
             }
         }
         item(key = "message") { message?.let { MessageText(it, isError = true) } }
+        item(key = "watch") {
+            FocusTile(
+                title = "Watch",
+                subtitle = if (channel.isHidden) "Hidden channels can't be watched." else "Tune in full screen.",
+                icon = Icons.Filled.PlayArrow,
+                onClick = { if (!channel.isHidden) onWatch(channel.number) },
+                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
+            )
+        }
         item(key = "lineup") {
             FocusTile(
                 title = "Edit lineup",
                 subtitle = state.lineupSummary ?: "Counting…",
                 icon = Icons.Filled.Tune,
                 onClick = { onEditLineup(channel.id) },
-                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
+                modifier = Modifier.fillMaxWidth(),
             )
         }
         item(key = "playback") {

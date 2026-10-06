@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
@@ -41,6 +42,8 @@ import tv.anstelle.core.data.WebServerStatus
 import tv.anstelle.core.database.dao.PairedClientDao
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.core.model.MediaServer
+import tv.anstelle.core.model.WatchReportMode
+import tv.anstelle.core.model.codeOf
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusTile
@@ -52,6 +55,7 @@ data class SettingsUiState(
     val webServer: WebServerStatus = WebServerStatus.Stopped,
     val pairedClients: List<PairedClientEntity> = emptyList(),
     val servers: List<MediaServer> = emptyList(),
+    val reporting: WatchReportMode = WatchReportMode.REPORT_NO_MARK,
 )
 
 @HiltViewModel
@@ -66,8 +70,22 @@ class SettingsViewModel @Inject constructor(
         webServer.status,
         pairedClients.observeAll(),
         servers.observeServers(),
-    ) { enabled, status, clients, serverList -> SettingsUiState(enabled, status, clients, serverList) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
+        settings.observe(Settings.WatchReporting),
+    ) { enabled, status, clients, serverList, reporting ->
+        SettingsUiState(enabled, status, clients, serverList, codeOf(reporting))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
+
+    /** Steps through: report without marking watched → report everything → don't report. */
+    fun nextReporting() {
+        viewModelScope.launch {
+            val next = when (state.value.reporting) {
+                WatchReportMode.REPORT_NO_MARK -> WatchReportMode.FULL
+                WatchReportMode.FULL -> WatchReportMode.OFF
+                WatchReportMode.OFF -> WatchReportMode.REPORT_NO_MARK
+            }
+            settings.set(Settings.WatchReporting, next.code)
+        }
+    }
 
     fun setWebServerEnabled(enabled: Boolean) {
         viewModelScope.launch {
@@ -133,6 +151,23 @@ fun SettingsScreen(
                 },
                 icon = Icons.Filled.Dns,
                 onClick = onOpenServers,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            FocusTile(
+                title = when (state.reporting) {
+                    WatchReportMode.REPORT_NO_MARK -> "Watch history: report, don't mark watched"
+                    WatchReportMode.FULL -> "Watch history: report everything"
+                    WatchReportMode.OFF -> "Watch history: off"
+                },
+                subtitle = when (state.reporting) {
+                    WatchReportMode.REPORT_NO_MARK -> "Jellyfin sees what plays, but a program joined part-way isn't marked watched. Select to change."
+                    WatchReportMode.FULL -> "Jellyfin marks programs watched as usual, even ones joined part-way. Select to change."
+                    WatchReportMode.OFF -> "Nothing is sent to Jellyfin. Select to change."
+                },
+                icon = Icons.Filled.History,
+                onClick = viewModel::nextReporting,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 2,
-    "identityHash": "a6f0a1358b326b563b7ccdb7bcdc2468",
+    "identityHash": "722ed742676401676d51f6785f977021",
     "entities": [
       {
         "tableName": "media_server",
@@ -262,7 +262,7 @@
       },
       {
         "tableName": "media_item",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `serverId` INTEGER NOT NULL, `libraryId` INTEGER, `remoteId` TEXT NOT NULL, `type` INTEGER NOT NULL, `title` TEXT NOT NULL, `sortTitle` TEXT, `seriesRemoteId` TEXT, `showTitle` TEXT, `season` INTEGER, `episode` INTEGER, `durationMs` INTEGER NOT NULL, `genres` TEXT NOT NULL, `studios` TEXT NOT NULL, `tags` TEXT NOT NULL, `collections` TEXT NOT NULL, `year` INTEGER, `premiereDateUtcMs` INTEGER, `officialRating` TEXT, `ratingScore` INTEGER, `overview` TEXT, `communityRating` REAL, `hdrType` INTEGER NOT NULL, `audioFormat` TEXT, `videoCodec` TEXT, `audioCodec` TEXT, `container` TEXT, `width` INTEGER, `height` INTEGER, `videoBitDepth` INTEGER, `audioChannels` INTEGER, `mediaSourceId` TEXT, `primaryImageTag` TEXT, `playedOnServer` INTEGER NOT NULL, `segmentsFetched` INTEGER NOT NULL, `updatedAtUtcMs` INTEGER NOT NULL, FOREIGN KEY(`serverId`) REFERENCES `media_server`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `serverId` INTEGER NOT NULL, `libraryId` INTEGER, `remoteId` TEXT NOT NULL, `type` INTEGER NOT NULL, `title` TEXT NOT NULL, `sortTitle` TEXT, `seriesRemoteId` TEXT, `showTitle` TEXT, `season` INTEGER, `episode` INTEGER, `durationMs` INTEGER NOT NULL, `genres` TEXT NOT NULL, `studios` TEXT NOT NULL, `tags` TEXT NOT NULL, `collections` TEXT NOT NULL, `year` INTEGER, `premiereDateUtcMs` INTEGER, `officialRating` TEXT, `ratingScore` INTEGER, `overview` TEXT, `communityRating` REAL, `hdrType` INTEGER NOT NULL, `audioFormat` TEXT, `videoCodec` TEXT, `audioCodec` TEXT, `container` TEXT, `width` INTEGER, `height` INTEGER, `videoBitDepth` INTEGER, `audioChannels` INTEGER, `mediaSourceId` TEXT, `primaryImageTag` TEXT, `playedOnServer` INTEGER NOT NULL, `updatedAtUtcMs` INTEGER NOT NULL, FOREIGN KEY(`serverId`) REFERENCES `media_server`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -447,12 +447,6 @@
             "notNull": true
           },
           {
-            "fieldPath": "segmentsFetched",
-            "columnName": "segmentsFetched",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
             "fieldPath": "updatedAtUtcMs",
             "columnName": "updatedAtUtcMs",
             "affinity": "INTEGER",
@@ -512,72 +506,6 @@
             "onUpdate": "NO ACTION",
             "columns": [
               "serverId"
-            ],
-            "referencedColumns": [
-              "id"
-            ]
-          }
-        ]
-      },
-      {
-        "tableName": "media_segment",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `mediaItemId` INTEGER NOT NULL, `type` INTEGER NOT NULL, `startMs` INTEGER NOT NULL, `endMs` INTEGER NOT NULL, FOREIGN KEY(`mediaItemId`) REFERENCES `media_item`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
-        "fields": [
-          {
-            "fieldPath": "id",
-            "columnName": "id",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "mediaItemId",
-            "columnName": "mediaItemId",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "type",
-            "columnName": "type",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "startMs",
-            "columnName": "startMs",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "endMs",
-            "columnName": "endMs",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": true,
-          "columnNames": [
-            "id"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_media_segment_mediaItemId",
-            "unique": false,
-            "columnNames": [
-              "mediaItemId"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_media_segment_mediaItemId` ON `${TABLE_NAME}` (`mediaItemId`)"
-          }
-        ],
-        "foreignKeys": [
-          {
-            "table": "media_item",
-            "onDelete": "CASCADE",
-            "onUpdate": "NO ACTION",
-            "columns": [
-              "mediaItemId"
             ],
             "referencedColumns": [
               "id"
@@ -1763,7 +1691,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a6f0a1358b326b563b7ccdb7bcdc2468')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '722ed742676401676d51f6785f977021')"
     ]
   }
 }

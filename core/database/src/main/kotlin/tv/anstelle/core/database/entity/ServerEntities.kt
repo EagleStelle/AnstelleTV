@@ -7,7 +7,6 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import tv.anstelle.core.model.HdrType
 import tv.anstelle.core.model.MediaType
-import tv.anstelle.core.model.SegmentType
 
 /**
  * A Jellyfin server, identified by [jellyfinServerId]: adding the same server again under
@@ -128,30 +127,8 @@ data class MediaItemEntity(
     val primaryImageTag: String?,
     /** Played state on the server at last sync, used by the REPORT_NO_MARK report mode. */
     val playedOnServer: Boolean,
-    /** False until the item's media segments (intro, outro, …) are cached locally. */
-    val segmentsFetched: Boolean,
     /** Device time of the sync that last wrote this row. */
     val updatedAtUtcMs: Long,
-)
-
-@Entity(
-    tableName = "media_segment",
-    foreignKeys = [
-        ForeignKey(
-            entity = MediaItemEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["mediaItemId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
-    indices = [Index(value = ["mediaItemId"])],
-)
-data class MediaSegmentEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val mediaItemId: Long,
-    val type: SegmentType,
-    val startMs: Long,
-    val endMs: Long,
 )
 
 @Entity(

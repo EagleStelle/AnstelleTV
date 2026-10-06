@@ -3,7 +3,6 @@ package tv.anstelle.core.jellyfin.sync
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.extensions.libraryApi
 import org.jellyfin.sdk.api.client.extensions.localizationApi
-import org.jellyfin.sdk.api.client.extensions.mediaSegmentApi
 import org.jellyfin.sdk.api.client.extensions.systemApi
 import org.jellyfin.sdk.api.client.extensions.userViewApi
 import org.jellyfin.sdk.model.api.BaseItemDto
@@ -13,7 +12,6 @@ import org.jellyfin.sdk.model.api.ItemFields
 import org.jellyfin.sdk.model.api.ItemFilter
 import org.jellyfin.sdk.model.api.ItemSortBy
 import org.jellyfin.sdk.model.api.LocationType
-import org.jellyfin.sdk.model.api.MediaSegmentDto
 import org.jellyfin.sdk.model.api.ParentalRating
 import org.jellyfin.sdk.model.api.request.GetItemsRequest
 import org.jellyfin.sdk.model.serializer.toUUID
@@ -58,8 +56,6 @@ interface LibrarySource {
 
     /** Ids of every item below [parentId], or of the played ones only. Cheap: no metadata. */
     suspend fun itemIds(parentId: String, kinds: Set<BaseItemKind>, playedOnly: Boolean): List<String>
-
-    suspend fun segments(itemId: String): List<MediaSegmentDto>
 
     suspend fun boxSets(): List<RemoteBoxSet>
 
@@ -175,10 +171,6 @@ internal class JellyfinLibrarySource(
         ids
     }
 
-    override suspend fun segments(itemId: String): List<MediaSegmentDto> = jellyfinCall("Fetching media segments") {
-        api.mediaSegmentApi.getItemSegments(itemId = itemId.toUUID()).content.items
-    }
-
     override suspend fun boxSets(): List<RemoteBoxSet> = jellyfinCall("Listing collections") {
         api.libraryApi.getItems(
             GetItemsRequest(
@@ -213,7 +205,7 @@ internal class JellyfinLibrarySource(
             ItemFields.TAGS,
             ItemFields.OVERVIEW,
             ItemFields.SORT_NAME,
-            // The source id, container, streams and HasSegments. Streams are most of each
+            // The source id, container and streams. Streams are most of each
             // item's size (~8 KB), so pages stay small.
             ItemFields.MEDIA_SOURCES,
         )

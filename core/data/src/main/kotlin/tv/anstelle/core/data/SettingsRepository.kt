@@ -27,6 +27,11 @@ sealed class SettingKey<T>(val name: String, val default: T) {
         override fun decode(raw: String) = raw.toLongOrNull()
         override fun encode(value: Long) = value.toString()
     }
+
+    class StringKey(name: String, default: String) : SettingKey<String>(name, default) {
+        override fun decode(raw: String) = raw
+        override fun encode(value: String) = value
+    }
 }
 
 object Settings {
@@ -36,6 +41,18 @@ object Settings {
 
     /** Profile shown after launch; 0 means none chosen yet. */
     val ActiveProfileId = SettingKey.LongKey("profile.active", 0L)
+
+    /** A [tv.anstelle.core.model.WatchReportMode] code: how channel playback is reported to Jellyfin. */
+    val WatchReporting = SettingKey.IntKey("playback.report", tv.anstelle.core.model.WatchReportMode.REPORT_NO_MARK.code)
+
+    /** The profile's preferred audio language (ISO 639), or empty for the item's default. */
+    fun audioLanguage(profileId: Long) = SettingKey.StringKey("playback.audio.$profileId", "")
+
+    /** The profile's subtitle language (ISO 639), or empty for no subtitles. */
+    fun subtitleLanguage(profileId: Long) = SettingKey.StringKey("playback.subtitles.$profileId", "")
+
+    /** The channel the profile watched last, for resuming; 0 when none. */
+    fun lastChannel(profileId: Long) = SettingKey.LongKey("playback.channel.$profileId", 0L)
 }
 
 @Singleton

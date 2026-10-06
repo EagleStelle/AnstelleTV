@@ -2,19 +2,15 @@ package tv.anstelle.core.jellyfin.sync
 
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.ImageType
-import org.jellyfin.sdk.model.api.MediaSegmentDto
-import org.jellyfin.sdk.model.api.MediaSegmentType
 import org.jellyfin.sdk.model.api.MediaStream
 import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.VideoRangeType
 import tv.anstelle.core.database.dao.SeriesMetadataRow
 import tv.anstelle.core.database.entity.MediaItemEntity
-import tv.anstelle.core.database.entity.MediaSegmentEntity
 import tv.anstelle.core.jellyfin.toEpochMs
 import tv.anstelle.core.jellyfin.toJellyfinId
 import tv.anstelle.core.model.HdrType
 import tv.anstelle.core.model.MediaType
-import tv.anstelle.core.model.SegmentType
 
 /** Everything the mapper needs besides the item itself. */
 class SyncContext(
@@ -29,9 +25,6 @@ class SyncContext(
 /** Maps Jellyfin DTOs to Room rows. Pure, so it is unit-tested against recorded server JSON. */
 object ItemMapper {
     private const val TICKS_PER_MS = 10_000L
-
-    /** Item types worth fetching segments for (Skip Intro). */
-    private val SegmentTypes = setOf(MediaType.EPISODE, MediaType.MOVIE, MediaType.MUSIC_VIDEO)
 
     /**
      * Maps one item, or returns null when its kind can't air. [existingId] keeps the local
@@ -89,24 +82,9 @@ object ItemMapper {
             mediaSourceId = source?.id ?: remoteId.takeIf { type != MediaType.SERIES },
             primaryImageTag = item.imageTags?.get(ImageType.PRIMARY),
             playedOnServer = item.userData?.played ?: false,
-            // Only items the server says have segments need a segment request.
-            segmentsFetched = type !in SegmentTypes || source?.hasSegments != true,
             updatedAtUtcMs = context.nowUtcMs,
         )
     }
-
-    fun segment(dto: MediaSegmentDto, mediaItemId: Long) = MediaSegmentEntity(
-        mediaItemId = mediaItemId,
-        type = when (dto.type) {
-            MediaSegmentType.INTRO -> SegmentType.INTRO
-            MediaSegmentType.OUTRO -> SegmentType.OUTRO
-            MediaSegmentType.RECAP -> SegmentType.RECAP
-            MediaSegmentType.PREVIEW -> SegmentType.PREVIEW
-            else -> SegmentType.UNKNOWN
-        },
-        startMs = dto.startTicks / TICKS_PER_MS,
-        endMs = dto.endTicks / TICKS_PER_MS,
-    )
 
     fun hdrType(video: MediaStream?): HdrType = when (video?.videoRangeType) {
         VideoRangeType.HDR10 -> HdrType.HDR10

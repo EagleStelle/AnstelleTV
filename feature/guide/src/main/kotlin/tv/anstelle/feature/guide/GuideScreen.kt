@@ -4,7 +4,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -17,15 +16,14 @@ import tv.anstelle.core.theme.components.PlaceholderScreen
  */
 @Composable
 fun GuideScreen(
-    onWatchChannel: (channelNumber: Int) -> Unit,
+    onWatch: () -> Unit,
     onOpenOnDemand: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val actions = remember(onWatchChannel, onOpenOnDemand, onOpenSettings) {
+    val actions = remember(onWatch, onOpenOnDemand, onOpenSettings) {
         listOf(
-            PlaceholderAction("Watch channel 2", "Tune in full screen", Icons.Filled.LiveTv) { onWatchChannel(2) },
-            PlaceholderAction("Favorites", "Starred channels", Icons.Filled.Star) { onWatchChannel(3) },
+            PlaceholderAction("Watch TV", "Full screen, on the channel you watched last", Icons.Filled.LiveTv, onWatch),
             PlaceholderAction("On demand", "Movies and TV shows", Icons.Filled.Movie, onOpenOnDemand),
             PlaceholderAction("Settings", "Servers, web control", Icons.Filled.Settings, onOpenSettings),
         )

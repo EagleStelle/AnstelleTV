@@ -1,14 +1,11 @@
 package tv.anstelle.core.database.dao
 
 import androidx.room.Dao
-import androidx.room.Insert
 import androidx.room.Query
-import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 import tv.anstelle.core.database.entity.LibraryEntity
 import tv.anstelle.core.database.entity.MediaItemEntity
-import tv.anstelle.core.database.entity.MediaSegmentEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.model.MediaType
 
@@ -191,26 +188,6 @@ interface MediaItemDao {
     @Query("UPDATE media_item SET playedOnServer = 1 WHERE serverId = :serverId AND remoteId IN (:remoteIds)")
     suspend fun markPlayed(serverId: Long, remoteIds: List<String>)
 
-    @Query("SELECT id, remoteId FROM media_item WHERE serverId = :serverId AND segmentsFetched = 0 ORDER BY id")
-    suspend fun withoutSegments(serverId: Long): List<ItemIdRow>
-
-    @Query("UPDATE media_item SET segmentsFetched = 1 WHERE id IN (:ids)")
-    suspend fun markSegmentsFetched(ids: List<Long>)
-
-    @Query("SELECT * FROM media_segment WHERE mediaItemId = :mediaItemId ORDER BY startMs")
-    suspend fun segments(mediaItemId: Long): List<MediaSegmentEntity>
-
-    @Query("DELETE FROM media_segment WHERE mediaItemId IN (:mediaItemIds)")
-    suspend fun deleteSegments(mediaItemIds: List<Long>)
-
-    @Insert
-    suspend fun insertSegments(segments: List<MediaSegmentEntity>)
-
-    /** Replaces the cached segments of [mediaItemIds] and marks them fetched. */
-    @Transaction
-    suspend fun replaceSegments(mediaItemIds: List<Long>, segments: List<MediaSegmentEntity>) {
-        deleteSegments(mediaItemIds)
-        insertSegments(segments)
-        markSegmentsFetched(mediaItemIds)
-    }
+    @Query("UPDATE media_item SET playedOnServer = :played WHERE id = :id")
+    suspend fun setPlayedOnServer(id: Long, played: Boolean)
 }

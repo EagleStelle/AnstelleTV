@@ -2,13 +2,8 @@ package tv.anstelle.core.data.sync
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 import tv.anstelle.core.common.AppLog
@@ -58,8 +53,6 @@ data class SyncOptions(
  * - **Reconciliation:** deletions, played-state changes and box-set membership don't touch
  *   `DateLastSaved`, so an ID-only listing (cheap: no metadata) runs every few hours. Deleted
  *   items are removed and the schedules that air them are marked for regeneration.
- * - **Segments:** intro/outro segments are fetched per item, only for items the server
- *   says have segments, and cached so tuning never calls the server.
  */
 @Singleton
 class LibrarySyncer @Inject constructor(
@@ -132,7 +125,6 @@ class LibrarySyncer @Inject constructor(
         val ratings = RatingScores.from(source.parentalRatings())
 
         for (library in libraries) syncLibrary(server, library, source, ratings, serverNow)
-        fetchSegments(server, source)
 
         val reconcileDue = server.lastReconcileUtcMs.let { it == null || time.nowUtcMs() - it >= RECONCILE_INTERVAL_MS }
         if (options.forceReconcile || options.fullRefresh || reconcileDue) reconcile(server, libraries, source)
@@ -252,38 +244,6 @@ class LibrarySyncer @Inject constructor(
         if (entities.isNotEmpty()) itemDao.upsertAll(entities)
     }
 
-    private suspend fun fetchSegments(server: MediaServerEntity, source: LibrarySource) {
-        val pending = itemDao.withoutSegments(server.id)
-        if (pending.isEmpty()) return
-        AppLog.i(TAG, "${server.name}: fetching media segments for ${pending.size} items")
-        val permits = Semaphore(SEGMENT_CONCURRENCY)
-        var stored = 0
-        var done = 0
-        for (chunk in pending.chunked(SEGMENT_BATCH)) {
-            status.update(server.id, "Media segments: $done of ${pending.size}")
-            val segments = coroutineScope {
-                chunk.map { row ->
-                    async {
-                        permits.withPermit {
-                            try {
-                                source.segments(row.remoteId).map { ItemMapper.segment(it, row.id) }
-                            } catch (e: ServerConnectException) {
-                                // A broken item should not block the rest; other failures abort the sync.
-                                if (e.problem != ServerProblem.SERVER_ERROR) throw e
-                                AppLog.w(TAG, "No segments for ${row.remoteId}: ${e.message}")
-                                emptyList()
-                            }
-                        }
-                    }
-                }.awaitAll().flatten()
-            }
-            itemDao.replaceSegments(chunk.map { it.id }, segments)
-            stored += segments.size
-            done += chunk.size
-        }
-        AppLog.i(TAG, "${server.name}: stored $stored media segments")
-    }
-
     private suspend fun reconcile(server: MediaServerEntity, libraries: List<LibraryEntity>, source: LibrarySource) {
         status.update(server.id, "Checking for removed items…")
         val remoteIds = HashSet<String>()
@@ -341,8 +301,6 @@ class LibrarySyncer @Inject constructor(
     private companion object {
         const val TAG = "LibrarySync"
         const val PAGE_SIZE = 150
-        const val SEGMENT_CONCURRENCY = 4
-        const val SEGMENT_BATCH = 50
         const val SQL_CHUNK = 500
         const val MAX_SERIES_REFRESH = 25
 

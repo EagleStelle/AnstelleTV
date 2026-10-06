@@ -81,11 +81,4 @@ class JellyfinLibrarySourceTest {
             .boxSetItemIds("fa110000000000000000000000000040")
         assertEquals(listOf("fa110000000000000000000000000042", "fa11000000000000000000000000001a"), members)
     }
-
-    @Test
-    fun `segments decode`() = runBlocking {
-        val api = FixtureApiClient(mapOf("/MediaSegments/{itemId}" to "media_segments.json"))
-        val segments = JellyfinLibrarySource(api, userId).segments("fa110000000000000000000000000026")
-        assertEquals(2, segments.size)
-    }
 }

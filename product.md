@@ -9,11 +9,12 @@ The app is native: Kotlin + Jetpack Compose (Compose for TV on TV, Material 3 on
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Scaffold: modules, catalog, Room schema, Hilt, placeholder screens with D-pad focus, Ktor server with pairing, SvelteKit shell, baseline profile + benchmark modules | Done |
-| 2 | Jellyfin login (Quick Connect, password), multiple servers, incremental sync, reconciliation, media segments, rating scores | Done |
+| 2 | Jellyfin login (Quick Connect, password), multiple servers, incremental sync, reconciliation, rating scores | Done |
 | 3 | Scheduler engine: back-to-back airings, playback orders, seasonal lineups, dayparts, resumable state, `nowPlaying` | Done |
 | 4 | Channels: 167 templates, matcher, auto-generation, lineup builder, groups, numbers, logos, schedule worker | Done |
-| 5 | Playback: player pool, tuning, surfing, Skip Intro, tracks, reporting | Next |
-| 6–11 | Guide, live TV, profiles/themes, dashboard/backup, web UI parity, performance | Planned |
+| 5 | Playback: player pool, local tuning, surfing, info banner, tracks, off air, watch reporting | Done |
+| 6 | Guide grid and on-demand | Next |
+| 7–11 | Live TV, profiles/themes, dashboard/backup, web UI parity, performance | Planned |
 
 The full plan, with key designs for every phase, lives in `C:\Users\Impulsor\.claude\plans\the-name-of-the-kind-shell.md`.
 
@@ -63,9 +64,9 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 | `core/livetv` | M3U / XMLTV / HDHomeRun (Phase 7) |
 | `core/database` | Room DB with all tables; exported schemas in `core/database/schemas` |
 | `core/jellyfin` | The shared `OkHttpClient` and `Jellyfin` SDK instance, server discovery, sign-in, Keystore token store, library source and the DTO → Room mappers |
-| `core/player` | `PlayerFactory` (ExoPlayer, OkHttp data source, FFmpeg audio fallback) |
+| `core/player` | `PlayerPool` (two ExoPlayers), `PlayerFactory` (OkHttp data source with the server's auth header, FFmpeg audio fallback), `CapabilityProbe`, `StreamPlanner` (direct play or HLS), `JellyfinStreams` (local stream URLs), `TuneTrace` |
 | `core/theme` | `ThemeSpec` JSON model, `AnstelleTheme` (Material 3 + TV), shared focusable components |
-| `core/data` | Hilt modules, repositories (`ServerRepository`, `ScheduleRepository`, `ChannelRepository`, profiles, settings), `LibrarySyncer`, channel templates and the lineup matcher (`channels/`), `ScheduleUpdater`, `DatabaseChanges`, `WebServerController`, workers. Template JSON lives in `core/data/src/main/assets/templates` |
+| `core/data` | Hilt modules, repositories (`ServerRepository`, `ScheduleRepository`, `ChannelRepository`, profiles, settings), `LibrarySyncer`, channel templates and the lineup matcher (`channels/`), `ScheduleUpdater`, `ChannelPlayer` and `PlaybackReporter` (`playback/`), `DatabaseChanges`, `WebServerController`, workers. Template JSON lives in `core/data/src/main/assets/templates` |
 | `feature/*` | Guide, player, on-demand, profiles, settings, dashboard (placeholders plus the log viewer, web-control settings, the media server screens and the channel screens) |
 | `webserver` | Ktor CIO server, pairing, LAN guard, static SPA serving, `/api`, `/ws` |
 | `baselineprofile`, `benchmark` | Baseline profile generator and macrobenchmarks (stub journeys) |
@@ -100,7 +101,7 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - **Tokens:** `EncryptedSharedPreferences` is deprecated, so Jellyfin tokens are encrypted with an Android Keystore AES-256-GCM key and only the ciphertext sits in the private `jellyfin_tokens` prefs file (`KeystoreTokenStore`). A Keystore or decrypt failure drops the token and the server shows "Signed out", instead of crashing.
 - **Android 17 (API 37):** `ACCESS_LOCAL_NETWORK` is declared and requested at runtime.
 - **Foreground service:** the web server runs as a `specialUse` foreground service.
-- **FFmpeg decoder:** `org.jellyfin.media3:media3-ffmpeg-decoder` latest is `1.9.0+1`, built for Media3 1.9. It is used with Media3 1.11.1 and is gated by a decode smoke test in Phase 5. If that test fails, Media3 gets pinned to 1.9.x.
+- **FFmpeg decoder:** `org.jellyfin.media3:media3-ffmpeg-decoder` latest is `1.9.0+1`, built for Media3 1.9. It works with Media3 1.11.1: `FfmpegDecoderTest` decodes AC3, E-AC3, DTS and TrueHD on a device. If a later Media3 breaks that test, pin Media3 to the extension's version.
 - **Database migrations:** debug builds fall back to destructive migration while the schema moves between phases. Pre-release schema versions (listed in `AnstelleDatabase.PRE_RELEASE_VERSIONS`) are also dropped in release builds. Real migrations start with the first public release.
 - **Cleartext HTTP** is allowed app-wide, because LAN Jellyfin, HDHomeRun and M3U sources use plain HTTP on arbitrary IPs.
 - **Gradle warning:** builds print `Configuration.setVisible` deprecation warnings that come from third-party Gradle plugins. They are harmless until Gradle 11.
@@ -114,8 +115,7 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - **Incremental sync:** `BaseItemDto` has no `DateLastSaved`, so each library's watermark is the *server* clock (`/GetUtcTime`) at the start of its last sync, re-read with a 5-minute overlap.
 - **Series first:** episodes usually have no genres, studios, tags or rating of their own. Series are stored first and episodes inherit from them at sync time; a changed series re-reads its episodes.
 - **Reconciliation:** deletions and played-state changes don't touch `DateLastSaved`. An ID-only listing (plus an `IsPlayed` listing) runs at least every 6 hours and on manual sync. It deletes vanished items and sets `inputsHash = 0` on the schedules that air them, so the scheduler regenerates those channels.
-- **Fields:** `MediaSources` (source id, container, streams, `HasSegments`) cost about 8 KB per item, so pages hold 150 items.
-- **Media segments** are fetched only for items whose source reports `HasSegments`, 4 at a time, and cached in `media_segment`.
+- **Fields:** `MediaSources` (source id, container, streams) cost about 8 KB per item, so pages hold 150 items.
 - **Ratings:** `/Localization/ParentalRatings` only lists the server's metadata country, while real items carry "12", "NC16", "M18", "PG13" or "6+". `RatingScores` falls back to a punctuation-insensitive match, then to the age written in the rating.
 - **Libraries:** movies, shows, music videos, home videos and mixed libraries are synced. Music, books, photos, collections, playlists and live TV are not (music is on hold). Each library can be turned off on the server screen: its items are deleted at once, and turning it back on fetches it in full.
 - **Logging:** the SDK logs through kotlin-logging. On Android that maps to logcat; JVM unit tests need `slf4j-nop` on the test runtime classpath.
@@ -142,6 +142,30 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - **Channel numbers** are unique per profile: giving a channel a taken number swaps the two.
 - **Logos** are decoded, scaled to at most 256 px and stored as PNG in `files/logos`, with a new file name per upload so cached copies refresh. Phones pick one with the system picker; any device can upload over the web API (`PUT /api/channels/{id}/logo` with the image bytes, at most 4 MB; `GET` serves it, `DELETE` removes it). `/api/channels` reports a versioned `logoUrl`.
 - **Collections** (box sets) aren't part of item pages, so reconciliation lists the box sets, reads each one's items and writes their names into `collections`; episodes get their series' box sets. Incremental sync keeps the stored value.
+
+### Playback (learned in Phase 5)
+
+- **It plays like TV.** Channels follow the schedule's wall clock: no skipping or seeking inside a program. Up/down or the channel keys surf, digits enter a number (it tunes 2 s after the last digit), left or the last-channel key jumps back, OK shows the info banner and then the audio and subtitle choices. Phones swipe up or down to surf and tap for the controls.
+- **Tuning makes no server call.** `ChannelPlayer` reads the airing from SQLite, decides direct play or HLS locally (`StreamPlanner` against a `CapabilityProbe` snapshot of `MediaCodecList`, `AudioCapabilities` and the FFmpeg extension) and builds the stream URL from the stored server address. The access token never goes into a URL: the player's data source adds the server's `Authorization` header to every media request, HLS segments included.
+- **Direct play** streams the file (`/Videos/{id}/stream?static=true`). **HLS** (`/Videos/{id}/master.m3u8`, H.264 + stereo AAC, video and audio copied when they already fit) is used when the container, video codec, size or bit depth doesn't fit; audio almost never forces it, because the FFmpeg extension decodes AC3, E-AC3, DTS and TrueHD. Jellyfin's playlist covers the whole item, so the player simply starts at the airing's position. A file that turns out not to play directly is retried once as HLS. Transcoded streams carry no subtitles.
+- **Back to back.** The playlist holds the program on now and the next one; at each hand-off the following program is queued. When the new program is more than 3 s behind the wall clock, it catches up by seeking. A channel that goes off air shows an "OFF AIR" screen until the stretch ends, then tunes itself again.
+- **Player pool.** Two ExoPlayers: the one on screen and a standby pre-warmed (about 4 s of buffer) for the next channel in the surfing direction, refreshed every 20 s. Tuning to it swaps the players. The standby keeps audio off, and video too unless a second hardware H.264 decoder is available.
+- **Tracks.** Picking an audio or subtitle track applies to the program on now and becomes the profile's language for the next ones (settings `playback.audio.<profile>` and `playback.subtitles.<profile>`).
+- **Watch reporting** (Settings, Watch history): playback start, progress every 10 s and stop are reported in the background after the first frame. *Report, don't mark watched* (default): a view that didn't run from the first two minutes (or 5%) to 90% is reported, and if Jellyfin marks the item played, the app unmarks it, unless it was played before. *Report everything* leaves Jellyfin's marks. *Off* sends nothing. Views of 30 s or more are also kept as `watch_event` rows for the stats pages.
+- **FFmpeg extension:** `media3-ffmpeg-decoder` 1.9.0+1 works with Media3 1.11.1; `FfmpegDecoderTest` decodes AC3, E-AC3, DTS and TrueHD samples on a device (`./gradlew :core:player:connectedDebugAndroidTest`).
+- **`LoadControl` in Kotlin:** delegating with `by` skips the interface's Java default methods and ExoPlayer then crashes in `getBackBufferDurationUs`; `PoolLoadControl` forwards every method by hand.
+- **OK on key-up:** the player screen acts on OK when the key is released. Acting on key-down moves focus to the controls, which then take the key-up as a click.
+
+## Phase 5 verification (2026-10-06)
+
+- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 120 unit tests, 0 failures (stream decisions, watch rules and the earlier suites). Lint shows no issues in any library module; the app module keeps its two earlier warnings.
+- **FFmpeg smoke test** on the Google TV AVD: the extension loads into `DefaultRenderersFactory` and decodes all four samples.
+- **Google TV AVD, real server** (debug build):
+  - Library sync is now about 20 s for 3.7k items (it was 77 s while media segments were fetched).
+  - Tune to first frame: 1.0–1.8 s cold with direct play, 1.0 s when swapping from the standby, 9.2 s for HLS (a 10-bit HEVC episode the emulator can't decode; the server starts transcoding mid-file). The `Tune` trace section and log line report each one.
+  - The info banner, number entry (two digits), up/down surfing, the controls panel and the audio picker work with the D-pad.
+  - Gapless hand-off: the next program started 2.0 s behind the schedule (the tune latency), under the 3 s threshold, and the banner moved on to it.
+  - Report, don't mark watched: four programs joined near their end were marked played by Jellyfin and unmarked by the app; a reconcile afterwards still counted the same 918 played items.
 
 ## Phase 4 verification (2026-10-06)
 
@@ -180,7 +204,7 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
   - Adding a server by bare domain resolved to its `https://` URL; adding it by bare IP resolved to `http://<ip>:8096`.
   - Sign-in worked both times. Adding the server again by IP kept a single entry.
   - The token survived an app restart (Keystore decrypt).
-  - First sync: show and episode counts equal `/Items/Counts` for the user exactly. About 3.7k items took about 77 s on the emulator, most of it per-item segment requests.
+  - First sync: show and episode counts equal `/Items/Counts` for the user exactly. About 3.7k items took about 77 s on the emulator.
   - Second sync: `incremental since …, 0 items fetched` for both libraries, then the reconcile pass; 2.9 s in total.
 
 ## Phase 1 verification (2026-10-05)
@@ -204,9 +228,12 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - When D-pad focus enters the TV drawer, it should land on the selected destination.
 - On a focused tile, the muted subtitle color has low contrast. This will be tuned with the theme work in Phase 8.
 - Movie sync is covered by the derived fixture only. Give the test account a movie library to check it against a real server.
-- The first sync spends most of its time on per-item segment requests (about 50 s for 3.4k items on the emulator). Measure on the Fire TV Stick in Phase 11.
 - `ScheduleEngine.rewind` rewinds show cursors but not shuffle decks: items in discarded slots of a shuffle channel wait for the next deck.
 - Box-set membership is only checked against hand-made fixtures: the test account's one box set lists no items it can see.
 - On TV, moving D-pad focus onto a text field opens the on-screen keyboard right away, so scrolling past name and number fields means closing it first. Look at showing the keyboard only on OK.
 - Choosing a logo on the device uses the system file picker, which many TV devices lack (not tried on the TV AVD); a browser can upload one with `PUT /api/channels/{id}/logo`. The web page for it comes with web UI parity (Phase 10).
 - Template channels are created once per profile; templates added in an app update only appear under "Add from templates".
+- HLS takes about 9 s to start on the test server, and a channel tuned that way runs behind until its next program. Measure on the Fire TV Stick; the standby could pre-warm HLS channels earlier.
+- The off-air screen and the phone gestures weren't exercised on a device: no channel has dayparts yet, and only the TV AVD was used.
+- Subtitles in separate files next to the video aren't offered, and transcoded streams have none.
+- Music channels (and their now-playing screen) wait until music libraries are back.

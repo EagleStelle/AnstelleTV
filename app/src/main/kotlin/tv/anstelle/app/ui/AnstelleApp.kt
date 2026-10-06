@@ -21,7 +21,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.toRoute
 import androidx.tv.material3.NavigationDrawerItem
 import tv.anstelle.core.theme.AnstelleTheme
 import tv.anstelle.core.theme.LocalAnstelleTheme
@@ -80,7 +79,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         }
         composable<GuideRoute> {
             GuideScreen(
-                onWatchChannel = { navController.navigate(PlayerRoute(it)) },
+                onWatch = { navController.navigate(PlayerRoute()) },
                 onOpenOnDemand = { navController.navigateTopLevel(TopLevelDestination.OnDemand) },
                 onOpenSettings = { navController.navigateTopLevel(TopLevelDestination.Settings) },
             )
@@ -104,6 +103,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
             }
             composable<ChannelDetailRoute> {
                 ChannelDetailScreen(
+                    onWatch = { navController.navigate(PlayerRoute(it)) },
                     onEditLineup = { navController.navigate(ChannelLineupRoute(it)) },
                     onDeleted = { navController.popBackStack() },
                 )
@@ -147,9 +147,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                 )
             }
         }
-        composable<PlayerRoute> { entry ->
-            PlayerScreen(channelNumber = entry.toRoute<PlayerRoute>().channelNumber)
-        }
+        composable<PlayerRoute> { PlayerScreen() }
     }
 }
 

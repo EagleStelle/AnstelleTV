@@ -13,7 +13,8 @@ import kotlinx.serialization.Serializable
 @Serializable data object GuideRoute
 @Serializable data object OnDemandRoute
 @Serializable data object DashboardRoute
-@Serializable data class PlayerRoute(val channelNumber: Int)
+/** [channelNumber] 0 resumes the channel watched last. */
+@Serializable data class PlayerRoute(val channelNumber: Int = 0)
 
 /** Settings and the screens below it, so the Settings tab stays selected on all of them. */
 @Serializable data object SettingsGraph

@@ -116,14 +116,6 @@ enum class LiveSourceType(override val code: Int) : CodedEnum {
     HDHOMERUN(3),
 }
 
-enum class SegmentType(override val code: Int) : CodedEnum {
-    INTRO(0),
-    OUTRO(1),
-    RECAP(2),
-    PREVIEW(3),
-    UNKNOWN(9),
-}
-
 enum class HdrType(override val code: Int) : CodedEnum {
     SDR(0),
     HDR10(1),
