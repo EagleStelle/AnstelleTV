@@ -1,12 +1,7 @@
 package tv.anstelle.core.data
 
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import tv.anstelle.core.common.TimeSource
-import tv.anstelle.core.database.dao.GuideAiring
-import tv.anstelle.core.database.dao.ScheduleDao
-import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.database.entity.ScheduleStateEntity
 import tv.anstelle.core.model.PlaybackOrder
 import tv.anstelle.core.model.SlotKind
@@ -76,43 +71,5 @@ class ScheduleRepositoryTest {
         dao.upsertState(ScheduleStateEntity(9, start, byteArrayOf(42), 1, start))
         assertNull(repository.stored(9))
         assertNull(repository.stored(10))
-    }
-
-    private class FakeScheduleDao : ScheduleDao {
-        val slots = sortedMapOf<Pair<Long, Long>, ScheduleSlotEntity>(compareBy({ it.first }, { it.second }))
-        val states = HashMap<Long, ScheduleStateEntity>()
-
-        override suspend fun slotAt(channelId: Long, nowUtcMs: Long): ScheduleSlotEntity? =
-            slots.values.lastOrNull { it.channelId == channelId && it.startUtcMs <= nowUtcMs }
-
-        override suspend fun slotsFrom(channelId: Long, afterUtcMs: Long, limit: Int): List<ScheduleSlotEntity> =
-            slots.values.filter { it.channelId == channelId && it.startUtcMs >= afterUtcMs }.take(limit)
-
-        override suspend fun guideWindow(
-            channelIds: List<Long>,
-            fromUtcMs: Long,
-            toUtcMs: Long,
-            maxSlotMs: Long,
-        ): List<GuideAiring> = error("unused")
-
-        override suspend fun insertSlots(slots: List<ScheduleSlotEntity>) {
-            for (slot in slots) this.slots[slot.channelId to slot.startUtcMs] = slot
-        }
-
-        override suspend fun deleteFrom(channelId: Long, fromUtcMs: Long) {
-            slots.keys.removeIf { it.first == channelId && it.second >= fromUtcMs }
-        }
-
-        override suspend fun deleteEndedBefore(beforeUtcMs: Long): Int = error("unused")
-
-        override suspend fun state(channelId: Long): ScheduleStateEntity? = states[channelId]
-
-        override suspend fun upsertState(state: ScheduleStateEntity) {
-            states[state.channelId] = state
-        }
-
-        override suspend fun invalidateForItems(mediaItemIds: List<Long>, nowUtcMs: Long): Int = error("unused")
-
-        override fun observeGeneratedUntil(): Flow<Long?> = flowOf(null)
     }
 }

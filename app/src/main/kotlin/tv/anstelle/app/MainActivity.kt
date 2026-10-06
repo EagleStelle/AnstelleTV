@@ -18,6 +18,7 @@ import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.data.WebServerController
 import tv.anstelle.core.data.work.LibrarySyncWorker
 import tv.anstelle.core.data.work.ScheduleCleanupWorker
+import tv.anstelle.core.data.work.ScheduleWorker
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -55,6 +56,9 @@ class MainActivity : ComponentActivity() {
         val workManager = WorkManager.getInstance(applicationContext)
         ScheduleCleanupWorker.enqueue(workManager)
         LibrarySyncWorker.schedulePeriodic(workManager)
+        ScheduleWorker.schedulePeriodic(workManager)
+        // Schedules may have run short while the app was closed.
+        ScheduleWorker.runNow(workManager)
 
         val missing = buildList {
             // Android 17+: reaching Jellyfin on the LAN and serving the web UI need this.

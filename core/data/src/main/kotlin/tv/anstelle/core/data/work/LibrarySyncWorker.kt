@@ -32,6 +32,8 @@ class LibrarySyncWorker @AssistedInject constructor(
             forceReconcile = inputData.getBoolean(KEY_RECONCILE, false),
         )
         val ok = if (serverId == ALL_SERVERS) syncer.syncAll(options) else syncer.sync(serverId, options)
+        // Even a partly failed sync may have changed items: channels and schedules follow.
+        ScheduleWorker.runNow(WorkManager.getInstance(applicationContext))
         // Failures are stored on the server row and shown in settings; the next periodic run retries.
         return if (ok) Result.success() else Result.failure()
     }

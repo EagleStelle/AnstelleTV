@@ -63,6 +63,26 @@ class JellyfinLibrarySourceTest {
     }
 
     @Test
+    fun `box sets and their items`() = runBlocking {
+        val api = FixtureApiClient(mapOf("/Items" to "box_sets_derived.json"))
+        val source = JellyfinLibrarySource(api, userId)
+        assertEquals(
+            listOf(
+                RemoteBoxSet("fa110000000000000000000000000040", "Example Saga Collection"),
+                RemoteBoxSet("fa110000000000000000000000000041", "Example Cartoon Shorts"),
+            ),
+            source.boxSets(),
+        )
+        val listing = api.requests.single().query
+        assertEquals(true, listing["recursive"])
+        assertEquals(BaseItemKind.BOX_SET, (listing["includeItemTypes"] as Collection<*>).single())
+
+        val members = JellyfinLibrarySource(FixtureApiClient(mapOf("/Items" to "box_set_items_derived.json")), userId)
+            .boxSetItemIds("fa110000000000000000000000000040")
+        assertEquals(listOf("fa110000000000000000000000000042", "fa11000000000000000000000000001a"), members)
+    }
+
+    @Test
     fun `segments decode`() = runBlocking {
         val api = FixtureApiClient(mapOf("/MediaSegments/{itemId}" to "media_segments.json"))
         val segments = JellyfinLibrarySource(api, userId).segments("fa110000000000000000000000000026")

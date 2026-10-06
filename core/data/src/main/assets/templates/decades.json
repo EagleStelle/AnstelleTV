@@ -1,0 +1,276 @@
+{
+  "templates": [
+    {
+      "id": "tv-1950s",
+      "name": "50s TV",
+      "category": "Decades",
+      "description": "Series from the 1950s.",
+      "order": "EPISODE_ORDER",
+      "minItems": 15,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [1950]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tv-1960s",
+      "name": "60s TV",
+      "category": "Decades",
+      "description": "Series from the 1960s.",
+      "order": "EPISODE_ORDER",
+      "minItems": 15,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [1960]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tv-1970s",
+      "name": "70s TV",
+      "category": "Decades",
+      "description": "Series from the 1970s.",
+      "order": "EPISODE_ORDER",
+      "minItems": 15,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [1970]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tv-1980s",
+      "name": "80s TV",
+      "category": "Decades",
+      "description": "Series from the 1980s.",
+      "order": "EPISODE_ORDER",
+      "minItems": 15,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [1980]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tv-1990s",
+      "name": "90s TV",
+      "category": "Decades",
+      "description": "Series from the 1990s.",
+      "order": "EPISODE_ORDER",
+      "minItems": 15,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [1990]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tv-2000s",
+      "name": "2000s TV",
+      "category": "Decades",
+      "description": "Series from the 2000s.",
+      "order": "EPISODE_ORDER",
+      "minItems": 15,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [2000]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tv-2010s",
+      "name": "2010s TV",
+      "category": "Decades",
+      "description": "Series from the 2010s.",
+      "order": "EPISODE_ORDER",
+      "minItems": 15,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [2010]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tv-2020s",
+      "name": "2020s TV",
+      "category": "Decades",
+      "description": "Series from the 2020s.",
+      "order": "EPISODE_ORDER",
+      "minItems": 15,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [2020]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "movies-1950s",
+      "name": "50s Movies",
+      "category": "Decades",
+      "description": "Movies from the 1950s.",
+      "order": "SHUFFLE",
+      "minItems": 8,
+      "minShows": 8,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [1950]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "movies-1960s",
+      "name": "60s Movies",
+      "category": "Decades",
+      "description": "Movies from the 1960s.",
+      "order": "SHUFFLE",
+      "minItems": 8,
+      "minShows": 8,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [1960]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "movies-1970s",
+      "name": "70s Movies",
+      "category": "Decades",
+      "description": "Movies from the 1970s.",
+      "order": "SHUFFLE",
+      "minItems": 8,
+      "minShows": 8,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [1970]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "movies-1980s",
+      "name": "80s Movies",
+      "category": "Decades",
+      "description": "Movies from the 1980s.",
+      "order": "SHUFFLE",
+      "minItems": 8,
+      "minShows": 8,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [1980]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "movies-1990s",
+      "name": "90s Movies",
+      "category": "Decades",
+      "description": "Movies from the 1990s.",
+      "order": "SHUFFLE",
+      "minItems": 8,
+      "minShows": 8,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [1990]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "movies-2000s",
+      "name": "2000s Movies",
+      "category": "Decades",
+      "description": "Movies from the 2000s.",
+      "order": "SHUFFLE",
+      "minItems": 8,
+      "minShows": 8,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [2000]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "movies-2010s",
+      "name": "2010s Movies",
+      "category": "Decades",
+      "description": "Movies from the 2010s.",
+      "order": "SHUFFLE",
+      "minItems": 8,
+      "minShows": 8,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [2010]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "movies-2020s",
+      "name": "2020s Movies",
+      "category": "Decades",
+      "description": "Movies from the 2020s.",
+      "order": "SHUFFLE",
+      "minItems": 8,
+      "minShows": 8,
+      "groups": [
+        {
+          "rules": [
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]},
+            {"field": "DECADE", "op": "EQUALS", "values": [2020]}
+          ]
+        }
+      ]
+    }
+  ]
+}

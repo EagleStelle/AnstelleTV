@@ -29,6 +29,9 @@ import javax.inject.Singleton
 /** A Jellyfin library (collection folder) the user can see. */
 data class RemoteLibrary(val id: String, val name: String, val collectionType: String?)
 
+/** A box set (a Jellyfin "collection" of movies or shows) the user can see. */
+data class RemoteBoxSet(val id: String, val name: String)
+
 data class ItemPage(val items: List<BaseItemDto>, val totalCount: Int)
 
 /** The server calls library sync needs. An interface so the sync logic can be tested offline. */
@@ -57,6 +60,11 @@ interface LibrarySource {
     suspend fun itemIds(parentId: String, kinds: Set<BaseItemKind>, playedOnly: Boolean): List<String>
 
     suspend fun segments(itemId: String): List<MediaSegmentDto>
+
+    suspend fun boxSets(): List<RemoteBoxSet>
+
+    /** Ids of the movies, shows and episodes in a box set. */
+    suspend fun boxSetItemIds(boxSetId: String): List<String>
 }
 
 /** Creates a [LibrarySource] for a signed-in user on one server. */
@@ -169,6 +177,31 @@ internal class JellyfinLibrarySource(
 
     override suspend fun segments(itemId: String): List<MediaSegmentDto> = jellyfinCall("Fetching media segments") {
         api.mediaSegmentApi.getItemSegments(itemId = itemId.toUUID()).content.items
+    }
+
+    override suspend fun boxSets(): List<RemoteBoxSet> = jellyfinCall("Listing collections") {
+        api.libraryApi.getItems(
+            GetItemsRequest(
+                userId = user,
+                recursive = true,
+                includeItemTypes = listOf(BaseItemKind.BOX_SET),
+                enableImages = false,
+                sortBy = listOf(ItemSortBy.SORT_NAME),
+                enableTotalRecordCount = false,
+            ),
+        ).content.items.map { RemoteBoxSet(it.id.toJellyfinId(), it.name.orEmpty()) }
+    }
+
+    override suspend fun boxSetItemIds(boxSetId: String): List<String> = jellyfinCall("Listing a collection") {
+        // A box set's children are its linked items; no paging, box sets are small.
+        api.libraryApi.getItems(
+            GetItemsRequest(
+                userId = user,
+                parentId = boxSetId.toUUID(),
+                enableImages = false,
+                enableTotalRecordCount = false,
+            ),
+        ).content.items.map { it.id.toJellyfinId() }
     }
 
     private companion object {

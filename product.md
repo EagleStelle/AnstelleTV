@@ -11,8 +11,9 @@ The app is native: Kotlin + Jetpack Compose (Compose for TV on TV, Material 3 on
 | 1 | Scaffold: modules, catalog, Room schema, Hilt, placeholder screens with D-pad focus, Ktor server with pairing, SvelteKit shell, baseline profile + benchmark modules | Done |
 | 2 | Jellyfin login (Quick Connect, password), multiple servers, incremental sync, reconciliation, media segments, rating scores | Done |
 | 3 | Scheduler engine: back-to-back airings, playback orders, seasonal lineups, dayparts, resumable state, `nowPlaying` | Done |
-| 4 | Channels: templates, matcher, custom builder, schedule extension worker | Next |
-| 5–11 | Playback, guide, live TV, profiles/themes, dashboard/backup, web UI parity, performance | Planned |
+| 4 | Channels: 167 templates, matcher, auto-generation, lineup builder, groups, numbers, logos, schedule worker | Done |
+| 5 | Playback: player pool, tuning, surfing, Skip Intro, tracks, reporting | Next |
+| 6–11 | Guide, live TV, profiles/themes, dashboard/backup, web UI parity, performance | Planned |
 
 The full plan, with key designs for every phase, lives in `C:\Users\Impulsor\.claude\plans\the-name-of-the-kind-shell.md`.
 
@@ -64,8 +65,8 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 | `core/jellyfin` | The shared `OkHttpClient` and `Jellyfin` SDK instance, server discovery, sign-in, Keystore token store, library source and the DTO → Room mappers |
 | `core/player` | `PlayerFactory` (ExoPlayer, OkHttp data source, FFmpeg audio fallback) |
 | `core/theme` | `ThemeSpec` JSON model, `AnstelleTheme` (Material 3 + TV), shared focusable components |
-| `core/data` | Hilt modules, repositories (`ServerRepository`, `ScheduleRepository`, profiles, settings), `LibrarySyncer`, `DatabaseChanges`, `WebServerController`, workers |
-| `feature/*` | Guide, player, on-demand, profiles, settings, dashboard (placeholders plus the log viewer, web-control settings and the media server screens) |
+| `core/data` | Hilt modules, repositories (`ServerRepository`, `ScheduleRepository`, `ChannelRepository`, profiles, settings), `LibrarySyncer`, channel templates and the lineup matcher (`channels/`), `ScheduleUpdater`, `DatabaseChanges`, `WebServerController`, workers. Template JSON lives in `core/data/src/main/assets/templates` |
+| `feature/*` | Guide, player, on-demand, profiles, settings, dashboard (placeholders plus the log viewer, web-control settings, the media server screens and the channel screens) |
 | `webserver` | Ktor CIO server, pairing, LAN guard, static SPA serving, `/api`, `/ws` |
 | `baselineprofile`, `benchmark` | Baseline profile generator and macrobenchmarks (stub journeys) |
 | `webui` | SvelteKit SPA |
@@ -130,6 +131,34 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - **Off air.** When nothing is eligible (e.g. no item passes a kids daypart), the channel gets an `OFF_AIR` row until the next daypart edge or local midnight, whichever comes first, and the TV shows an off-air screen. A channel with an empty pool is off air one local day at a time.
 - **`nowPlaying`** uses the same rule as the SQL lookup: the last slot starting at or before now, if now is before its end. The media position is the time since the slot started. `ScheduleRepository` answers it with one indexed query and stores generated slots and state in one transaction.
 
+### Channels (learned in Phase 4)
+
+- **Templates are data.** Every `*.json` file in `core/data/src/main/assets/templates` is read (`{"templates": [...]}`), so a new template is a new file or entry, never code. A template has an `id` (lowercase, dashes), `name`, `category` (its guide group), `order` and `blockSize`, `minItems`/`minShows` (a movie counts as a show), rule `groups`, and optionally `era` (a year range added to every group), `visible` (MM-DD dates when the channel is in the guide, may wrap the year) and `seasons` (lineups that replace the rules on their dates). A broken file is logged and skipped on the device; the unit tests parse every shipped file.
+- **Rules.** A lineup is rule groups (OR) of rules (AND), plus shows or items always included (with a weight) and never included. Text compares ignoring case. `KEYWORD` matches whole words or phrases in the title, the show title and the tags (punctuation ignored), not overviews, which matched too loosely. `OFFICIAL_RATING` with `AT_MOST`/`AT_LEAST`/`BETWEEN` compares the numeric score; unrated items never pass a limit. `DECADE` values are first years (1980). A program's running time only sets the length of its airing; there is no rule on it. A missing value only passes `NOT_ANY_OF`. An item's weight is the highest of the groups and picks that take it; excludes always win.
+- **Storage.** Lineups are `channel_rule` rows: each group's rules share a `logicGroup` and carry the group's weight; picks are `INCLUDE`/`EXCLUDE` rows with `logicGroup` -1; lists are `|`-separated. A daypart that names a `ruleLogicGroup` uses that group only as an extra filter inside its window, so the group is left out of the base lineup. Show and item picks store Jellyfin ids, which survive a resync.
+- **Matching is in memory.** `MediaItemDao.catalog()` loads every item once with the fields rules test; `LineupMatcher` compiles the rules (lowercased sets, parsed numbers). 50,000 items match in under 50 ms on the JVM (unit-tested).
+- **Auto-generation.** `ScheduleWorker` runs after every library sync, at app start and every 12 hours. The first time a profile's library has items, it creates every template channel with enough content (a setting per profile remembers it), numbered from 1 in template order, each in a group named after its category. "Add from templates" on the channel list adds the matching templates a profile doesn't have yet, one by one or all at once. Kid profiles only count items within their rating limit, the same filter their schedules use.
+- **Schedules follow the channel.** `ScheduleUpdater` keeps every visible channel 30 days ahead (it tops up once a schedule is 12 hours short). A new channel starts at the current hour. When the inputs hash changes (rules, playback order, matched items, the device zone) or sync marks the schedule stale, the airing on now and the next one stay and the rest is regenerated; an off-air stretch or an airing whose item was deleted is not kept. A schedule that ran out while the app was unused restarts at the current hour instead of filling the past. Hidden channels are not scheduled. Edits in the channel screens reschedule that channel right away.
+- **Channel numbers** are unique per profile: giving a channel a taken number swaps the two.
+- **Logos** are decoded, scaled to at most 256 px and stored as PNG in `files/logos`, with a new file name per upload so cached copies refresh. Phones pick one with the system picker; any device can upload over the web API (`PUT /api/channels/{id}/logo` with the image bytes, at most 4 MB; `GET` serves it, `DELETE` removes it). `/api/channels` reports a versioned `logoUrl`.
+- **Collections** (box sets) aren't part of item pages, so reconciliation lists the box sets, reads each one's items and writes their names into `collections`; episodes get their series' box sets. Incremental sync keeps the stored value.
+
+## Phase 4 verification (2026-10-06)
+
+- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 117 unit tests, 0 failures. Lint shows no issues in any library module; the app module keeps its two earlier warnings.
+- **Unit tests:**
+  - Matcher: every field and operator, case-insensitive lists, whole-word keywords, rating text and scores, missing values, AND within a group and OR across groups, weights, includes and excludes; 50,000 items match in under 50 ms.
+  - Rule rows round-trip, including picks, weights and groups kept for dayparts.
+  - Every shipped template parses and is valid (167, unique ids). A new template file with no code change becomes a planned channel; broken files name the file and template and don't stop the others.
+  - Planner thresholds (`minItems`, `minShows`), existing templates skipped, kid rating limits.
+  - Inputs: base pool, rating limit, override seasons as seasonal pools, daypart rule groups only inside their window, fingerprints.
+  - `ScheduleUpdater`: a new schedule starts at the current hour and reaches 30 days; unchanged inputs are left alone; extension keeps every existing row and stays contiguous; a new lineup keeps the airing on now and the next one; an airing whose item was deleted is replaced from its start; hidden channels get nothing; a schedule that ran out restarts at the current hour.
+  - Box-set membership changes (own and series box sets, removals), box-set reading through the SDK, logo upload routes (401, 404, 400 for non-images, 413, versioned caching).
+- **Google TV AVD, real server:**
+  - After a full sync, auto-generation created 42 template channels (6 of them seasonal) in 8 groups and scheduled them in 4.7 s (debug build); 73k rows, all contiguous, every program exactly its item's length, 30 days ahead, starting at the current hour. App restarts and later syncs report every schedule up to date.
+  - Channel list, detail (now and next airings at back-to-back times), lineup editor with live match counts, a new channel built with the D-pad (genre filter, multi-pick, a second rule), playback order, favorite, group, rename and renumber (swapping two channels), and delete all work; edits reschedule the channel at once.
+  - A 512 px PNG uploaded over `PUT /api/channels/1/logo` was stored as 256 px, served with a versioned immutable URL and shown on the channel page.
+
 ## Phase 3 verification (2026-10-05)
 
 - **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 84 unit tests, 0 failures. Lint shows no issues in any library module; the app module keeps its two earlier warnings.
@@ -174,7 +203,10 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 
 - When D-pad focus enters the TV drawer, it should land on the selected destination.
 - On a focused tile, the muted subtitle color has low contrast. This will be tuned with the theme work in Phase 8.
-- The `collections` column (box-set membership) is still empty. Fill it during reconciliation when channel templates need it (Phase 4).
 - Movie sync is covered by the derived fixture only. Give the test account a movie library to check it against a real server.
 - The first sync spends most of its time on per-item segment requests (about 50 s for 3.4k items on the emulator). Measure on the Fire TV Stick in Phase 11.
 - `ScheduleEngine.rewind` rewinds show cursors but not shuffle decks: items in discarded slots of a shuffle channel wait for the next deck.
+- Box-set membership is only checked against hand-made fixtures: the test account's one box set lists no items it can see.
+- On TV, moving D-pad focus onto a text field opens the on-screen keyboard right away, so scrolling past name and number fields means closing it first. Look at showing the keyboard only on OK.
+- Choosing a logo on the device uses the system file picker, which many TV devices lack (not tried on the TV AVD); a browser can upload one with `PUT /api/channels/{id}/logo`. The web page for it comes with web UI parity (Phase 10).
+- Template channels are created once per profile; templates added in an app update only appear under "Add from templates".

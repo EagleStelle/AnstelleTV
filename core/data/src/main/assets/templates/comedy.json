@@ -1,0 +1,195 @@
+{
+  "templates": [
+    {
+      "id": "sitcoms",
+      "name": "Sitcoms",
+      "category": "Comedy",
+      "description": "Half-hour comedies, one episode after another.",
+      "order": "EPISODE_ORDER",
+      "minItems": 20,
+      "minShows": 3,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Sitcom"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Comedy"]},
+            {"field": "GENRE", "op": "NOT_ANY_OF", "values": ["Drama"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]},
+            {"field": "GENRE", "op": "NOT_ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated", "Anime"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "comedy",
+      "name": "Comedy",
+      "category": "Comedy",
+      "description": "Comedy series, two episodes at a time.",
+      "order": "BLOCKS",
+      "blockSize": 2,
+      "minItems": 20,
+      "minShows": 3,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Comedy"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]},
+            {"field": "GENRE", "op": "NOT_ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated", "Anime"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "comedy-movies",
+      "name": "Comedy Movies",
+      "category": "Comedy",
+      "description": "Feature-length laughs.",
+      "order": "SHUFFLE",
+      "minItems": 10,
+      "minShows": 10,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Comedy"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]},
+            {"field": "GENRE", "op": "NOT_ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated", "Anime"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "romcoms",
+      "name": "Romantic Comedies",
+      "category": "Comedy",
+      "description": "Love, mix-ups and happy endings.",
+      "order": "SHUFFLE",
+      "minItems": 8,
+      "minShows": 8,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Romance"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Comedy"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Romantic Comedy"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stand-up",
+      "name": "Stand-Up & Sketch",
+      "category": "Comedy",
+      "description": "Specials and sketch shows.",
+      "order": "SHUFFLE",
+      "minItems": 6,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Stand-Up", "Stand-up Comedy", "Sketch Comedy", "Comedy Special"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "KEYWORD", "op": "ANY_OF", "values": ["stand up", "standup", "sketch comedy", "comedy special", "live at"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Comedy"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "late-night",
+      "name": "Late Night",
+      "category": "Comedy",
+      "description": "Talk, monologues and sketches after dark.",
+      "order": "SHUFFLE",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "KEYWORD", "op": "ANY_OF", "values": ["late night", "late show", "tonight show"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Talk", "Talk Show"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Comedy"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dark-comedy",
+      "name": "Dark Comedy",
+      "category": "Comedy",
+      "description": "Laughs with a bite.",
+      "order": "SHUFFLE",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Black Comedy", "Dark Comedy"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["dark comedy", "black comedy", "dark humor"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "spoofs",
+      "name": "Spoofs & Parodies",
+      "category": "Comedy",
+      "description": "Nothing is sacred.",
+      "order": "SHUFFLE",
+      "minItems": 6,
+      "minShows": 3,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Parody", "Spoof", "Satire"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "KEYWORD", "op": "ANY_OF", "values": ["parody", "spoof", "satire"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mockumentaries",
+      "name": "Mockumentaries",
+      "category": "Comedy",
+      "description": "Cameras rolling on the absurd.",
+      "order": "SHUFFLE",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Mockumentary"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["mockumentary"]}
+          ]
+        }
+      ]
+    }
+  ]
+}

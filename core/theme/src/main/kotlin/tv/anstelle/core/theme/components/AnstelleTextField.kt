@@ -8,6 +8,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -18,7 +23,8 @@ import tv.anstelle.core.theme.LocalAnstelleTheme
 /**
  * A single-line text field for both TV and touch. Compose for TV has no text field, so
  * this is a themed Material 3 field; on TV the D-pad focuses it and OK opens the keyboard.
- * The keyboard's action key moves to the next field, or runs [onDone] on the last one.
+ * Up and down move focus out of the field (one line has nothing to move through). The
+ * keyboard's action key moves to the next field, or runs [onDone] on the last one.
  */
 @Composable
 fun AnstelleTextField(
@@ -38,7 +44,14 @@ fun AnstelleTextField(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier,
+        modifier = modifier.onPreviewKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            when (event.key) {
+                Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
+                Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
+                else -> false
+            }
+        },
         enabled = enabled,
         singleLine = true,
         label = { Text(label) },

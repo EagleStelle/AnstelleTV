@@ -4,14 +4,17 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.readRawBytes
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import tv.anstelle.core.data.channels.ChannelLogos
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -115,6 +118,44 @@ class ServerRoutesTest {
             setBody("{not json")
         }
         assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun channelLogosUploadServeAndClear() = serverTest { server ->
+        val token = pair(server)
+        val auth = "Bearer $token"
+        val png = byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 1, 2, 3)
+
+        assertEquals(HttpStatusCode.Unauthorized, client.put("/api/channels/1/logo") { setBody(png) }.status)
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/channels/1/logo") { header(HttpHeaders.Authorization, auth) }.status)
+
+        val upload = client.put("/api/channels/1/logo") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Image.PNG)
+            setBody(png)
+        }
+        assertEquals(HttpStatusCode.NoContent, upload.status)
+        val served = client.get("/api/channels/1/logo?v=1") { header(HttpHeaders.Authorization, auth) }
+        assertEquals(HttpStatusCode.OK, served.status)
+        assertEquals(ContentType.Image.PNG, served.contentType())
+        assertTrue(served.headers[HttpHeaders.CacheControl]!!.contains("immutable"))
+        assertTrue(png.contentEquals(served.readRawBytes()))
+
+        val notImage = client.put("/api/channels/1/logo") {
+            header(HttpHeaders.Authorization, auth)
+            setBody("hello".toByteArray())
+        }
+        assertEquals(HttpStatusCode.BadRequest, notImage.status)
+        val tooLarge = client.put("/api/channels/1/logo") {
+            header(HttpHeaders.Authorization, auth)
+            setBody(ByteArray(ChannelLogos.MAX_UPLOAD_BYTES + 1))
+        }
+        assertEquals(HttpStatusCode.PayloadTooLarge, tooLarge.status)
+        assertEquals(HttpStatusCode.NotFound, client.put("/api/channels/9/logo") { header(HttpHeaders.Authorization, auth); setBody(png) }.status)
+        assertEquals(HttpStatusCode.NotFound, client.put("/api/channels/x/logo") { header(HttpHeaders.Authorization, auth); setBody(png) }.status)
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/channels/1/logo") { header(HttpHeaders.Authorization, auth) }.status)
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/channels/1/logo") { header(HttpHeaders.Authorization, auth) }.status)
     }
 
     @Test

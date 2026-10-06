@@ -1,5 +1,6 @@
 package tv.anstelle.webserver
 
+import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -12,16 +13,22 @@ import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.origin
+import io.ktor.server.request.contentLength
 import io.ktor.server.request.header
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveChannel
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import io.ktor.utils.io.readRemaining
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.pingPeriod
 import io.ktor.server.websocket.timeout
@@ -32,7 +39,9 @@ import io.ktor.websocket.close
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.io.readByteArray
 import tv.anstelle.core.common.AppInfo
+import tv.anstelle.core.data.channels.ChannelLogos
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.webserver.api.ApiDataSource
 import tv.anstelle.webserver.api.ApiJson
@@ -49,6 +58,7 @@ import tv.anstelle.webserver.net.LanGuard
 import tv.anstelle.webserver.pairing.PairResult
 import tv.anstelle.webserver.pairing.PairStartResult
 import tv.anstelle.webserver.pairing.PairingManager
+import java.io.IOException
 import kotlin.time.Duration.Companion.seconds
 
 /** Everything the HTTP layer needs. Plain values so routes can run in a JVM test host. */
@@ -175,6 +185,47 @@ fun Application.anstelleModule(deps: ServerDependencies) {
                 call.respond(deps.api.channels())
             }
 
+            route("/channels/{id}/logo") {
+                get {
+                    call.requireClient(deps) ?: return@get
+                    val id = call.channelIdOrNotFound() ?: return@get
+                    val bytes = deps.api.channelLogo(id)
+                        ?: return@get call.respond(HttpStatusCode.NotFound, ErrorDto("no_logo", "This channel has no logo."))
+                    // Logo URLs carry a version, so a versioned request never changes.
+                    val versioned = call.request.queryParameters["v"] != null
+                    call.response.header(HttpHeaders.CacheControl, if (versioned) "private, max-age=31536000, immutable" else "no-cache")
+                    call.respondBytes(bytes, ContentType.Image.PNG)
+                }
+
+                put {
+                    call.requireClient(deps) ?: return@put
+                    val id = call.channelIdOrNotFound() ?: return@put
+                    val declared = call.request.contentLength()
+                    val bytes = if (declared != null && declared > ChannelLogos.MAX_UPLOAD_BYTES) {
+                        null
+                    } else {
+                        call.receiveChannel().readRemaining(ChannelLogos.MAX_UPLOAD_BYTES + 1L).readByteArray()
+                    }
+                    if (bytes == null || bytes.size > ChannelLogos.MAX_UPLOAD_BYTES) {
+                        call.respond(HttpStatusCode.PayloadTooLarge, ErrorDto("too_large", "Logos can be at most ${ChannelLogos.MAX_UPLOAD_BYTES / (1024 * 1024)} MB."))
+                        return@put
+                    }
+                    val stored = try {
+                        deps.api.setChannelLogo(id, bytes)
+                    } catch (e: IOException) {
+                        call.respond(HttpStatusCode.BadRequest, ErrorDto("not_an_image", "That file is not a PNG, JPEG, WebP or GIF image."))
+                        return@put
+                    }
+                    if (stored) call.respond(HttpStatusCode.NoContent) else call.respondNoChannel()
+                }
+
+                delete {
+                    call.requireClient(deps) ?: return@delete
+                    val id = call.channelIdOrNotFound() ?: return@delete
+                    if (deps.api.clearChannelLogo(id)) call.respond(HttpStatusCode.NoContent) else call.respondNoChannel()
+                }
+            }
+
             route("{...}") {
                 handle { call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Unknown API route.")) }
             }
@@ -216,6 +267,16 @@ private suspend inline fun <reified T : Any> ApplicationCall.receiveOrBadRequest
         respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Malformed request body."))
         null
     }
+
+/** The `{id}` path parameter, or null after responding 404 when it isn't a channel id. */
+private suspend fun ApplicationCall.channelIdOrNotFound(): Long? {
+    val id = parameters["id"]?.toLongOrNull()
+    if (id == null) respondNoChannel()
+    return id
+}
+
+private suspend fun ApplicationCall.respondNoChannel() =
+    respond(HttpStatusCode.NotFound, ErrorDto("no_channel", "There is no such channel."))
 
 /** Responds 401 and returns null when the request carries no valid pairing token. */
 private suspend fun ApplicationCall.requireClient(deps: ServerDependencies): PairedClientEntity? {

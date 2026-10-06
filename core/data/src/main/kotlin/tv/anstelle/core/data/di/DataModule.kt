@@ -2,6 +2,7 @@ package tv.anstelle.core.data.di
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -15,6 +16,8 @@ import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.ApplicationScope
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.common.TimeSource
+import tv.anstelle.core.data.channels.AssetTemplateSource
+import tv.anstelle.core.data.channels.TemplateSource
 import tv.anstelle.core.database.AnstelleDatabase
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.LibraryDao
@@ -49,6 +52,13 @@ object CoroutinesModule {
 
     @Provides
     fun timeSource(): TimeSource = TimeSource.System
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class ChannelsModule {
+    @Binds
+    abstract fun templateSource(source: AssetTemplateSource): TemplateSource
 }
 
 @Module

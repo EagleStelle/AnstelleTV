@@ -1,0 +1,423 @@
+{
+  "templates": [
+    {
+      "id": "anime",
+      "name": "Anime",
+      "category": "Anime",
+      "description": "Anime series, two episodes at a time.",
+      "order": "BLOCKS",
+      "blockSize": 2,
+      "minItems": 20,
+      "minShows": 3,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Anime"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["anime"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Toei Animation", "Sunrise", "Bandai Namco Filmworks", "Madhouse", "Bones", "Kyoto Animation", "MAPPA", "Production I.G", "A-1 Pictures", "Studio Pierrot", "Pierrot", "Wit Studio", "ufotable", "Shaft", "TMS Entertainment", "Studio Deen", "J.C.Staff", "Trigger", "Studio Trigger", "CloverWorks", "OLM", "Gainax", "Tatsunoko Production", "Nippon Animation", "Studio Ghibli", "David Production", "P.A. Works", "Silver Link", "Doga Kobo", "Lerche", "White Fox", "Brain's Base", "Kinema Citrus", "8bit", "Science SARU", "Studio 4°C", "TOHO Animation", "Aniplex", "Shin-Ei Animation", "Tokyo Movie Shinsha", "Xebec", "Satelight", "Manglobe", "Studio Bind", "Passione", "Feel", "Diomedéa", "Gonzo", "Telecom Animation Film", "TV Tokyo", "Tokyo MX", "Fuji TV", "MBS", "AT-X", "Nippon TV", "TV Asahi", "NHK"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shonen",
+      "name": "Shōnen Action",
+      "category": "Anime",
+      "description": "Training arcs, rivals and power-ups.",
+      "order": "EPISODE_ORDER",
+      "minItems": 20,
+      "minShows": 3,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Action", "Adventure", "Martial Arts"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Action", "Adventure", "Martial Arts"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Toei Animation", "Sunrise", "Bandai Namco Filmworks", "Madhouse", "Bones", "Kyoto Animation", "MAPPA", "Production I.G", "A-1 Pictures", "Studio Pierrot", "Pierrot", "Wit Studio", "ufotable", "Shaft", "TMS Entertainment", "Studio Deen", "J.C.Staff", "Trigger", "Studio Trigger", "CloverWorks", "OLM", "Gainax", "Tatsunoko Production", "Nippon Animation", "Studio Ghibli", "David Production", "P.A. Works", "Silver Link", "Doga Kobo", "Lerche", "White Fox", "Brain's Base", "Kinema Citrus", "8bit", "Science SARU", "Studio 4°C", "TOHO Animation", "Aniplex", "Shin-Ei Animation", "Tokyo Movie Shinsha", "Xebec", "Satelight", "Manglobe", "Studio Bind", "Passione", "Feel", "Diomedéa", "Gonzo", "Telecom Animation Film", "TV Tokyo", "Tokyo MX", "Fuji TV", "MBS", "AT-X", "Nippon TV", "TV Asahi", "NHK"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Action", "Adventure", "Martial Arts"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["shounen", "shonen", "shōnen"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mecha",
+      "name": "Mecha",
+      "category": "Anime",
+      "description": "Giant robots and the pilots inside.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Mecha"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["mecha", "robots", "giant robot", "super robot", "real robot"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "slice-of-life",
+      "name": "Slice of Life",
+      "category": "Anime",
+      "description": "Everyday moments, beautifully drawn.",
+      "order": "EPISODE_ORDER",
+      "minItems": 15,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Slice of Life"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["slice of life", "iyashikei", "cute girls doing cute things"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "magical-girls",
+      "name": "Magical Girls",
+      "category": "Anime",
+      "description": "Transformations, wands and friendship.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Mahou Shoujo", "Magical Girl"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["mahou shoujo", "magical girl", "magical girls"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "isekai",
+      "name": "Isekai",
+      "category": "Anime",
+      "description": "Whisked away to another world.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Isekai"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["isekai", "another world", "transported to another world", "reincarnation"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "KEYWORD", "op": "ANY_OF", "values": ["isekai", "another world", "reincarnated"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "anime-comedy",
+      "name": "Anime Comedy",
+      "category": "Anime",
+      "description": "Gags, reactions and running jokes.",
+      "order": "EPISODE_ORDER",
+      "minItems": 20,
+      "minShows": 3,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Comedy"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Comedy"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Toei Animation", "Sunrise", "Bandai Namco Filmworks", "Madhouse", "Bones", "Kyoto Animation", "MAPPA", "Production I.G", "A-1 Pictures", "Studio Pierrot", "Pierrot", "Wit Studio", "ufotable", "Shaft", "TMS Entertainment", "Studio Deen", "J.C.Staff", "Trigger", "Studio Trigger", "CloverWorks", "OLM", "Gainax", "Tatsunoko Production", "Nippon Animation", "Studio Ghibli", "David Production", "P.A. Works", "Silver Link", "Doga Kobo", "Lerche", "White Fox", "Brain's Base", "Kinema Citrus", "8bit", "Science SARU", "Studio 4°C", "TOHO Animation", "Aniplex", "Shin-Ei Animation", "Tokyo Movie Shinsha", "Xebec", "Satelight", "Manglobe", "Studio Bind", "Passione", "Feel", "Diomedéa", "Gonzo", "Telecom Animation Film", "TV Tokyo", "Tokyo MX", "Fuji TV", "MBS", "AT-X", "Nippon TV", "TV Asahi", "NHK"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Comedy"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sports-anime",
+      "name": "Sports Anime",
+      "category": "Anime",
+      "description": "Tournaments, teammates and the final match.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Sports", "Sport"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Sports", "Sport"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Toei Animation", "Sunrise", "Bandai Namco Filmworks", "Madhouse", "Bones", "Kyoto Animation", "MAPPA", "Production I.G", "A-1 Pictures", "Studio Pierrot", "Pierrot", "Wit Studio", "ufotable", "Shaft", "TMS Entertainment", "Studio Deen", "J.C.Staff", "Trigger", "Studio Trigger", "CloverWorks", "OLM", "Gainax", "Tatsunoko Production", "Nippon Animation", "Studio Ghibli", "David Production", "P.A. Works", "Silver Link", "Doga Kobo", "Lerche", "White Fox", "Brain's Base", "Kinema Citrus", "8bit", "Science SARU", "Studio 4°C", "TOHO Animation", "Aniplex", "Shin-Ei Animation", "Tokyo Movie Shinsha", "Xebec", "Satelight", "Manglobe", "Studio Bind", "Passione", "Feel", "Diomedéa", "Gonzo", "Telecom Animation Film", "TV Tokyo", "Tokyo MX", "Fuji TV", "MBS", "AT-X", "Nippon TV", "TV Asahi", "NHK"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Sports", "Sport"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["sports anime"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "anime-movies",
+      "name": "Anime Movies",
+      "category": "Anime",
+      "description": "Anime on the big screen.",
+      "order": "SHUFFLE",
+      "minItems": 5,
+      "minShows": 5,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Anime"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["anime"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Toei Animation", "Sunrise", "Bandai Namco Filmworks", "Madhouse", "Bones", "Kyoto Animation", "MAPPA", "Production I.G", "A-1 Pictures", "Studio Pierrot", "Pierrot", "Wit Studio", "ufotable", "Shaft", "TMS Entertainment", "Studio Deen", "J.C.Staff", "Trigger", "Studio Trigger", "CloverWorks", "OLM", "Gainax", "Tatsunoko Production", "Nippon Animation", "Studio Ghibli", "David Production", "P.A. Works", "Silver Link", "Doga Kobo", "Lerche", "White Fox", "Brain's Base", "Kinema Citrus", "8bit", "Science SARU", "Studio 4°C", "TOHO Animation", "Aniplex", "Shin-Ei Animation", "Tokyo Movie Shinsha", "Xebec", "Satelight", "Manglobe", "Studio Bind", "Passione", "Feel", "Diomedéa", "Gonzo", "Telecom Animation Film", "TV Tokyo", "Tokyo MX", "Fuji TV", "MBS", "AT-X", "Nippon TV", "TV Asahi", "NHK"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["MOVIE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mind-games",
+      "name": "Mind Games",
+      "category": "Anime",
+      "description": "Psychological twists and dark minds.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Psychological", "Psychological Thriller"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["psychological", "mind games"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "anime-romance",
+      "name": "Anime Romance",
+      "category": "Anime",
+      "description": "Confessions under the cherry blossoms.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Romance"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Romance"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Toei Animation", "Sunrise", "Bandai Namco Filmworks", "Madhouse", "Bones", "Kyoto Animation", "MAPPA", "Production I.G", "A-1 Pictures", "Studio Pierrot", "Pierrot", "Wit Studio", "ufotable", "Shaft", "TMS Entertainment", "Studio Deen", "J.C.Staff", "Trigger", "Studio Trigger", "CloverWorks", "OLM", "Gainax", "Tatsunoko Production", "Nippon Animation", "Studio Ghibli", "David Production", "P.A. Works", "Silver Link", "Doga Kobo", "Lerche", "White Fox", "Brain's Base", "Kinema Citrus", "8bit", "Science SARU", "Studio 4°C", "TOHO Animation", "Aniplex", "Shin-Ei Animation", "Tokyo Movie Shinsha", "Xebec", "Satelight", "Manglobe", "Studio Bind", "Passione", "Feel", "Diomedéa", "Gonzo", "Telecom Animation Film", "TV Tokyo", "Tokyo MX", "Fuji TV", "MBS", "AT-X", "Nippon TV", "TV Asahi", "NHK"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Romance"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "anime-fantasy",
+      "name": "Anime Fantasy",
+      "category": "Anime",
+      "description": "Spells, spirits and sword fights.",
+      "order": "EPISODE_ORDER",
+      "minItems": 20,
+      "minShows": 3,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Fantasy", "Supernatural"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Fantasy", "Supernatural"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Toei Animation", "Sunrise", "Bandai Namco Filmworks", "Madhouse", "Bones", "Kyoto Animation", "MAPPA", "Production I.G", "A-1 Pictures", "Studio Pierrot", "Pierrot", "Wit Studio", "ufotable", "Shaft", "TMS Entertainment", "Studio Deen", "J.C.Staff", "Trigger", "Studio Trigger", "CloverWorks", "OLM", "Gainax", "Tatsunoko Production", "Nippon Animation", "Studio Ghibli", "David Production", "P.A. Works", "Silver Link", "Doga Kobo", "Lerche", "White Fox", "Brain's Base", "Kinema Citrus", "8bit", "Science SARU", "Studio 4°C", "TOHO Animation", "Aniplex", "Shin-Ei Animation", "Tokyo Movie Shinsha", "Xebec", "Satelight", "Manglobe", "Studio Bind", "Passione", "Feel", "Diomedéa", "Gonzo", "Telecom Animation Film", "TV Tokyo", "Tokyo MX", "Fuji TV", "MBS", "AT-X", "Nippon TV", "TV Asahi", "NHK"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Fantasy", "Supernatural"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "anime-sci-fi",
+      "name": "Anime Sci-Fi",
+      "category": "Anime",
+      "description": "Cyberpunk cities and distant stars.",
+      "order": "EPISODE_ORDER",
+      "minItems": 20,
+      "minShows": 3,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Science Fiction", "Sci-Fi", "Sci-Fi & Fantasy", "Science-Fiction", "SciFi", "Mecha"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Science Fiction", "Sci-Fi", "Sci-Fi & Fantasy", "Science-Fiction", "SciFi", "Mecha"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Toei Animation", "Sunrise", "Bandai Namco Filmworks", "Madhouse", "Bones", "Kyoto Animation", "MAPPA", "Production I.G", "A-1 Pictures", "Studio Pierrot", "Pierrot", "Wit Studio", "ufotable", "Shaft", "TMS Entertainment", "Studio Deen", "J.C.Staff", "Trigger", "Studio Trigger", "CloverWorks", "OLM", "Gainax", "Tatsunoko Production", "Nippon Animation", "Studio Ghibli", "David Production", "P.A. Works", "Silver Link", "Doga Kobo", "Lerche", "White Fox", "Brain's Base", "Kinema Citrus", "8bit", "Science SARU", "Studio 4°C", "TOHO Animation", "Aniplex", "Shin-Ei Animation", "Tokyo Movie Shinsha", "Xebec", "Satelight", "Manglobe", "Studio Bind", "Passione", "Feel", "Diomedéa", "Gonzo", "Telecom Animation Film", "TV Tokyo", "Tokyo MX", "Fuji TV", "MBS", "AT-X", "Nippon TV", "TV Asahi", "NHK"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Science Fiction", "Sci-Fi", "Sci-Fi & Fantasy", "Science-Fiction", "SciFi", "Mecha"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "classic-anime",
+      "name": "Classic Anime",
+      "category": "Anime",
+      "description": "Cel-shaded favorites from before 2000.",
+      "order": "EPISODE_ORDER",
+      "era": {"from": 1960, "to": 1999},
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Anime"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["anime"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Toei Animation", "Sunrise", "Bandai Namco Filmworks", "Madhouse", "Bones", "Kyoto Animation", "MAPPA", "Production I.G", "A-1 Pictures", "Studio Pierrot", "Pierrot", "Wit Studio", "ufotable", "Shaft", "TMS Entertainment", "Studio Deen", "J.C.Staff", "Trigger", "Studio Trigger", "CloverWorks", "OLM", "Gainax", "Tatsunoko Production", "Nippon Animation", "Studio Ghibli", "David Production", "P.A. Works", "Silver Link", "Doga Kobo", "Lerche", "White Fox", "Brain's Base", "Kinema Citrus", "8bit", "Science SARU", "Studio 4°C", "TOHO Animation", "Aniplex", "Shin-Ei Animation", "Tokyo Movie Shinsha", "Xebec", "Satelight", "Manglobe", "Studio Bind", "Passione", "Feel", "Diomedéa", "Gonzo", "Telecom Animation Film", "TV Tokyo", "Tokyo MX", "Fuji TV", "MBS", "AT-X", "Nippon TV", "TV Asahi", "NHK"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "anime-after-dark",
+      "name": "Anime After Dark",
+      "category": "Anime",
+      "description": "Horror, thrillers and mind-benders.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Horror", "Thriller", "Psychological"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "TAG", "op": "ANY_OF", "values": ["anime"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Horror", "Thriller", "Psychological"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Toei Animation", "Sunrise", "Bandai Namco Filmworks", "Madhouse", "Bones", "Kyoto Animation", "MAPPA", "Production I.G", "A-1 Pictures", "Studio Pierrot", "Pierrot", "Wit Studio", "ufotable", "Shaft", "TMS Entertainment", "Studio Deen", "J.C.Staff", "Trigger", "Studio Trigger", "CloverWorks", "OLM", "Gainax", "Tatsunoko Production", "Nippon Animation", "Studio Ghibli", "David Production", "P.A. Works", "Silver Link", "Doga Kobo", "Lerche", "White Fox", "Brain's Base", "Kinema Citrus", "8bit", "Science SARU", "Studio 4°C", "TOHO Animation", "Aniplex", "Shin-Ei Animation", "Tokyo Movie Shinsha", "Xebec", "Satelight", "Manglobe", "Studio Bind", "Passione", "Feel", "Diomedéa", "Gonzo", "Telecom Animation Film", "TV Tokyo", "Tokyo MX", "Fuji TV", "MBS", "AT-X", "Nippon TV", "TV Asahi", "NHK"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Animation", "Cartoons", "Cartoon", "Animated"]},
+            {"field": "GENRE", "op": "ANY_OF", "values": ["Horror", "Thriller", "Psychological"]}
+          ]
+        }
+      ]
+    }
+  ]
+}

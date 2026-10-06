@@ -51,18 +51,37 @@ enum class ChannelKind(override val code: Int) : CodedEnum {
     MUSIC(1),
 }
 
+/** The item metadata a channel rule tests. */
 enum class RuleField(override val code: Int) : CodedEnum {
     GENRE(0),
+
+    /** Studios, and the networks of TV series. */
     STUDIO(1),
     TAG(2),
+
+    /** Box sets the item (or its series) belongs to. */
     COLLECTION(3),
+
+    /** The rating text with text operators; its numeric score with AT_LEAST, AT_MOST and BETWEEN. */
     OFFICIAL_RATING(4),
     YEAR(5),
+
+    /** The first year of the item's decade: 1980 for 1980–1989. */
     DECADE(6),
+
+    /** Whole words or phrases in the title, the show title or the tags. */
     KEYWORD(7),
+
+    /** A library, by its Jellyfin id. */
     LIBRARY(8),
+
+    /** A show, by its Jellyfin series id. */
     SERIES(9),
+
+    /** A single episode, movie or video, by its Jellyfin id. */
     ITEM(10),
+
+    /** EPISODE, MOVIE or MUSIC_VIDEO. */
     MEDIA_TYPE(11),
 }
 

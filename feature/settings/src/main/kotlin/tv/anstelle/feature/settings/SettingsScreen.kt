@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.runtime.Composable
@@ -80,6 +81,7 @@ class SettingsViewModel @Inject constructor(
 @Composable
 fun SettingsScreen(
     onOpenServers: () -> Unit,
+    onOpenChannels: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -131,6 +133,15 @@ fun SettingsScreen(
                 },
                 icon = Icons.Filled.Dns,
                 onClick = onOpenServers,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            FocusTile(
+                title = "Channels",
+                subtitle = "Lineups, numbers, groups, logos and favorites.",
+                icon = Icons.Filled.LiveTv,
+                onClick = onOpenChannels,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

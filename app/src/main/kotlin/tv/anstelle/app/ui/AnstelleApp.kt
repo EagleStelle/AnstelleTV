@@ -31,6 +31,11 @@ import tv.anstelle.feature.ondemand.OnDemandScreen
 import tv.anstelle.feature.player.PlayerScreen
 import tv.anstelle.feature.profiles.ProfilePickerScreen
 import tv.anstelle.feature.settings.SettingsScreen
+import tv.anstelle.feature.settings.channels.ChannelDetailScreen
+import tv.anstelle.feature.settings.channels.ChannelGroupsScreen
+import tv.anstelle.feature.settings.channels.ChannelLineupScreen
+import tv.anstelle.feature.settings.channels.ChannelTemplatesScreen
+import tv.anstelle.feature.settings.channels.ChannelsScreen
 import tv.anstelle.feature.settings.servers.AddServerScreen
 import tv.anstelle.feature.settings.servers.ServerDetailScreen
 import tv.anstelle.feature.settings.servers.ServersScreen
@@ -83,7 +88,41 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         composable<OnDemandRoute> { OnDemandScreen() }
         composable<DashboardRoute> { DashboardScreen() }
         navigation<SettingsGraph>(startDestination = SettingsRoute) {
-            composable<SettingsRoute> { SettingsScreen(onOpenServers = { navController.navigate(ServersRoute) }) }
+            composable<SettingsRoute> {
+                SettingsScreen(
+                    onOpenServers = { navController.navigate(ServersRoute) },
+                    onOpenChannels = { navController.navigate(ChannelsRoute) },
+                )
+            }
+            composable<ChannelsRoute> {
+                ChannelsScreen(
+                    onOpenChannel = { navController.navigate(ChannelDetailRoute(it)) },
+                    onNewChannel = { navController.navigate(ChannelLineupRoute()) },
+                    onOpenTemplates = { navController.navigate(ChannelTemplatesRoute) },
+                    onOpenGroups = { navController.navigate(ChannelGroupsRoute) },
+                )
+            }
+            composable<ChannelDetailRoute> {
+                ChannelDetailScreen(
+                    onEditLineup = { navController.navigate(ChannelLineupRoute(it)) },
+                    onDeleted = { navController.popBackStack() },
+                )
+            }
+            composable<ChannelLineupRoute> {
+                ChannelLineupScreen(
+                    onSaved = { channelId, isNew ->
+                        if (isNew) {
+                            // Land on the new channel's page, with the channel list behind it.
+                            navController.navigate(ChannelDetailRoute(channelId)) { popUpTo<ChannelsRoute>() }
+                        } else {
+                            navController.popBackStack()
+                        }
+                    },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable<ChannelTemplatesRoute> { ChannelTemplatesScreen() }
+            composable<ChannelGroupsRoute> { ChannelGroupsScreen() }
             composable<ServersRoute> {
                 ServersScreen(
                     onAddServer = { navController.navigate(AddServerRoute()) },

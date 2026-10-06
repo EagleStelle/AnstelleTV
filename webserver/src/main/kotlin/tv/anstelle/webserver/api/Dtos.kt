@@ -43,7 +43,8 @@ data class ChannelDto(
     val id: Long,
     val number: Int,
     val name: String,
-    val logoUri: String?,
+    /** Where the browser loads the logo from, or null when the channel has none. */
+    val logoUrl: String?,
     val isHidden: Boolean,
     val isFavorite: Boolean,
     val groupId: Long?,

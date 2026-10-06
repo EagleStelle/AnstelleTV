@@ -23,6 +23,39 @@ data class SeriesMetadataRow(
     val genres: String,
     val studios: String,
     val tags: String,
+    val collections: String,
+    val officialRating: String?,
+    val ratingScore: Int?,
+)
+
+/** What sync keeps from a stored item when the server sends it again. */
+data class StoredItemRow(val id: Long, val remoteId: String, val collections: String)
+
+/** An item's box-set membership, for reconciliation. */
+data class ItemCollectionsRow(
+    val id: Long,
+    val remoteId: String,
+    val seriesRemoteId: String?,
+    val collections: String,
+)
+
+/** The metadata channel rules test, for one item. Loaded for the whole library at once. */
+data class CatalogRow(
+    val id: Long,
+    val remoteId: String,
+    val libraryRemoteId: String?,
+    val type: MediaType,
+    val title: String,
+    val seriesRemoteId: String?,
+    val showTitle: String?,
+    val season: Int?,
+    val episode: Int?,
+    val durationMs: Long,
+    val genres: String,
+    val studios: String,
+    val tags: String,
+    val collections: String,
+    val year: Int?,
     val officialRating: String?,
     val ratingScore: Int?,
 )
@@ -98,8 +131,8 @@ interface MediaItemDao {
     @Query("SELECT * FROM media_item WHERE serverId = :serverId AND remoteId = :remoteId")
     suspend fun byRemoteId(serverId: Long, remoteId: String): MediaItemEntity?
 
-    @Query("SELECT id, remoteId FROM media_item WHERE serverId = :serverId AND remoteId IN (:remoteIds)")
-    suspend fun idsFor(serverId: Long, remoteIds: List<String>): List<ItemIdRow>
+    @Query("SELECT id, remoteId, collections FROM media_item WHERE serverId = :serverId AND remoteId IN (:remoteIds)")
+    suspend fun storedFor(serverId: Long, remoteIds: List<String>): List<StoredItemRow>
 
     @Query("SELECT id, remoteId FROM media_item WHERE serverId = :serverId")
     suspend fun allIds(serverId: Long): List<ItemIdRow>
@@ -118,11 +151,29 @@ interface MediaItemDao {
 
     @Query(
         """
-        SELECT remoteId, genres, studios, tags, officialRating, ratingScore
+        SELECT remoteId, genres, studios, tags, collections, officialRating, ratingScore
         FROM media_item WHERE serverId = :serverId AND type = :seriesType
         """,
     )
     suspend fun seriesMetadata(serverId: Long, seriesType: MediaType): List<SeriesMetadataRow>
+
+    /** Every item of every server with the fields channel rules test. */
+    @Query(
+        """
+        SELECT m.id, m.remoteId, l.remoteId AS libraryRemoteId, m.type, m.title, m.seriesRemoteId,
+               m.showTitle, m.season, m.episode, m.durationMs, m.genres, m.studios, m.tags,
+               m.collections, m.year, m.officialRating, m.ratingScore
+        FROM media_item m LEFT JOIN library l ON l.id = m.libraryId
+        ORDER BY m.id
+        """,
+    )
+    suspend fun catalog(): List<CatalogRow>
+
+    @Query("SELECT id, remoteId, seriesRemoteId, collections FROM media_item WHERE serverId = :serverId")
+    suspend fun collectionRows(serverId: Long): List<ItemCollectionsRow>
+
+    @Query("UPDATE media_item SET collections = :collections WHERE id = :id")
+    suspend fun setCollections(id: Long, collections: String)
 
     /** Inserts new items (id 0) and updates existing ones in place, so local ids stay stable. */
     @Upsert

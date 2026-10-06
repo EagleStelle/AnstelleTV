@@ -12,10 +12,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -293,12 +291,4 @@ private fun QuickConnectStep(state: AddServerUiState, viewModel: AddServerViewMo
             )
         }
     }
-}
-
-/** On TV, focuses the requester's element once it is laid out. */
-@Composable
-private fun rememberInitialFocus(): FocusRequester {
-    val requester = remember { FocusRequester() }
-    if (LocalIsTv.current) LaunchedEffect(Unit) { runCatching { requester.requestFocus() } }
-    return requester
 }

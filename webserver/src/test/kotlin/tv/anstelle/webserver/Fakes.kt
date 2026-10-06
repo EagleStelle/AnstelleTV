@@ -13,6 +13,7 @@ import tv.anstelle.webserver.pairing.PairedClientStore
 import tv.anstelle.webserver.pairing.PairingManager
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.util.zip.GZIPOutputStream
 
@@ -55,8 +56,27 @@ class FakeAssets(private val files: Map<String, String>) : AssetSource {
 }
 
 class FakeApi : ApiDataSource {
+    /** Logos by channel id; only channel 1 exists. */
+    val logos = mutableMapOf<Long, ByteArray>()
+
     override suspend fun profiles() = listOf(ProfileDto(1, "Home", isKid = false, hasPin = false))
     override suspend fun channels() = listOf(ChannelDto(1, 2, "Sitcoms", null, isHidden = false, isFavorite = true, groupId = null))
+
+    override suspend fun channelLogo(channelId: Long): ByteArray? = logos[channelId]
+
+    override suspend fun setChannelLogo(channelId: Long, bytes: ByteArray): Boolean {
+        if (channelId != 1L) return false
+        // Stands in for image decoding: PNG files start with 0x89 'P' 'N' 'G'.
+        if (bytes.size < 4 || bytes[1] != 'P'.code.toByte()) throw IOException("Not an image")
+        logos[channelId] = bytes
+        return true
+    }
+
+    override suspend fun clearChannelLogo(channelId: Long): Boolean {
+        if (channelId != 1L) return false
+        logos.remove(channelId)
+        return true
+    }
 }
 
 class TestServer(

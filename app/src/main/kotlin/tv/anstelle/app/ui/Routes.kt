@@ -24,6 +24,14 @@ import kotlinx.serialization.Serializable
 /** [serverId] 0 adds a new server; otherwise signs in to that server again. */
 @Serializable data class AddServerRoute(val serverId: Long = 0)
 
+@Serializable data object ChannelsRoute
+@Serializable data class ChannelDetailRoute(val channelId: Long)
+
+/** [channelId] 0 builds a new channel. */
+@Serializable data class ChannelLineupRoute(val channelId: Long = 0)
+@Serializable data object ChannelTemplatesRoute
+@Serializable data object ChannelGroupsRoute
+
 /** Destinations reachable from the TV navigation drawer and the phone navigation bar. */
 enum class TopLevelDestination(val label: String, val icon: ImageVector, val route: Any) {
     Guide("Guide", Icons.Filled.LiveTv, GuideRoute),

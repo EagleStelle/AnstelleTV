@@ -1,0 +1,622 @@
+{
+  "templates": [
+    {
+      "id": "nbc",
+      "name": "NBC",
+      "category": "Networks",
+      "description": "Shows that aired on NBC.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["NBC"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cbs",
+      "name": "CBS",
+      "category": "Networks",
+      "description": "Shows that aired on CBS.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["CBS"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "abc",
+      "name": "ABC",
+      "category": "Networks",
+      "description": "Shows that aired on ABC.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["ABC", "ABC (US)", "ABC Family", "ABC Signature"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fox",
+      "name": "FOX",
+      "category": "Networks",
+      "description": "Shows that aired on FOX.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["FOX", "FOX (US)", "Fox Broadcasting Company", "Fox Kids"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hbo",
+      "name": "HBO",
+      "category": "Networks",
+      "description": "HBO originals.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["HBO", "HBO Max", "Max"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "showtime",
+      "name": "Showtime",
+      "category": "Networks",
+      "description": "Showtime originals.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Showtime"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "starz",
+      "name": "Starz",
+      "category": "Networks",
+      "description": "Starz originals.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Starz"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "amc",
+      "name": "AMC",
+      "category": "Networks",
+      "description": "AMC originals.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["AMC", "AMC+"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fx",
+      "name": "FX",
+      "category": "Networks",
+      "description": "FX originals.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["FX", "FXX", "FX Networks", "FX on Hulu"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "usa-network",
+      "name": "USA Network",
+      "category": "Networks",
+      "description": "Characters welcome.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["USA Network"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tnt-tbs",
+      "name": "TNT & TBS",
+      "category": "Networks",
+      "description": "Dramas and comedies from TNT and TBS.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["TNT", "TBS", "TNT (US)"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nickelodeon",
+      "name": "Nickelodeon",
+      "category": "Networks",
+      "description": "Slime not included.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Nickelodeon", "Nick Jr.", "Nicktoons", "Nick at Nite", "TeenNick"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cartoon-network",
+      "name": "Cartoon Network",
+      "category": "Networks",
+      "description": "Cartoons from the network built on them.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Cartoon Network", "Boomerang", "Cartoonito"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "adult-swim",
+      "name": "Adult Swim",
+      "category": "Networks",
+      "description": "Late-night animation and oddities.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Adult Swim", "[adult swim]"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "disney-channel",
+      "name": "Disney Channel",
+      "category": "Networks",
+      "description": "Disney Channel, Disney XD and Disney Junior.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Disney Channel", "Disney XD", "Disney Junior", "Toon Disney", "Playhouse Disney"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pbs",
+      "name": "PBS",
+      "category": "Networks",
+      "description": "Public television.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["PBS", "PBS Kids", "PBS KIDS"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "british-tv",
+      "name": "British TV",
+      "category": "Networks",
+      "description": "From the BBC, ITV, Channel 4 and friends.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["ITV", "ITV1", "ITV2", "Channel 4", "E4", "Channel 5", "Sky One", "Sky Atlantic", "Sky Max", "Dave"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        },
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "CONTAINS", "values": ["bbc"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "comedy-central",
+      "name": "Comedy Central",
+      "category": "Networks",
+      "description": "Comedy Central originals.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Comedy Central"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mtv",
+      "name": "MTV",
+      "category": "Networks",
+      "description": "Music television and beyond.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["MTV", "MTV2"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "syfy",
+      "name": "Syfy",
+      "category": "Networks",
+      "description": "Imagine greater.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Syfy", "SyFy", "Sci Fi Channel", "Sci-Fi Channel", "SciFi"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "the-wb-cw",
+      "name": "The WB & The CW",
+      "category": "Networks",
+      "description": "Teen dramas and superheroes from The WB, UPN and The CW.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["The WB", "The CW", "UPN"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "netflix",
+      "name": "Netflix Originals",
+      "category": "Networks",
+      "description": "Shows Netflix made.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Netflix"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hulu",
+      "name": "Hulu Originals",
+      "category": "Networks",
+      "description": "Shows Hulu made.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Hulu"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prime-video",
+      "name": "Prime Video Originals",
+      "category": "Networks",
+      "description": "Shows Amazon made.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Prime Video", "Amazon", "Amazon Prime Video", "Amazon Studios"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "apple-tv",
+      "name": "Apple TV+ Originals",
+      "category": "Networks",
+      "description": "Shows Apple made.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Apple TV+", "Apple TV"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "disney-plus",
+      "name": "Disney+ Originals",
+      "category": "Networks",
+      "description": "Shows made for Disney+.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Disney+"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "paramount-plus",
+      "name": "Paramount+ Originals",
+      "category": "Networks",
+      "description": "Shows made for Paramount+.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Paramount+", "CBS All Access"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "peacock",
+      "name": "Peacock Originals",
+      "category": "Networks",
+      "description": "Shows made for Peacock.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Peacock"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "crunchyroll",
+      "name": "Crunchyroll",
+      "category": "Networks",
+      "description": "Anime simulcasts and originals.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Crunchyroll"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "discovery",
+      "name": "Discovery",
+      "category": "Networks",
+      "description": "Real stories from the Discovery networks.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Discovery", "Discovery Channel", "Discovery+", "Science Channel"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "history-channel",
+      "name": "History Channel",
+      "category": "Networks",
+      "description": "History, A&E and friends.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["History", "History Channel", "The History Channel", "A&E", "H2"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nat-geo",
+      "name": "National Geographic",
+      "category": "Networks",
+      "description": "Nature, science and exploration.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["National Geographic", "Nat Geo", "National Geographic Channel", "Nat Geo Wild"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "animal-planet",
+      "name": "Animal Planet",
+      "category": "Networks",
+      "description": "All animals, all the time.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Animal Planet"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "food-network",
+      "name": "Food Network",
+      "category": "Networks",
+      "description": "Cooking shows and competitions.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["Food Network", "Cooking Channel"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hgtv",
+      "name": "HGTV",
+      "category": "Networks",
+      "description": "Renovations, open houses and backyards.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["HGTV", "DIY Network", "Magnolia Network"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tlc",
+      "name": "TLC",
+      "category": "Networks",
+      "description": "Life stories from TLC.",
+      "order": "EPISODE_ORDER",
+      "minItems": 10,
+      "minShows": 2,
+      "groups": [
+        {
+          "rules": [
+            {"field": "STUDIO", "op": "ANY_OF", "values": ["TLC"]},
+            {"field": "MEDIA_TYPE", "op": "EQUALS", "values": ["EPISODE"]}
+          ]
+        }
+      ]
+    }
+  ]
+}

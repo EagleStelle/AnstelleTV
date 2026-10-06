@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
 import tv.anstelle.core.database.dao.TypeCount
 import tv.anstelle.core.model.MediaServer
@@ -47,6 +50,14 @@ internal fun SettingsPage(
         }
         content()
     }
+}
+
+/** On TV, focuses the requester's element once it is laid out. */
+@Composable
+internal fun rememberInitialFocus(): FocusRequester {
+    val requester = remember { FocusRequester() }
+    if (LocalIsTv.current) LaunchedEffect(Unit) { runCatching { requester.requestFocus() } }
+    return requester
 }
 
 @Composable

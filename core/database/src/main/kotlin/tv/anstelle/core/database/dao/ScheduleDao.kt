@@ -45,6 +45,16 @@ interface ScheduleDao {
     )
     suspend fun slotsFrom(channelId: Long, afterUtcMs: Long, limit: Int): List<ScheduleSlotEntity>
 
+    /** Media items of the programs starting at or after [fromUtcMs], in airing order. */
+    @Query(
+        """
+        SELECT mediaItemId FROM schedule_slot
+        WHERE channelId = :channelId AND startUtcMs >= :fromUtcMs AND kind = 0
+        ORDER BY startUtcMs
+        """,
+    )
+    suspend fun programItemIdsFrom(channelId: Long, fromUtcMs: Long): List<Long>
+
     /**
      * Program cells overlapping `[fromUtcMs, toUtcMs)` for the visible channels.
      * [maxSlotMs] bounds the index range scan from below (`startUtcMs > from - maxSlot`)

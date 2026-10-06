@@ -33,7 +33,8 @@ export interface Channel {
 	id: number;
 	number: number;
 	name: string;
-	logoUri?: string;
+	/** Where to load the channel's logo from; absent when it has none. */
+	logoUrl?: string;
 	isHidden: boolean;
 	isFavorite: boolean;
 	groupId?: number;
@@ -80,5 +81,19 @@ export const api = {
 	confirmPairing: (requestId: string, pin: string) =>
 		request<{ clientId: number; clientName: string }>('POST', '/pair/confirm', { requestId, pin }),
 	profiles: () => request<Profile[]>('GET', '/profiles'),
-	channels: () => request<Channel[]>('GET', '/channels')
+	channels: () => request<Channel[]>('GET', '/channels'),
+	/** Uploads an image file as the channel's logo; the TV scales it down. */
+	setChannelLogo: async (channelId: number, image: Blob) => {
+		const response = await fetch(`/api/channels/${channelId}/logo`, {
+			method: 'PUT',
+			credentials: 'same-origin',
+			headers: { 'Content-Type': image.type || 'application/octet-stream' },
+			body: image
+		});
+		if (!response.ok) {
+			const error = (await response.json().catch(() => null)) as { error: string; message: string } | null;
+			throw new ApiError(response.status, error?.error ?? `http_${response.status}`, error?.message ?? response.statusText);
+		}
+	},
+	clearChannelLogo: (channelId: number) => request<void>('DELETE', `/channels/${channelId}/logo`)
 };
