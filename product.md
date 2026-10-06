@@ -13,8 +13,9 @@ The app is native: Kotlin + Jetpack Compose (Compose for TV on TV, Material 3 on
 | 3 | Scheduler engine: back-to-back airings, playback orders, seasonal lineups, dayparts, resumable state, `nowPlaying` | Done |
 | 4 | Channels: 167 templates, matcher, auto-generation, lineup builder, groups, numbers, logos, schedule worker | Done |
 | 5 | Playback: player pool, local tuning, surfing, info banner, tracks, off air, watch reporting | Done |
-| 6 | Guide grid and on-demand | Next |
-| 7–11 | Live TV, profiles/themes, dashboard/backup, web UI parity, performance | Planned |
+| 6 | Guide grid with preview window and details, group tabs, on-demand movies and shows, Add to channel | Done |
+| 7 | Live TV | Next |
+| 8–11 | Profiles/themes, dashboard/backup, web UI parity, performance | Planned |
 
 The full plan, with key designs for every phase, lives in `C:\Users\Impulsor\.claude\plans\the-name-of-the-kind-shell.md`.
 
@@ -66,8 +67,8 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 | `core/jellyfin` | The shared `OkHttpClient` and `Jellyfin` SDK instance, server discovery, sign-in, Keystore token store, library source and the DTO → Room mappers |
 | `core/player` | `PlayerPool` (two ExoPlayers), `PlayerFactory` (OkHttp data source with the server's auth header, FFmpeg audio fallback), `CapabilityProbe`, `StreamPlanner` (direct play or HLS), `JellyfinStreams` (local stream URLs), `TuneTrace` |
 | `core/theme` | `ThemeSpec` JSON model, `AnstelleTheme` (Material 3 + TV), shared focusable components |
-| `core/data` | Hilt modules, repositories (`ServerRepository`, `ScheduleRepository`, `ChannelRepository`, profiles, settings), `LibrarySyncer`, channel templates and the lineup matcher (`channels/`), `ScheduleUpdater`, `ChannelPlayer` and `PlaybackReporter` (`playback/`), `DatabaseChanges`, `WebServerController`, workers. Template JSON lives in `core/data/src/main/assets/templates` |
-| `feature/*` | Guide, player, on-demand, profiles, settings, dashboard (placeholders plus the log viewer, web-control settings, the media server screens and the channel screens) |
+| `core/data` | Hilt modules, repositories (`ServerRepository`, `ScheduleRepository`, `ChannelRepository`, profiles, settings), `LibrarySyncer`, channel templates and the lineup matcher (`channels/`), `ScheduleUpdater`, guide cells and program details (`guide/`), on-demand pages (`ondemand/`), `ChannelPlayer`, `OnDemandPlayer` and `PlaybackReporter` (`playback/`), `DatabaseChanges`, `WebServerController`, workers. Template JSON lives in `core/data/src/main/assets/templates` |
+| `feature/*` | Guide (grid, preview window, details, tabs), on-demand browsing, the channel and on-demand players, settings (media servers, channels, Add to channel), dashboard (log viewer), profiles (placeholder) |
 | `webserver` | Ktor CIO server, pairing, LAN guard, static SPA serving, `/api`, `/ws` |
 | `baselineprofile`, `benchmark` | Baseline profile generator and macrobenchmarks (stub journeys) |
 | `webui` | SvelteKit SPA |
@@ -156,6 +157,29 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - **`LoadControl` in Kotlin:** delegating with `by` skips the interface's Java default methods and ExoPlayer then crashes in `getBackBufferDurationUs`; `PoolLoadControl` forwards every method by hand.
 - **OK on key-up:** the player screen acts on OK when the key is released. Acting on key-down moves focus to the controls, which then take the key-up as a click.
 
+### Guide and on demand (learned in Phase 6)
+
+- **The guide** is a preview window playing the channel on now, the selected program's details (episode, time, rating, year, genres, length, overview and badges such as 4K, HDR10, DV, Atmos, DTS, 5.1), group tabs (all channels, favorites, then each group that has channels; the open tab is remembered per profile) and the program grid. It opens at the current half hour and goes 7 days ahead.
+- **Grid layout.** A lazy column of channel rows sharing one time state. Each row's cells are a `ProgramStrip`: parallel arrays of starts, ends, item ids and titles, so a row lays out without an object per cell. A row composes only the cells inside the visible hours plus 30 minutes on each side, and a custom layout places them by reading the time state, so scrolling the hours relays rows out without recomposing them. A program that began before the visible hours is clipped to the left edge so its title stays readable. The now line and the dimmed past are drawn over the rows from a clock that ticks twice a minute, without recomposition.
+- **Loading.** Cells are read from SQLite per 6-hour window for every channel at once (one query joining `schedule_slot` and `media_item`, range-bounded by the longest slot), kept in an LRU of 8 windows, with the windows on either side fetched ahead. Schedule or library changes clear the cache and the visible windows load again.
+- **D-pad.** The grid is one focus target that moves the selection itself: right and left step cell to cell and page the hours when a cell starts within 15 minutes of an edge; up and down keep the time, so the cell airing at that moment is selected; channel or page keys move a screenful. Left at the guide's start and up from the first row hand focus to the drawer and the tabs. Entering the drawer lands on the open destination. The guide keeps its place (hours, selection, scroll) while the player or another page is on top; a new launch opens at the current half hour.
+- **Touch.** Drag or fling sideways moves the hours, the list scrolls vertically, tap selects, long-press opens the actions.
+- **Selecting and watching** (like TiviMate): OK or a tap on a program airing now shows its channel in the preview window; again, it goes full screen. Holding OK, Menu, or OK on a later program opens its actions: watch the channel (when on now), start from beginning, watch from here (on now, from the airing's current point), and Add to channel. Focus resting on a row for a second pre-warms that channel on the standby player, so the preview and full screen tune from it.
+- **Shared playback.** The preview window and the full-screen player show the same `ChannelPlayer`. Each screen acquires it while visible; when the last one releases it, playback stops 1.5 s later unless another screen takes it over, so going full screen and back never retunes.
+- **On demand** lists TV shows and movies from SQLite (posters from Jellyfin through Coil and the shared OkHttp client), within the profile's rating limit. A show page starts the show from its first episode or lists its seasons; an item page offers *Watch from here* when Jellyfin has a resume point (read when the page opens), *Start from beginning*, *Add to channel* and, for an episode, the show's other episodes. On-demand playback has its own player (the channel player stops first, since many TV devices run one video decoder): OK pauses, left and right jump 10 s back and 30 s ahead, up opens audio, subtitles and next episode; phones get a seek bar. Episodes continue into the rest of the show. It is reported to Jellyfin like any client (Jellyfin keeps its marks and resume points; *Off* still sends nothing) and kept as an `ON_DEMAND` watch event.
+- **Channel views leave resume points.** Progress reports from a channel airing make Jellyfin keep a resume point for that item, so *Watch from here* on demand picks up where the channel was left.
+- **Add to channel** adds the show (for an episode) or the movie to a channel's *always include* picks and drops it from its excludes; the schedule changes after the airing on now and the next one. It can also create a new channel of its own.
+- **JankStats** runs in debug builds and logs, every 5 seconds of drawing, how many frames missed their deadline (`adb logcat -s Anstelle/Jank`).
+
+## Phase 6 verification (2026-10-07)
+
+- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 133 unit tests, 0 failures (guide strips, window reads and merges, badges, program text, grid navigation and paging, on-demand reporting rules). Lint shows no issues in any library module; the app module keeps its two earlier warnings.
+- **Google TV AVD, real server:** the preview plays the last channel; D-pad moves cell to cell, pages the hours, scrolls rows and hands focus to the drawer (landing on Guide) and the tabs; details and badges follow the selection; OK previews, OK again goes full screen (from the pre-warmed standby), and Back returns to the guide still playing, with the selection kept. Program actions, on-demand show and item pages, *Watch from here* from Jellyfin's resume point, pause and seeking, the next episode queued, the resume point updated after stopping, and Add to channel all work.
+- **Phone AVD** (a copy of the TV's database, no sign-in): tap to select and preview, fling sideways, vertical scrolling, on-demand pages.
+- **100 channels** (58 copies added to the TV AVD's database for the test, scheduled 30 days ahead in 11 s), release build, `dumpsys gfxinfo`:
+  - Phone AVD, flinging up, down and sideways: 2.9% of 961 frames missed their deadline, 14 with a slow UI thread.
+  - Google TV AVD, D-pad down 60 rows, right 12, back up and left with the preview playing: 8.4% missed. UI-thread work stayed within budget (p99 15.5 ms, 1 of 120 frames over 16 ms); the misses come from render-thread time, since both AVDs draw with the software GPU and decode the preview in software. Clipping every cell to a rounded path cost render time and was replaced with shaped backgrounds. The real numbers come from the Fire TV Stick in Phase 11.
+
 ## Phase 5 verification (2026-10-06)
 
 - **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 120 unit tests, 0 failures (stream decisions, watch rules and the earlier suites). Lint shows no issues in any library module; the app module keeps its two earlier warnings.
@@ -225,7 +249,6 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 
 ## Known follow-ups
 
-- When D-pad focus enters the TV drawer, it should land on the selected destination.
 - On a focused tile, the muted subtitle color has low contrast. This will be tuned with the theme work in Phase 8.
 - Movie sync is covered by the derived fixture only. Give the test account a movie library to check it against a real server.
 - `ScheduleEngine.rewind` rewinds show cursors but not shuffle decks: items in discarded slots of a shuffle channel wait for the next deck.
@@ -237,3 +260,7 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - The off-air screen and the phone gestures weren't exercised on a device: no channel has dayparts yet, and only the TV AVD was used.
 - Subtitles in separate files next to the video aren't offered, and transcoded streams have none.
 - Music channels (and their now-playing screen) wait until music libraries are back.
+- Guide frame timing on the AVDs is limited by their software GPU; measure the 100-channel scroll on the Fire TV Stick (Phase 11).
+- The Add to channel page sits outside the tabs, so no drawer or bar destination is highlighted while it is open.
+- On TV, the first focus on the show and item pages scrolls their header partly out of view.
+- On-demand lists cover movies and shows; music videos only air on channels.

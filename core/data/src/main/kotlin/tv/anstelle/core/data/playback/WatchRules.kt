@@ -17,7 +17,8 @@ enum class AfterStop {
  * Channels start programs mid-way, so Jellyfin often sees a viewer "finish" an episode they
  * joined at minute 15 and marks it played. In [WatchReportMode.REPORT_NO_MARK] mode such
  * partial views are reported but don't leave the item played; only a view from (near) the
- * start to (near) the end does.
+ * start to (near) the end does. On demand the viewer picked the item and the spot
+ * themselves, so Jellyfin's marks stay, as in [WatchReportMode.FULL].
  */
 object WatchRules {
     /** A view counts as full when it joined in the first two minutes (or 5%) and lasted to 90%. */
@@ -28,11 +29,11 @@ object WatchRules {
         return joinedEarly && reachedEnd
     }
 
-    fun afterStop(mode: WatchReportMode, playedBefore: Boolean, fullView: Boolean): AfterStop = when (mode) {
+    fun afterStop(mode: WatchReportMode, playedBefore: Boolean, fullView: Boolean, onDemand: Boolean = false): AfterStop = when (mode) {
         WatchReportMode.OFF -> AfterStop.NOTHING
         WatchReportMode.FULL -> AfterStop.RECORD_PLAYED
         WatchReportMode.REPORT_NO_MARK -> when {
-            fullView -> AfterStop.RECORD_PLAYED
+            fullView || onDemand -> AfterStop.RECORD_PLAYED
             playedBefore -> AfterStop.NOTHING
             else -> AfterStop.UNMARK_IF_PLAYED
         }

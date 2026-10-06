@@ -37,4 +37,13 @@ class WatchRulesTest {
         assertEquals(AfterStop.RECORD_PLAYED, WatchRules.afterStop(WatchReportMode.FULL, playedBefore = false, fullView = false))
         assertEquals(AfterStop.NOTHING, WatchRules.afterStop(WatchReportMode.OFF, playedBefore = false, fullView = false))
     }
+
+    @Test
+    fun `on-demand views keep the server's marks unless reporting is off`() {
+        assertEquals(
+            AfterStop.RECORD_PLAYED,
+            WatchRules.afterStop(WatchReportMode.REPORT_NO_MARK, playedBefore = false, fullView = false, onDemand = true),
+        )
+        assertEquals(AfterStop.NOTHING, WatchRules.afterStop(WatchReportMode.OFF, playedBefore = false, fullView = true, onDemand = true))
+    }
 }

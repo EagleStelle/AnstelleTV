@@ -9,13 +9,20 @@ import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.database.entity.ScheduleStateEntity
+import tv.anstelle.core.model.SlotKind
 
-/** Guide-cell projection of a program row. */
+/** Guide-cell projection of a slot, with what the cell shows. The item fields are null off air. */
 data class GuideAiring(
     val channelId: Long,
-    val mediaItemId: Long,
+    val kind: SlotKind,
+    val mediaItemId: Long?,
     val startUtcMs: Long,
     val endUtcMs: Long,
+    val title: String?,
+    val showTitle: String?,
+    val season: Int?,
+    val episode: Int?,
+    val year: Int?,
 )
 
 @Dao
@@ -56,19 +63,19 @@ interface ScheduleDao {
     suspend fun programItemIdsFrom(channelId: Long, fromUtcMs: Long): List<Long>
 
     /**
-     * Program cells overlapping `[fromUtcMs, toUtcMs)` for the visible channels.
-     * [maxSlotMs] bounds the index range scan from below (`startUtcMs > from - maxSlot`)
-     * so SQLite never walks the channel's history.
+     * Guide cells (programs and off-air stretches) overlapping `[fromUtcMs, toUtcMs)` for
+     * [channelIds]. [maxSlotMs] bounds the index range scan from below
+     * (`startUtcMs > from - maxSlot`) so SQLite never walks the channel's history.
      */
     @Query(
         """
-        SELECT channelId, mediaItemId, startUtcMs, endUtcMs
-        FROM schedule_slot
-        WHERE channelId IN (:channelIds)
-          AND kind = 0
-          AND startUtcMs > :fromUtcMs - :maxSlotMs AND startUtcMs < :toUtcMs
-          AND endUtcMs > :fromUtcMs
-        ORDER BY channelId, startUtcMs
+        SELECT s.channelId, s.kind, s.mediaItemId, s.startUtcMs, s.endUtcMs,
+               m.title, m.showTitle, m.season, m.episode, m.year
+        FROM schedule_slot s LEFT JOIN media_item m ON m.id = s.mediaItemId
+        WHERE s.channelId IN (:channelIds)
+          AND s.startUtcMs > :fromUtcMs - :maxSlotMs AND s.startUtcMs < :toUtcMs
+          AND s.endUtcMs > :fromUtcMs
+        ORDER BY s.channelId, s.startUtcMs
         """,
     )
     suspend fun guideWindow(
@@ -77,6 +84,10 @@ interface ScheduleDao {
         toUtcMs: Long,
         maxSlotMs: Long,
     ): List<GuideAiring>
+
+    /** The longest slot, which bounds [guideWindow]'s range scan. */
+    @Query("SELECT COALESCE(MAX(endUtcMs - startUtcMs), 0) FROM schedule_slot")
+    suspend fun maxSlotMs(): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSlots(slots: List<ScheduleSlotEntity>)

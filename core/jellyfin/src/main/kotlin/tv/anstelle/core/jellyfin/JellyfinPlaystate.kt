@@ -29,6 +29,9 @@ interface Playstate {
     /** Whether the server has the item marked played for this user. */
     suspend fun isPlayed(itemId: String): Boolean
     suspend fun markUnplayed(itemId: String)
+
+    /** Where the user stopped watching the item, or 0 when Jellyfin keeps no resume point. */
+    suspend fun resumePositionMs(itemId: String): Long
 }
 
 @Singleton
@@ -101,6 +104,10 @@ private class JellyfinPlaystate(
     override suspend fun markUnplayed(itemId: String) = jellyfinCall("Marking unplayed") {
         api.userDataApi.markUnplayedItem(itemId = itemId.toUUID(), userId = user)
         Unit
+    }
+
+    override suspend fun resumePositionMs(itemId: String): Long = jellyfinCall("Reading the resume point") {
+        api.userDataApi.getItemUserData(itemId = itemId.toUUID(), userId = user).content.playbackPositionTicks / TICKS_PER_MS
     }
 
     private fun method(item: PlaystateItem) = if (item.transcoded) PlayMethod.TRANSCODE else PlayMethod.DIRECT_PLAY

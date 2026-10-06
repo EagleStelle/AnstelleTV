@@ -53,6 +53,9 @@ object Settings {
 
     /** The channel the profile watched last, for resuming; 0 when none. */
     fun lastChannel(profileId: Long) = SettingKey.LongKey("playback.channel.$profileId", 0L)
+
+    /** The guide tab the profile had open: "all", "favorites" or "group:<id>". */
+    fun guideTab(profileId: Long) = SettingKey.StringKey("guide.tab.$profileId", "all")
 }
 
 @Singleton

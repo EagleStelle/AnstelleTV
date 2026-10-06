@@ -27,6 +27,8 @@ import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.ChannelGroup
 import tv.anstelle.core.model.ChannelKind
 import tv.anstelle.core.model.PlaybackOrder
+import tv.anstelle.core.model.RuleField
+import tv.anstelle.core.model.RuleOp
 import tv.anstelle.core.model.SeasonMode
 import tv.anstelle.core.scheduler.MonthDayRange
 import java.io.IOException
@@ -51,6 +53,9 @@ data class ChannelSummary(
 
 /** One airing on a channel; [title] is null while the channel is off air. */
 data class Airing(val startUtcMs: Long, val endUtcMs: Long, val title: String?)
+
+/** What "Add to channel" adds for an item: the show for an episode, else the item itself. */
+data class ChannelPick(val pick: Pick, val title: String)
 
 /** Channels, their lineups and groups, and the template channels built from the library. */
 @Singleton
@@ -130,6 +135,32 @@ class ChannelRepository @Inject constructor(
             touch(channelId)
         }
         refresh(channelId)
+    }
+
+    /** The show (for an episode) or item that "Add to channel" adds for [itemId]. */
+    suspend fun pickFor(itemId: Long): ChannelPick? = withContext(io) {
+        val item = itemDao.byId(itemId) ?: return@withContext null
+        val series = item.seriesRemoteId
+        if (series != null) {
+            ChannelPick(Pick(RuleField.SERIES, series), item.showTitle ?: item.title)
+        } else {
+            ChannelPick(Pick(RuleField.ITEM, item.remoteId), item.title)
+        }
+    }
+
+    /** Channels of [profileId] that always include [remoteId]. */
+    suspend fun channelsIncluding(profileId: Long, remoteId: String): Set<Long> =
+        withContext(io) { channelDao.channelsIncluding(profileId, remoteId, RuleOp.INCLUDE).toSet() }
+
+    /**
+     * Makes [channelId] always air [pick] (and no longer exclude it). The schedule changes
+     * after the airing on now and the next one, like any lineup edit.
+     */
+    suspend fun include(channelId: Long, pick: Pick) {
+        val current = lineup(channelId)
+        val same = { other: Pick -> other.remoteId.equals(pick.remoteId, ignoreCase = true) }
+        if (current.includes.any(same) && current.excludes.none(same)) return
+        setLineup(channelId, current.copy(includes = current.includes.filterNot(same) + pick, excludes = current.excludes.filterNot(same)))
     }
 
     /** Creates a custom channel with the next free number. Returns its id. */

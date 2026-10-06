@@ -57,6 +57,18 @@ data class CatalogRow(
     val ratingScore: Int?,
 )
 
+/** A show or movie as the on-demand pages list it. */
+data class OnDemandRow(
+    val id: Long,
+    val serverId: Long,
+    val remoteId: String,
+    val title: String,
+    val year: Int?,
+    val primaryImageTag: String?,
+    /** The show's episodes; 1 for a movie. */
+    val itemCount: Int,
+)
+
 @Dao
 interface MediaServerDao {
     @Query("SELECT * FROM media_server ORDER BY name")
@@ -168,6 +180,45 @@ interface MediaItemDao {
 
     @Query("SELECT id, remoteId, seriesRemoteId, collections FROM media_item WHERE serverId = :serverId")
     suspend fun collectionRows(serverId: Long): List<ItemCollectionsRow>
+
+    /**
+     * Shows with at least one episode within [maxRating] (null: no limit; unrated episodes
+     * never pass a limit), by sort title.
+     */
+    @Query(
+        """
+        SELECT s.id, s.serverId, s.remoteId, s.title, s.year, s.primaryImageTag, COUNT(e.id) AS itemCount
+        FROM media_item s
+        JOIN media_item e ON e.serverId = s.serverId AND e.seriesRemoteId = s.remoteId AND e.type = :episodeType
+        WHERE s.type = :seriesType
+          AND (:maxRating IS NULL OR (e.ratingScore IS NOT NULL AND e.ratingScore <= :maxRating))
+        GROUP BY s.id
+        ORDER BY COALESCE(s.sortTitle, s.title) COLLATE NOCASE
+        """,
+    )
+    fun observeShows(maxRating: Int?, seriesType: MediaType, episodeType: MediaType): Flow<List<OnDemandRow>>
+
+    /** Items of [type] within [maxRating], by sort title. */
+    @Query(
+        """
+        SELECT id, serverId, remoteId, title, year, primaryImageTag, 1 AS itemCount
+        FROM media_item
+        WHERE type = :type AND (:maxRating IS NULL OR (ratingScore IS NOT NULL AND ratingScore <= :maxRating))
+        ORDER BY COALESCE(sortTitle, title) COLLATE NOCASE
+        """,
+    )
+    fun observeOfType(type: MediaType, maxRating: Int?): Flow<List<OnDemandRow>>
+
+    /** A show's episodes within [maxRating], in airing order: seasons, then specials, then unnumbered ones. */
+    @Query(
+        """
+        SELECT * FROM media_item
+        WHERE serverId = :serverId AND seriesRemoteId = :seriesRemoteId AND type = :episodeType
+          AND (:maxRating IS NULL OR (ratingScore IS NOT NULL AND ratingScore <= :maxRating))
+        ORDER BY season IS NULL, season = 0, season, episode IS NULL, episode, COALESCE(sortTitle, title)
+        """,
+    )
+    suspend fun episodes(serverId: Long, seriesRemoteId: String, episodeType: MediaType, maxRating: Int?): List<MediaItemEntity>
 
     @Query("UPDATE media_item SET collections = :collections WHERE id = :id")
     suspend fun setCollections(id: Long, collections: String)

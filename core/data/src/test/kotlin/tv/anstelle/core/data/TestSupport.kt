@@ -103,8 +103,13 @@ class FakeScheduleDao : ScheduleDao {
         slots.values.filter { it.channelId == channelId && it.startUtcMs >= fromUtcMs && it.kind == SlotKind.PROGRAM }
             .mapNotNull { it.mediaItemId }
 
+    /** Items are titled "Item <id>", as [item] names them. */
     override suspend fun guideWindow(channelIds: List<Long>, fromUtcMs: Long, toUtcMs: Long, maxSlotMs: Long): List<GuideAiring> =
-        error("unused")
+        slots.values
+            .filter { it.channelId in channelIds && it.startUtcMs > fromUtcMs - maxSlotMs && it.startUtcMs < toUtcMs && it.endUtcMs > fromUtcMs }
+            .map { GuideAiring(it.channelId, it.kind, it.mediaItemId, it.startUtcMs, it.endUtcMs, it.mediaItemId?.let { id -> "Item $id" }, null, null, null, null) }
+
+    override suspend fun maxSlotMs(): Long = slots.values.maxOfOrNull { it.endUtcMs - it.startUtcMs } ?: 0
 
     override suspend fun insertSlots(slots: List<ScheduleSlotEntity>) {
         for (slot in slots) this.slots[slot.channelId to slot.startUtcMs] = slot

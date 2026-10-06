@@ -112,6 +112,12 @@ dependencies {
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.androidx.profileinstaller)
+    // Logs janky frames in debug builds.
+    implementation(libs.androidx.metrics.performance)
+    // Posters and channel logos, fetched through the shared OkHttp client.
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+    implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 

@@ -13,6 +13,7 @@ import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelGroupEntity
 import tv.anstelle.core.database.entity.ChannelRuleEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
+import tv.anstelle.core.model.RuleOp
 
 @Dao
 interface ChannelDao {
@@ -78,6 +79,15 @@ interface ChannelDao {
         }
         setNumber(channel.id, number, atUtcMs)
     }
+
+    /** The channels of [profileId] that always include [remoteId] in their own lineup. */
+    @Query(
+        """
+        SELECT DISTINCT r.channelId FROM channel_rule r JOIN channel c ON c.id = r.channelId
+        WHERE c.profileId = :profileId AND r.seasonId IS NULL AND r.op = :includeOp AND r.value = :remoteId
+        """,
+    )
+    suspend fun channelsIncluding(profileId: Long, remoteId: String, includeOp: RuleOp): List<Long>
 
     /** All rule rows of a channel: its own, its seasons' and its dayparts'. */
     @Query("SELECT * FROM channel_rule WHERE channelId = :channelId ORDER BY seasonId, logicGroup, id")

@@ -3,6 +3,8 @@ package tv.anstelle.baselineprofile
 import androidx.benchmark.macro.junit4.BaselineProfileRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -12,9 +14,8 @@ import org.junit.runner.RunWith
  *
  *     ./gradlew :app:generateBaselineProfile
  *
- * Journeys cover cold start to the guide, D-pad movement through the guide and tuning a
- * channel. They grow with the guide (Phase 6) and player (Phase 5); Phase 11 runs this on a
- * Fire TV Stick.
+ * Journeys cover cold start to the guide, D-pad movement through the guide grid and tuning a
+ * channel full screen. Phase 11 runs this on a Fire TV Stick.
  */
 @RunWith(AndroidJUnit4::class)
 @LargeTest
@@ -26,13 +27,17 @@ class BaselineProfileGenerator {
     fun generate() = rule.collect(packageName = TARGET_PACKAGE, includeInStartupProfile = true) {
         pressHome()
         startActivityAndWait()
+        device.wait(Until.hasObject(By.res(GUIDE_GRID)), GRID_TIMEOUT_MS)
 
-        // Guide: move focus around the tiles.
-        repeat(3) { device.pressDPadRight() }
-        repeat(2) { device.pressDPadLeft() }
+        // Guide: through the channels and across the hours.
+        repeat(8) { device.pressDPadDown() }
+        repeat(4) { device.pressDPadRight() }
+        repeat(4) { device.pressDPadLeft() }
+        repeat(8) { device.pressDPadUp() }
         device.waitForIdle()
 
-        // Tune: open the first channel, surf up and down, then return to the guide.
+        // Tune: the first OK previews the selected channel, the second watches it full screen.
+        device.pressDPadCenter()
         device.pressDPadCenter()
         device.waitForIdle()
         device.pressDPadUp()
@@ -43,3 +48,5 @@ class BaselineProfileGenerator {
 }
 
 internal const val TARGET_PACKAGE = "tv.anstelle.app"
+internal const val GUIDE_GRID = "guide-grid"
+internal const val GRID_TIMEOUT_MS = 10_000L

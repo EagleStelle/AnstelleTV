@@ -23,13 +23,14 @@ import tv.anstelle.core.model.codeOf
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** One item's playback on a channel, from its first frame to the moment it stops. */
+/** One item's playback, from its first frame to the moment it stops. */
 class ReportSession internal constructor(
     internal val item: MediaItemEntity,
     internal val playstateItem: PlaystateItem,
     internal val server: MediaServerEntity,
     internal val accessToken: String,
-    internal val channelId: Long,
+    /** The channel it aired on, or null when it was played on demand. */
+    internal val channelId: Long?,
     internal val profileId: Long,
     internal val joinedAtMs: Long,
     internal val startedUtcMs: Long,
@@ -40,9 +41,10 @@ class ReportSession internal constructor(
 }
 
 /**
- * Reports channel playback to Jellyfin after the first frame, in the background, so tuning
- * never waits for the server. Calls run one at a time in order, and a failed report is
- * logged and dropped. Every view of 30 seconds or more is also kept as a local watch event.
+ * Reports channel and on-demand playback to Jellyfin after the first frame, in the
+ * background, so tuning never waits for the server. Calls run one at a time in order, and a
+ * failed report is logged and dropped. Every view of 30 seconds or more is also kept as a
+ * local watch event.
  */
 @Singleton
 class PlaybackReporter @Inject constructor(
@@ -75,7 +77,7 @@ class PlaybackReporter @Inject constructor(
         accessToken: String,
         playSessionId: String,
         transcoded: Boolean,
-        channelId: Long,
+        channelId: Long?,
         profileId: Long,
         positionMs: Long,
     ): ReportSession {
@@ -116,7 +118,7 @@ class PlaybackReporter @Inject constructor(
             playstate.stopped(session.playstateItem, positionMs)
             val item = session.item
             val fullView = WatchRules.isFullView(session.joinedAtMs, positionMs, item.durationMs)
-            when (WatchRules.afterStop(mode, item.playedOnServer, fullView)) {
+            when (WatchRules.afterStop(mode, item.playedOnServer, fullView, onDemand = session.channelId == null)) {
                 AfterStop.NOTHING -> Unit
                 AfterStop.UNMARK_IF_PLAYED -> if (playstate.isPlayed(item.remoteId)) {
                     playstate.markUnplayed(item.remoteId)
@@ -133,7 +135,7 @@ class PlaybackReporter @Inject constructor(
         watchEventDao.insert(
             WatchEventEntity(
                 profileId = session.profileId,
-                source = WatchSource.CHANNEL,
+                source = if (session.channelId == null) WatchSource.ON_DEMAND else WatchSource.CHANNEL,
                 channelId = session.channelId,
                 liveChannelId = null,
                 mediaItemId = session.item.id,

@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.metrics.performance.JankStats
 import androidx.work.WorkManager
 import dagger.hilt.android.AndroidEntryPoint
 import tv.anstelle.app.ui.AnstelleApp
@@ -45,6 +46,7 @@ class MainActivity : ComponentActivity() {
         }
         super.onCreate(savedInstanceState)
         setContent { AnstelleApp(isTv = isTv) }
+        if (BuildConfig.DEBUG) JankStats.createAndTrack(window, JankLogger())
 
         // Everything that is not needed for the first frame starts right after it is drawn.
         window.decorView.post { startDeferredWork(isTv) }

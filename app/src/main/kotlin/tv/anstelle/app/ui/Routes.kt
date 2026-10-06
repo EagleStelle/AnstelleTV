@@ -11,10 +11,21 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object ProfilesRoute
 @Serializable data object GuideRoute
-@Serializable data object OnDemandRoute
 @Serializable data object DashboardRoute
 /** [channelNumber] 0 resumes the channel watched last. */
 @Serializable data class PlayerRoute(val channelNumber: Int = 0)
+
+/** On-demand browsing and the pages below it, so the On demand tab stays selected on all of them. */
+@Serializable data object OnDemandGraph
+@Serializable data object OnDemandRoute
+@Serializable data class OnDemandShowRoute(val seriesId: Long)
+@Serializable data class OnDemandItemRoute(val itemId: Long)
+
+/** Full-screen on-demand playback of [itemId] from [positionMs]. */
+@Serializable data class OnDemandPlayRoute(val itemId: Long, val positionMs: Long = 0)
+
+/** Makes a channel always air the show (or movie) of [itemId]. */
+@Serializable data class AddToChannelRoute(val itemId: Long)
 
 /** Settings and the screens below it, so the Settings tab stays selected on all of them. */
 @Serializable data object SettingsGraph
@@ -36,7 +47,7 @@ import kotlinx.serialization.Serializable
 /** Destinations reachable from the TV navigation drawer and the phone navigation bar. */
 enum class TopLevelDestination(val label: String, val icon: ImageVector, val route: Any) {
     Guide("Guide", Icons.Filled.LiveTv, GuideRoute),
-    OnDemand("On demand", Icons.Filled.Movie, OnDemandRoute),
+    OnDemand("On demand", Icons.Filled.Movie, OnDemandGraph),
     Dashboard("Dashboard", Icons.Filled.Dashboard, DashboardRoute),
     Settings("Settings", Icons.Filled.Settings, SettingsGraph),
     Profiles("Profiles", Icons.Filled.People, ProfilesRoute),

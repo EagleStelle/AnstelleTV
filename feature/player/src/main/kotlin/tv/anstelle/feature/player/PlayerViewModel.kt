@@ -68,15 +68,22 @@ class PlayerViewModel @Inject constructor(
 
     /** The screen is visible: play. */
     fun resume() {
-        visible = true
+        if (!visible) {
+            visible = true
+            playback.acquire()
+        }
         if (lineup != null) start()
     }
 
-    /** The screen is hidden or the app went to the background: stop and remember the channel. */
+    /**
+     * The screen is hidden or the app went to the background: remember the channel. Playback
+     * stops unless the guide's preview window takes it over.
+     */
     fun pause() {
+        if (!visible) return
         visible = false
         state.value.channel?.id?.let { resumeChannelId = it }
-        playback.stop()
+        playback.release()
     }
 
     private fun start() {
@@ -136,7 +143,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        playback.stop()
+        pause()
     }
 
     private companion object {

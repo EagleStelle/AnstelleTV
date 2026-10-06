@@ -26,6 +26,8 @@ import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.channels.ScheduleUpdater
+import tv.anstelle.core.data.programDetail
+import tv.anstelle.core.data.programTitle
 import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.database.dao.ScheduleDao
@@ -95,11 +97,14 @@ private class Program(
  *   one runs into the other without a gap. At each transition the following program is
  *   queued, and when the new program is more than [MAX_DRIFT_MS] behind the wall clock (after
  *   buffering, say) it seeks ahead.
- * - **Pool:** the channel in the surfing direction is pre-warmed on the standby player, and
- *   tuning to it swaps the players.
+ * - **Pool:** the channel in the surfing direction (or the one focused in the guide) is
+ *   pre-warmed on the standby player, and tuning to it swaps the players.
  * - **Off air** shows until the off-air stretch ends, then the channel tunes itself again.
  * - **Fallback:** a file the device turns out not to play is retried once through Jellyfin's
  *   HLS transcoding.
+ * - **Screens:** the full-screen player and the guide's preview window share the playback.
+ *   Each [acquire]s it while visible; it stops when the last one [release]s it, so moving
+ *   between the two keeps the channel playing.
  *
  * Main thread only.
  */
@@ -134,6 +139,10 @@ class ChannelPlayer @Inject constructor(
     private var current: Channel? = null
     private var previous: Channel? = null
     private var direction = 1
+    private var holders = 0
+
+    /** The channel to pre-warm instead of the next one in the surfing direction. */
+    private var standbyTarget: Long? = null
 
     /** The on-screen player's playlist; the first entry is playing. */
     private val queue = ArrayDeque<Program>()
@@ -145,14 +154,48 @@ class ChannelPlayer @Inject constructor(
     private var tuneJob: Job? = null
     private var waitJob: Job? = null
     private var tickJob: Job? = null
+    private var handoverJob: Job? = null
 
     /** The channels surfing goes through, in number order. */
     fun setLineup(channels: List<Channel>) {
         lineup = channels.sortedBy { it.number }
     }
 
+    /** A screen showing the playback became visible. */
+    fun acquire() {
+        holders++
+        handoverJob?.cancel()
+        handoverJob = null
+    }
+
+    /**
+     * A screen showing the playback went away. When it was the last one, playback stops a
+     * moment later, unless another screen takes it over first: leaving the full-screen player
+     * may release it before the guide below acquires it.
+     */
+    fun release() {
+        if (holders == 0) return
+        holders--
+        if (holders > 0) return
+        handoverJob?.cancel()
+        handoverJob = scope.launch {
+            delay(HANDOVER_MS)
+            stop()
+        }
+    }
+
+    /** Tunes to [channelId], unless it is the channel already on. */
     fun tune(channelId: Long) {
+        if (current?.id == channelId && _state.value.status != TuneStatus.IDLE) return
         lineup.firstOrNull { it.id == channelId }?.let { tuneTo(it, surf = 0) }
+    }
+
+    /** Pre-warms [channelId] on the standby player, e.g. while the guide has it focused. */
+    fun prewarm(channelId: Long) {
+        if (channelId == current?.id) return
+        standbyTarget = channelId
+        if (_player.value == null) return
+        lineup.firstOrNull { it.id == channelId }?.let { scope.launch { prewarm(it) } }
     }
 
     /** Tunes to channel [number]; false when there is no such channel. */
@@ -192,6 +235,7 @@ class ChannelPlayer @Inject constructor(
 
     private fun tuneTo(channel: Channel, surf: Int) {
         if (surf != 0) direction = surf
+        standbyTarget = null
         if (current?.id != channel.id) previous = current
         current = channel
         tuneJob?.cancel()
@@ -355,7 +399,7 @@ class ChannelPlayer @Inject constructor(
     }
 
     private fun refreshStandby() {
-        val target = neighbor(direction) ?: return
+        val target = standbyTarget?.let { id -> lineup.firstOrNull { it.id == id } } ?: neighbor(direction) ?: return
         scope.launch { prewarm(target) }
     }
 
@@ -382,6 +426,7 @@ class ChannelPlayer @Inject constructor(
         standby.player.prepare()
         standby.channelId = channel.id
         standbyQueue = listOfNotNull(program, next)
+        AppLog.d(TAG, "Standby ready on ${channel.number}")
     }
 
     private fun neighbor(step: Int): Channel? {
@@ -512,36 +557,22 @@ class ChannelPlayer @Inject constructor(
         const val RETUNE_GRACE_MS = 500L
         const val RETRY_MS = 10_000L
         const val TICK_MS = 1_000L
+        const val HANDOVER_MS = 1_500L
 
         /** Every 10 s at one tick a second. */
         const val PROGRESS_TICKS = 10
         const val STANDBY_TICKS = 20
-
-        /** Errors that mean the device can't play the file as stored; HLS may still work. */
-        val FormatErrors = setOf(
-            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-            PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
-            PlaybackException.ERROR_CODE_DECODING_FAILED,
-            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
-            PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
-            PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
-        )
     }
 }
 
 private fun MediaItemEntity.streamInfo() = StreamInfo(container, videoCodec, audioCodec, width, height, videoBitDepth)
 
-private fun programInfo(item: MediaItemEntity, startUtcMs: Long, endUtcMs: Long): ProgramInfo {
-    val show = item.showTitle
-    return if (show != null) {
-        val number = if (item.season != null && item.episode != null) "S${item.season}E${item.episode}" else null
-        ProgramInfo(show, listOfNotNull(number, item.title).joinToString(" · "), startUtcMs, endUtcMs)
-    } else {
-        ProgramInfo(item.title, item.year?.toString(), startUtcMs, endUtcMs)
-    }
-}
+private fun programInfo(item: MediaItemEntity, startUtcMs: Long, endUtcMs: Long) = ProgramInfo(
+    title = programTitle(item.title, item.showTitle),
+    detail = programDetail(item.title, item.showTitle, item.season, item.episode, item.year),
+    startUtcMs = startUtcMs,
+    endUtcMs = endUtcMs,
+)
 
 /** The text track type, for screens that don't depend on Media3 directly. */
 const val TRACK_TYPE_TEXT = C.TRACK_TYPE_TEXT
