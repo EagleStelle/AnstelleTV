@@ -2,7 +2,9 @@ package tv.anstelle.feature.ondemand
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
@@ -17,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -38,6 +41,9 @@ import tv.anstelle.core.data.ondemand.ShowPage
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusTile
+import tv.anstelle.core.theme.components.SectionLabel
+import tv.anstelle.core.theme.components.TileTrailing
+
 import javax.inject.Inject
 
 @Immutable
@@ -87,17 +93,18 @@ fun ShowScreen(
     if (lastOpened != null && isTv) LaunchedEffect(Unit) { runCatching { returnFocus.requestFocus() } }
     val first = page.episodes.firstOrNull()
 
-    Page(modifier) {
-        item(key = "header") {
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                Poster(page.imageUrl, page.title, Modifier.width(if (isTv) 150.dp else 110.dp).aspectRatio(2f / 3f))
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(page.title, size = if (isTv) 30 else 22, weight = FontWeight.SemiBold)
-                    Text(page.facts, size = 15, color = theme.textMuted)
-                    page.overview?.let { Text(it, size = 15, color = theme.textMuted, maxLines = if (isTv) 5 else 6) }
-                }
+    val hero: @Composable ColumnScope.() -> Unit = {
+        Row(horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else 16.dp), verticalAlignment = Alignment.Bottom) {
+            Poster(page.imageUrl, page.title, Modifier.width(if (isTv) 160.dp else 104.dp).aspectRatio(2f / 3f))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
+                HeroTitle(page.artwork.logoUrl, page.title)
+                Facts(page.facts, emptyList())
             }
         }
+        page.overview?.let { Overview(it, Modifier.padding(top = 4.dp)) }
+    }
+
+    Page(page.artwork.backdropUrl, hero, modifier) {
         if (first != null) {
             item(key = "start") {
                 FocusTile(
@@ -129,12 +136,13 @@ fun ShowScreen(
                     0 -> "Specials"
                     else -> "Season $season"
                 }
-                item(key = "season-$season") { Text(label, size = 18, weight = FontWeight.Medium) }
+                item(key = "season-$season") { SectionLabel(label) }
             }
             item(key = episode.id) {
                 FocusTile(
                     title = episode.label,
                     subtitle = listOfNotNull(episode.facts, episode.overview).joinToString(" · ").ifEmpty { null },
+                    trailing = TileTrailing.Chevron,
                     onClick = {
                         lastOpened = episode.id
                         onOpenItem(episode.id)

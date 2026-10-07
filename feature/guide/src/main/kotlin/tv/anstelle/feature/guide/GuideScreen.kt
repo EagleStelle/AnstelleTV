@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -18,10 +19,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Close
@@ -46,9 +48,14 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,16 +67,25 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import androidx.tv.material3.ExperimentalTvMaterial3Api
+
 import kotlinx.coroutines.delay
 import tv.anstelle.core.data.guide.ProgramDetails
+import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.data.guide.ProgramStrip
 import tv.anstelle.core.data.playback.PlaybackState
 import tv.anstelle.core.data.playback.TuneStatus
 import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
+import tv.anstelle.core.theme.components.AirMarker
+import tv.anstelle.core.theme.components.Backdrop
 import tv.anstelle.core.theme.components.FocusTile
+import tv.anstelle.core.theme.components.NumberBlock
+import tv.anstelle.core.theme.components.OsdBadge
+import tv.anstelle.core.theme.components.OsdPanel
+import tv.anstelle.core.theme.components.OsdTab
+import tv.anstelle.core.theme.components.TileTrailing
+import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.PlaceholderAction
 import tv.anstelle.core.theme.components.PlaceholderScreen
 import java.text.DateFormat
@@ -110,6 +126,7 @@ fun GuideScreen(
     val details by viewModel.details.collectAsStateWithLifecycle()
     val playback by viewModel.playbackState.collectAsStateWithLifecycle()
     val player by viewModel.player.collectAsStateWithLifecycle()
+    val follow by viewModel.follow.collectAsStateWithLifecycle()
     val isTv = LocalIsTv.current
     val theme = LocalAnstelleTheme.current
 
@@ -124,7 +141,7 @@ fun GuideScreen(
             listOf(PlaceholderAction("Settings", "Connect a Jellyfin server, then add channels", Icons.Filled.Settings, onOpenSettings))
         }
         PlaceholderScreen(
-            title = "Guide",
+            title = "Live TV",
             description = "No channels yet. They are made from your library after it syncs, or built in Settings, Channels.",
             actions = actions,
             modifier = modifier,
@@ -135,12 +152,14 @@ fun GuideScreen(
     val now = rememberClock()
     val density = LocalDensity.current
     val metrics = remember(isTv, theme) {
+        val rows = theme.spec.guide.density
+        val rowHeight = if (isTv) rows.tvRowHeightDp else rows.rowHeightDp
         GridMetrics(
-            rowHeight = theme.spec.guide.density.rowHeightDp.dp,
-            channelWidth = if (isTv) 176.dp else 96.dp,
-            headerHeight = 32.dp,
-            dpPerMinute = if (isTv) 6f else 4f,
-            showDetailLine = theme.spec.guide.density.rowHeightDp >= 56,
+            rowHeight = rowHeight.dp,
+            channelWidth = if (isTv) 148.dp else 96.dp,
+            headerHeight = if (isTv) 26.dp else 32.dp,
+            dpPerMinute = if (isTv) 5f else 4f,
+            showDetailLine = rowHeight >= 50,
             touch = !isTv,
         )
     }
@@ -151,14 +170,24 @@ fun GuideScreen(
     var actions by remember { mutableStateOf<SelectedProgram?>(null) }
 
     LaunchedEffect(grid) { grid.catchUp(now.value) }
-    // A new tab (or the first load) selects the channel on now, when the tab has it, or the first one.
+    // A new tab (or the first load) selects what airs now on the channel in the preview, when the tab has it, or on the first one.
     LaunchedEffect(state.channels) {
         if (state.channels.none { it.id == grid.selectedChannel }) {
             val playing = viewModel.playbackState.value.channel?.id
             val index = state.channels.indexOfFirst { it.id == playing }.coerceAtLeast(0)
-            state.channels.getOrNull(index)?.let { grid.reset(it.id) }
+            state.channels.getOrNull(index)?.let { grid.reset(it.id, System.currentTimeMillis()) }
             listState.scrollToItem(index)
         }
+    }
+    // The preview opened on a channel (at launch, or back from the full-screen player): the selection follows it, its row at the top.
+    LaunchedEffect(follow, state.channels) {
+        val channelId = follow ?: return@LaunchedEffect
+        val index = state.channels.indexOfFirst { it.id == channelId }
+        if (index >= 0) {
+            grid.selectNow(channelId, System.currentTimeMillis())
+            listState.scrollToItem(index)
+        }
+        viewModel.followed()
     }
     LaunchedEffect(grid) {
         androidx.compose.runtime.snapshotFlow { grid.windowStart to grid.spanMs }.collect { (start, span) ->
@@ -176,9 +205,14 @@ fun GuideScreen(
 
     fun inPreview(channel: GuideChannel) = viewModel.playbackState.value.channel?.id == channel.id
 
+    fun openPlayer(number: Int) {
+        viewModel.openingPlayer()
+        onWatch(number)
+    }
+
     /** The first OK on a channel shows it in the preview window, the next one watches it full screen. */
     fun watch(channel: GuideChannel) {
-        if (inPreview(channel)) onWatch(channel.number) else viewModel.preview(channel.id)
+        if (inPreview(channel)) openPlayer(channel.number) else viewModel.preview(channel.id)
     }
 
     fun activate() {
@@ -196,26 +230,41 @@ fun GuideScreen(
         }
     }
 
+    // A phone held upright stacks the preview over the details, both edge to edge.
+    val stacked = !isTv && with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } < STACK_BELOW_DP.dp
+    val side = if (isTv) 32.dp else 12.dp
     Box(modifier.fillMaxSize().background(theme.background)) {
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = if (isTv) 32.dp else 12.dp, vertical = if (isTv) 20.dp else 8.dp),
-            verticalArrangement = Arrangement.spacedBy(if (isTv) 10.dp else 6.dp),
+                .padding(horizontal = if (stacked) 0.dp else side, vertical = if (isTv) 12.dp else if (stacked) 0.dp else 8.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isTv) 8.dp else 6.dp),
         ) {
-            Row(
-                Modifier.fillMaxWidth().height(if (isTv) 150.dp else 104.dp),
-                horizontalArrangement = Arrangement.spacedBy(if (isTv) 20.dp else 10.dp),
-            ) {
-                Preview(
-                    player = player,
-                    playback = playback,
-                    onWatch = { playback.channel?.let { onWatch(it.number) } },
-                    modifier = Modifier.fillMaxHeight(),
-                )
-                Details(selected, details, playback, Modifier.weight(1f).fillMaxHeight())
+            if (stacked) {
+                // The details hang straight off the preview: one band of picture down the top.
+                Column(Modifier.fillMaxWidth()) {
+                    Preview(
+                        player = player,
+                        playback = playback,
+                        onWatch = { playback.channel?.let { openPlayer(it.number) } },
+                        edgeToEdge = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Details(selected, details, playback, edgeToEdge = true, modifier = Modifier.fillMaxWidth())
+                }
+            } else {
+                // The preview and the details meet with no gap: one band of picture across the top.
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                    Preview(
+                        player = player,
+                        playback = playback,
+                        onWatch = { playback.channel?.let { openPlayer(it.number) } },
+                        modifier = Modifier.fillMaxHeight(),
+                    )
+                    Details(selected, details, playback, Modifier.weight(1f))
+                }
             }
-            Tabs(state.tabs, state.tab, viewModel::selectTab)
+            Tabs(state.tabs, state.tab, viewModel::selectTab, Modifier.padding(horizontal = if (stacked) side else 0.dp))
             if (state.channels.isEmpty()) {
                 androidx.compose.material3.Text(
                     if (state.tab == GuideViewModel.TAB_FAVORITES) {
@@ -225,7 +274,7 @@ fun GuideScreen(
                     },
                     color = theme.textMuted,
                     fontFamily = theme.bodyFont,
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(horizontal = if (stacked) side + 16.dp else 16.dp, vertical = 16.dp),
                 )
             } else {
                 GuideGrid(
@@ -240,14 +289,14 @@ fun GuideScreen(
                     onActions = { actions = selected },
                     onCellTap = ::cellTapped,
                     onChannelTap = ::watch,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = if (stacked) side else 0.dp),
                 )
             }
         }
         actions?.let { program ->
             ProgramActions(
                 program = program,
-                onWatch = { onWatch(program.channel.number) },
+                onWatch = { openPlayer(program.channel.number) },
                 onPlay = { position -> onPlayOnDemand(program.mediaItemId, position) },
                 onAddToChannel = { onAddToChannel(program.mediaItemId) },
                 onDismiss = {
@@ -281,19 +330,23 @@ private fun rememberClock(): State<Long> {
     return clock
 }
 
-/** The channel on now in a small window. Selecting it watches in full screen. */
+/**
+ * The channel on now in a window. Selecting it watches in full screen. [edgeToEdge] spans the
+ * screen's width with no frame, as on a phone held upright.
+ */
 @OptIn(UnstableApi::class)
 @Composable
-private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Unit, modifier: Modifier) {
+private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Unit, modifier: Modifier, edgeToEdge: Boolean = false) {
     val theme = LocalAnstelleTheme.current
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(10.dp)
+    // Beside the details it only rounds its outer corners, so the two meet square.
+    val shape = if (edgeToEdge) RectangleShape else RoundedCornerShape(topStart = 2.dp, bottomStart = 2.dp)
     Box(
         modifier
             .aspectRatio(16f / 9f)
             .clip(shape)
             .background(Color.Black)
-            .border(2.dp, if (focused) theme.focus else Color.Transparent, shape)
+            .border(if (focused) 3.dp else if (edgeToEdge) 0.dp else 1.dp, if (focused) theme.accent else theme.line, shape)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onWatch),
     ) {
@@ -326,26 +379,54 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
             else -> null
         }
         playback.channel?.let { channel ->
-            androidx.compose.material3.Text(
-                listOfNotNull("${channel.number}  ${channel.name}", status).joinToString("  ·  "),
-                color = Color.White,
-                fontSize = 12.sp,
-                fontFamily = theme.bodyFont,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .background(Color(0x99000000))
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-            )
+            Row(
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().background(theme.banner),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Text(
+                    "${channel.number}",
+                    color = theme.onAccent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = theme.displayFont,
+                    style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
+                    maxLines = 1,
+                    modifier = Modifier.background(theme.accent).padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+                androidx.compose.material3.Text(
+                    channel.name,
+                    color = theme.bannerText,
+                    fontSize = 12.sp,
+                    fontFamily = theme.bodyFont,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false).padding(horizontal = 6.dp),
+                )
+                // The status keeps its own slot, so a long channel name can never push it out of view.
+                status?.let {
+                    androidx.compose.material3.Text(
+                        it.uppercase(),
+                        color = theme.accent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = theme.displayFont,
+                        maxLines = 1,
+                        modifier = Modifier.padding(end = 6.dp),
+                    )
+                }
+            }
         }
     }
 }
 
-/** The selected program, or what the preview plays while nothing is selected. */
+/**
+ * The selected program, or what the preview plays while nothing is selected, over its show's
+ * backdrop. The show's logo stands in for its title when the server has one. Five lines are
+ * kept for the overview whether or not it fills them, so the grid never jumps as the
+ * selection moves.
+ */
 @Composable
-private fun Details(selected: SelectedProgram?, details: ProgramDetails?, playback: PlaybackState, modifier: Modifier) {
+private fun Details(selected: SelectedProgram?, details: ProgramDetails?, playback: PlaybackState, modifier: Modifier, edgeToEdge: Boolean = false) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val title: String
@@ -354,87 +435,100 @@ private fun Details(selected: SelectedProgram?, details: ProgramDetails?, playba
     if (selected != null) {
         title = selected.title
         detail = selected.detail
-        time = "${timeRange(selected.startUtcMs, selected.endUtcMs)}  ·  ${selected.channel.number} ${selected.channel.name}"
+        // Phones keep the line short enough never to cut the channel off: its name is under the preview.
+        time = if (isTv) {
+            "${timeRange(selected.startUtcMs, selected.endUtcMs)}  ·  ${selected.channel.number}  ${selected.channel.name}"
+        } else {
+            "${timeRange(selected.startUtcMs, selected.endUtcMs)}  ·  ${selected.channel.number}"
+        }
     } else {
-        val on = playback.now ?: return Box(modifier)
-        title = on.title
-        detail = on.detail
-        time = timeRange(on.startUtcMs, on.endUtcMs)
+        val on = playback.now
+        title = on?.title.orEmpty()
+        detail = on?.detail
+        time = on?.let { timeRange(it.startUtcMs, it.endUtcMs) }.orEmpty()
     }
     val more = details?.takeIf { selected != null && it.mediaItemId == selected.mediaItemId }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        androidx.compose.material3.Text(
-            title,
-            color = theme.text,
-            fontSize = if (isTv) 24.sp else 18.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = theme.displayFont,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        detail?.let {
-            androidx.compose.material3.Text(it, color = theme.text, fontSize = if (isTv) 16.sp else 13.sp, fontFamily = theme.bodyFont, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+    // Artwork belongs to the show, so it stays put while the selection moves through one show's episodes.
+    val artwork = details?.takeIf { selected != null && it.title == selected.title }?.artwork
+    Backdrop(
+        url = artwork?.backdropUrl,
+        modifier = modifier.clip(if (edgeToEdge) RectangleShape else RoundedCornerShape(topEnd = 2.dp, bottomEnd = 2.dp)),
+        alignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier.padding(horizontal = if (isTv) 16.dp else 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            TitleLogo(
+                logoUrl = artwork?.logoUrl,
+                title = title,
+                height = if (isTv) 56.dp else 30.dp,
+                maxLogoWidth = if (isTv) 320.dp else 200.dp,
+                style = androidx.compose.ui.text.TextStyle(
+                    fontSize = if (isTv) 24.sp else 20.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = theme.displayFont,
+                ),
+            )
+            // The episode (or a movie's title and year) in full ink, then its facts quieter on the same line.
+            val lead = lineUnderLogo(detail, title, isEpisode = more?.isEpisode ?: true, hasLogo = artwork?.logoUrl != null)
+            val line = buildAnnotatedString {
+                lead?.let { append(it) }
+                if (more != null && more.facts.isNotEmpty()) {
+                    if (lead != null) append("  ·  ")
+                    withStyle(SpanStyle(color = theme.textMuted)) { append(more.facts) }
+                }
+            }
             androidx.compose.material3.Text(
-                time,
-                color = theme.secondary,
-                fontSize = if (isTv) 14.sp else 12.sp,
+                line,
+                color = theme.text,
+                fontSize = 13.sp,
                 fontFamily = theme.bodyFont,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
             )
-            more?.badges?.forEach { Badge(it) }
-        }
-        if (more != null && more.facts.isNotEmpty()) {
-            androidx.compose.material3.Text(more.facts, color = theme.textMuted, fontSize = if (isTv) 13.sp else 11.sp, fontFamily = theme.bodyFont, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        more?.overview?.let {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (selected != null) AirMarker(onAir = selected.isOn(System.currentTimeMillis()))
+                androidx.compose.material3.Text(
+                    time,
+                    color = theme.accent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = theme.displayFont,
+                    style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                more?.badges?.forEach { Badge(it.uppercase()) }
+            }
+            val overviewLines = if (isTv) TV_OVERVIEW_LINES else OVERVIEW_LINES
             androidx.compose.material3.Text(
-                it,
-                color = theme.textMuted,
-                fontSize = if (isTv) 13.sp else 11.sp,
+                more?.overview.orEmpty(),
+                color = theme.text,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
                 fontFamily = theme.bodyFont,
-                maxLines = if (isTv) 2 else 1,
+                minLines = overviewLines,
+                maxLines = overviewLines,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 3.dp),
             )
         }
     }
 }
 
 @Composable
-private fun Badge(text: String) {
-    val theme = LocalAnstelleTheme.current
-    androidx.compose.material3.Text(
-        text,
-        color = theme.text,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Bold,
-        fontFamily = theme.bodyFont,
-        modifier = Modifier
-            .border(1.dp, theme.textMuted, RoundedCornerShape(4.dp))
-            .padding(horizontal = 5.dp, vertical = 1.dp),
-    )
-}
+private fun Badge(text: String) = OsdBadge(text)
 
-@kotlin.OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun Tabs(tabs: List<GuideTab>, open: String, onSelect: (String) -> Unit) {
-    val isTv = LocalIsTv.current
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(tabs, key = { it.key }) { tab ->
-            val selected = tab.key == open
-            if (isTv) {
-                androidx.tv.material3.FilterChip(selected = selected, onClick = { onSelect(tab.key) }) {
-                    androidx.tv.material3.Text(tab.label)
-                }
-            } else {
-                androidx.compose.material3.FilterChip(
-                    selected = selected,
-                    onClick = { onSelect(tab.key) },
-                    label = { androidx.compose.material3.Text(tab.label) },
-                )
+private fun Tabs(tabs: List<GuideTab>, open: String, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
+    val theme = LocalAnstelleTheme.current
+    Box(modifier) {
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(1.dp).background(theme.line))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(tabs, key = { it.key }) { tab ->
+                OsdTab(tab.label, selected = tab.key == open, onClick = { onSelect(tab.key) }, compact = LocalIsTv.current)
             }
         }
     }
@@ -459,33 +553,41 @@ private fun ProgramActions(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xB3000000))
+            .background(Color(0xCC000000))
             .pointerInput(Unit) { detectTapGestures { onDismiss() } },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
+        OsdPanel(
             Modifier
-                .widthIn(max = 520.dp)
+                .widthIn(max = 560.dp)
                 .padding(24.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(theme.surface)
                 // Taps on the panel itself don't close it.
-                .pointerInput(Unit) { detectTapGestures { } }
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .pointerInput(Unit) { detectTapGestures { } },
         ) {
-            androidx.compose.material3.Text(program.title, color = theme.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, fontFamily = theme.displayFont)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                NumberBlock(
+                    "${program.channel.number}",
+                    style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.height(36.dp),
+                )
+                androidx.compose.material3.Text(
+                    program.title,
+                    style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
+                    color = theme.text,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             androidx.compose.material3.Text(
-                listOfNotNull(program.detail, timeRange(program.startUtcMs, program.endUtcMs), "${program.channel.number} ${program.channel.name}").joinToString("  ·  "),
+                listOfNotNull(program.detail, timeRange(program.startUtcMs, program.endUtcMs), program.channel.name).joinToString("  ·  "),
+                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                 color = theme.textMuted,
-                fontSize = 14.sp,
-                fontFamily = theme.bodyFont,
             )
             val tile = Modifier.fillMaxWidth()
             var focusUsed = false
             fun Modifier.firstFocus(): Modifier = if (focusUsed) this else this.focusRequester(first).also { focusUsed = true }
             if (onNow) {
-                FocusTile("Watch channel ${program.channel.number}", onClick = onWatch, subtitle = "Join it live.", icon = Icons.Filled.LiveTv, modifier = tile.firstFocus())
+                FocusTile("Watch channel ${program.channel.number}", onClick = onWatch, subtitle = "Join it live.", icon = Icons.Filled.LiveTv, trailing = TileTrailing.Chevron, modifier = tile.firstFocus())
             }
             if (program.mediaItemId != 0L) {
                 FocusTile(
@@ -527,4 +629,14 @@ private fun minutes(ms: Long): String {
 }
 
 private const val CLOCK_MS = 30_000L
+
+/**
+ * Lines kept for the selected program's overview. TV keeps fewer, paying for a logo large
+ * enough to read from the couch without taking channels from the grid.
+ */
+private const val OVERVIEW_LINES = 5
+private const val TV_OVERVIEW_LINES = 3
+
+/** Narrower than this (a phone held upright), the preview sits over the details instead of beside them. */
+private const val STACK_BELOW_DP = 600
 private const val MIN_RESUME_MS = 60_000L

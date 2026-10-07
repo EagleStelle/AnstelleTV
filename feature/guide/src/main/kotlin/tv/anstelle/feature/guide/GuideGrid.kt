@@ -43,7 +43,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -69,7 +71,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.flow.collectLatest
 import tv.anstelle.core.data.guide.ProgramStrip
@@ -157,6 +161,8 @@ internal fun GuideGrid(
                 .weight(1f)
                 .fillMaxWidth()
                 .onSizeChanged { grid.widthPx = (it.width - channelWidthPx).toInt().coerceAtLeast(0) }
+                // The past shade and the now line lie over the cells; the line continues the
+                // playhead drawn in the time header.
                 .drawWithContent {
                     drawContent()
                     val x = channelWidthPx + (now.value - grid.windowStart) * grid.pxPerMs
@@ -224,6 +230,7 @@ internal fun GuideGrid(
                         channel = channel,
                         strip = strips.value[channel.id] ?: ProgramStrip.EMPTY,
                         grid = grid,
+                        now = now,
                         metrics = metrics,
                         onTap = { x ->
                             val before = grid.selectedChannel to (strips.value[channel.id]?.indexAt(grid.selectedTime) ?: -1)
@@ -248,17 +255,19 @@ internal fun GuideGrid(
 private fun TimeHeader(grid: GuideGridState, metrics: GridMetrics, now: State<Long>) {
     val theme = LocalAnstelleTheme.current
     val measurer = rememberTextMeasurer(cacheSize = 16)
-    val style = TextStyle(color = theme.textMuted, fontSize = 13.sp, fontFamily = theme.bodyFont)
+    val labelSize = if (metrics.touch) 14.sp else 12.sp
+    val style = TextStyle(color = theme.textMuted, fontSize = labelSize, fontWeight = FontWeight.SemiBold, fontFamily = theme.displayFont, fontFeatureSettings = "tnum")
     val labels = remember { HashMap<Long, String>() }
     val format = remember { DateFormat.getTimeInstance(DateFormat.SHORT) }
     val day by remember(grid) { derivedStateOf { dayLabel(grid.windowStart, now.value) } }
     Row(Modifier.fillMaxWidth().height(metrics.headerHeight), verticalAlignment = Alignment.CenterVertically) {
         androidx.compose.material3.Text(
-            day,
+            day.uppercase(),
             color = theme.text,
-            fontSize = 14.sp,
+            fontSize = labelSize,
             fontWeight = FontWeight.SemiBold,
-            fontFamily = theme.bodyFont,
+            fontFamily = theme.displayFont,
+            letterSpacing = 0.06.em,
             modifier = Modifier.width(metrics.channelWidth).padding(start = 8.dp),
         )
         Canvas(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
@@ -268,11 +277,19 @@ private fun TimeHeader(grid: GuideGridState, metrics: GridMetrics, now: State<Lo
             val tick = 1.dp.toPx()
             while (mark < end) {
                 val x = (mark - start) * grid.pxPerMs
-                drawRect(theme.textMuted, topLeft = Offset(x, size.height * 0.55f), size = Size(tick, size.height * 0.45f))
+                drawRect(theme.line, topLeft = Offset(x, size.height * 0.55f), size = Size(tick, size.height * 0.45f))
                 val label = labels.getOrPut(mark) { format.format(Date(mark)) }
                 // One line, clipped at the edge, so a label near the right end doesn't wrap.
                 drawText(measurer, label, topLeft = Offset(x + 6.dp.toPx(), size.height * 0.15f), style = style, softWrap = false, maxLines = 1)
                 mark += GuideGridState.HALF_HOUR_MS
+            }
+            // Now: the line's head, a short bar ending in a square, above the line drawn over the rows.
+            val nowX = (now.value - start) * grid.pxPerMs
+            if (nowX >= 0f && nowX <= size.width) {
+                val line = 2.dp.toPx()
+                val head = 8.dp.toPx()
+                drawRect(theme.nowLine, topLeft = Offset(nowX - line / 2, size.height * 0.5f), size = Size(line, size.height * 0.5f))
+                drawRect(theme.nowLine, topLeft = Offset(nowX - head / 2, size.height - head), size = Size(head, head))
             }
         }
     }
@@ -283,17 +300,19 @@ private fun GuideRow(
     channel: GuideChannel,
     strip: ProgramStrip,
     grid: GuideGridState,
+    now: State<Long>,
     metrics: GridMetrics,
     onTap: (x: Float) -> Unit,
     onLongPress: (x: Float) -> Unit,
     onChannelTap: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().height(metrics.rowHeight).padding(vertical = 2.dp)) {
-        ChannelCell(channel, Modifier.width(metrics.channelWidth).fillMaxHeight().clickable(onClick = onChannelTap))
+        ChannelCell(channel, stacked = metrics.touch, Modifier.width(metrics.channelWidth).fillMaxHeight().clickable(onClick = onChannelTap))
         ProgramCells(
             channelId = channel.id,
             strip = strip,
             grid = grid,
+            now = now,
             showDetail = metrics.showDetailLine,
             touch = metrics.touch,
             modifier = Modifier
@@ -307,9 +326,50 @@ private fun GuideRow(
     }
 }
 
+/**
+ * The channel column. On the narrow phone column the number sits above the name, so names
+ * get the cell's full width instead of breaking mid-word beside the number.
+ */
 @Composable
-private fun ChannelCell(channel: GuideChannel, modifier: Modifier) {
+private fun ChannelCell(channel: GuideChannel, stacked: Boolean, modifier: Modifier) {
     val theme = LocalAnstelleTheme.current
+    if (stacked) {
+        Column(
+            modifier = modifier
+                .padding(end = 4.dp)
+                .background(theme.surface, cellShape())
+                .padding(horizontal = 8.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                androidx.compose.material3.Text(
+                    "${channel.number}",
+                    color = theme.accent,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = theme.displayFont,
+                    style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
+                    maxLines = 1,
+                )
+                if (channel.logo != null) {
+                    AsyncImage(model = channel.logo, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+                if (channel.isFavorite) {
+                    androidx.compose.material3.Icon(Icons.Filled.Star, contentDescription = "Favorite", tint = theme.accent, modifier = Modifier.size(12.dp))
+                }
+            }
+            androidx.compose.material3.Text(
+                channel.name,
+                color = theme.text,
+                fontSize = 12.sp,
+                lineHeight = 14.sp,
+                fontFamily = theme.bodyFont,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        return
+    }
     Row(
         modifier = modifier
             .padding(end = 4.dp)
@@ -320,26 +380,28 @@ private fun ChannelCell(channel: GuideChannel, modifier: Modifier) {
     ) {
         androidx.compose.material3.Text(
             "${channel.number}",
-            color = theme.primary,
-            fontSize = 16.sp,
+            color = theme.accent,
+            fontSize = 15.sp,
             fontWeight = FontWeight.Bold,
-            fontFamily = theme.bodyFont,
+            fontFamily = theme.displayFont,
+            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
             maxLines = 1,
         )
         if (channel.logo != null) {
-            AsyncImage(model = channel.logo, contentDescription = null, modifier = Modifier.size(28.dp))
+            AsyncImage(model = channel.logo, contentDescription = null, modifier = Modifier.size(24.dp))
         }
         androidx.compose.material3.Text(
             channel.name,
             color = theme.text,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
+            lineHeight = 15.sp,
             fontFamily = theme.bodyFont,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         if (channel.isFavorite) {
-            androidx.compose.material3.Icon(Icons.Filled.Star, contentDescription = "Favorite", tint = theme.secondary, modifier = Modifier.size(14.dp))
+            androidx.compose.material3.Icon(Icons.Filled.Star, contentDescription = "Favorite", tint = theme.accent, modifier = Modifier.size(12.dp))
         }
     }
 }
@@ -355,6 +417,7 @@ private fun ProgramCells(
     channelId: Long,
     strip: ProgramStrip,
     grid: GuideGridState,
+    now: State<Long>,
     showDetail: Boolean,
     touch: Boolean,
     modifier: Modifier,
@@ -370,25 +433,53 @@ private fun ProgramCells(
     val selected by remember(strip, grid, channelId) {
         derivedStateOf { if (grid.selectedChannel == channelId) strip.indexAt(grid.selectedTime) else -1 }
     }
+    // These change only when a program ends or starts, so the clock's ticks don't recompose the row.
+    val upcoming by remember(strip, now) { derivedStateOf { strip.firstEndingAfter(now.value) } }
+    val onAir by remember(strip, now) { derivedStateOf { strip.indexAt(now.value) } }
     val gap = with(LocalDensity.current) { 2.dp.roundToPx() }
+    val theme = LocalAnstelleTheme.current
+    val runs = remember(strip, theme.guideRuns.size) { strip.runSlots(theme.guideRuns.size) }
     Layout(
         content = {
             val first = low(range)
             val last = high(range)
+            val showOnAir = if (onAir >= 0 && !strip.isOffAir(onAir)) strip.shows[onAir] else -1L
             for (i in first until last) {
                 androidx.compose.runtime.key(strip.starts[i]) {
                     ProgramCell(
                         title = strip.titles[i],
                         detail = if (showDetail) strip.details[i] else null,
                         offAir = strip.isOffAir(i),
+                        // Ended programs recede; the one on air and its show's later airings keep
+                        // the plain cell; every other show takes its run's color.
+                        tone = when {
+                            i < upcoming -> TONE_PAST
+                            i == onAir || strip.shows[i] == showOnAir -> TONE_PLAIN
+                            else -> runs[i]
+                        },
                         selected = i == selected,
                         focused = touch || grid.focused,
                         shape = shape,
+                        tv = !touch,
                     )
                 }
             }
         },
-        modifier = modifier,
+        // The program on air carries a solid square in its top corner, drawn from the clock
+        // without recomposing: state that reads without the accent hue.
+        modifier = modifier.drawWithContent {
+            drawContent()
+            val nowMs = now.value
+            val i = strip.indexAt(nowMs)
+            if (i < 0 || strip.isOffAir(i)) return@drawWithContent
+            val right = min((strip.ends[i] - grid.windowStart) * grid.pxPerMs, size.width) - gap
+            val marker = 6.dp.toPx()
+            val inset = 5.dp.toPx()
+            if (right - marker - inset < 0f) return@drawWithContent
+            val onFill = grid.focused || touch
+            val filled = onFill && grid.selectedChannel == channelId && strip.indexAt(grid.selectedTime) == i
+            drawRect(if (filled) theme.onAccent else theme.accent, topLeft = Offset(right - marker - inset, inset), size = Size(marker, marker))
+        },
     ) { measurables, constraints ->
         val start = grid.windowStart
         val first = low(range)
@@ -408,29 +499,57 @@ private fun ProgramCells(
 }
 
 @Composable
-private fun ProgramCell(title: String, detail: String?, offAir: Boolean, selected: Boolean, focused: Boolean, shape: Shape) {
+private fun ProgramCell(
+    title: String,
+    detail: String?,
+    offAir: Boolean,
+    tone: Int,
+    selected: Boolean,
+    focused: Boolean,
+    shape: Shape,
+    tv: Boolean,
+) {
     val theme = LocalAnstelleTheme.current
+    // Focus is a fill: the selected cell turns the accent with ink text. Without focus (the
+    // drawer or tabs have it) the selection keeps a hairline so it isn't lost.
     val highlighted = selected && focused
+    val past = tone == TONE_PAST
+    val run = !offAir && tone >= 0
     // A shaped background, not a clip: clipping every cell to a rounded path costs the GPU more.
-    Column(
-        modifier = Modifier
+    // A cell too narrow for a word shows its bare fill rather than a stack of ellipses.
+    NarrowGate(
+        Modifier
             .background(
                 when {
-                    highlighted -> theme.guideCellFocused
+                    highlighted -> theme.accent
                     offAir -> theme.background
+                    past -> theme.guideCellPast
+                    run -> theme.guideRuns[tone]
                     else -> theme.guideCell
                 },
                 shape,
             )
-            .then(if (selected) Modifier.border(2.dp, if (focused) theme.focus else theme.textMuted, shape) else Modifier)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .then(
+                when {
+                    selected && !focused -> Modifier.border(1.dp, theme.textMuted, shape)
+                    offAir -> Modifier.border(1.dp, theme.line, shape)
+                    else -> Modifier
+                },
+            ),
+    ) {
+    Column(
+        modifier = Modifier.padding(horizontal = 8.dp, vertical = if (tv) 3.dp else 4.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         androidx.compose.material3.Text(
             title,
-            color = if (offAir) theme.textMuted else theme.text,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
+            color = when {
+                highlighted -> theme.onAccent
+                offAir || past -> theme.textMuted
+                else -> theme.text
+            },
+            fontSize = if (tv) 14.sp else 15.sp,
+            fontWeight = FontWeight.SemiBold,
             fontFamily = theme.bodyFont,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -438,15 +557,45 @@ private fun ProgramCell(title: String, detail: String?, offAir: Boolean, selecte
         if (detail != null) {
             androidx.compose.material3.Text(
                 detail,
-                color = theme.textMuted,
-                fontSize = 12.sp,
+                // Full ink: the past shade dims the focused cell too, and the detail must stay legible over it.
+                // On a run's color the detail is the title's bone thinned, so it takes on the cell's hue.
+                color = when {
+                    highlighted -> theme.onAccent
+                    run -> theme.text.copy(alpha = RUN_DETAIL_ALPHA)
+                    else -> theme.textMuted
+                },
+                fontSize = if (tv) 11.sp else 12.sp,
                 fontFamily = theme.bodyFont,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
     }
+    }
 }
+
+/** Fills its box; places [content] only when the box is wide enough for a few letters. */
+@Composable
+private fun NarrowGate(modifier: Modifier, content: @Composable () -> Unit) {
+    val minWidth = with(LocalDensity.current) { MIN_TEXT_CELL.roundToPx() }
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val width = constraints.maxWidth
+        val height = constraints.maxHeight
+        if (width < minWidth) {
+            layout(width, height) {}
+        } else {
+            val placeable = measurables.first().measure(Constraints.fixed(width, height))
+            layout(width, height) { placeable.place(0, 0) }
+        }
+    }
+}
+
+private val MIN_TEXT_CELL = 44.dp
+
+/** A cell's tone: ended, plain (on air and its show's later airings), or a run color's index from 0. */
+private const val TONE_PAST = -2
+private const val TONE_PLAIN = -1
+private const val RUN_DETAIL_ALPHA = 0.76f
 
 /** "Today", "Tomorrow" or the weekday and date of the left edge. */
 private fun dayLabel(windowStart: Long, now: Long): String {

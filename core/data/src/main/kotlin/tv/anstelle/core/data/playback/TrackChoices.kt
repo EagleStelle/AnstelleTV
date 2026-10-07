@@ -77,21 +77,23 @@ class TrackChoices @Inject constructor(
             .build()
     }
 
+    /**
+     * The tracks of [type], each named by its language alone. Tracks that share a language, or
+     * don't name one, show their details instead so they can be told apart.
+     */
     fun options(player: Player, type: Int): List<TrackOption> {
-        val options = ArrayList<TrackOption>()
         val groups = player.currentTracks.groups
-        var anySelected = false
-        groups.forEachIndexed { g, group ->
-            if (group.type != type) return@forEachIndexed
-            for (t in 0 until group.length) {
-                if (!group.isTrackSupported(t)) continue
-                val format = group.getTrackFormat(t)
-                val selected = group.isTrackSelected(t)
-                if (selected) anySelected = true
-                options += TrackOption(g, t, label(format, options.size + 1), format.language, selected)
-            }
+        val tracks = groups.indices.filter { groups[it].type == type }
+            .flatMap { g -> (0 until groups[g].length).filter { groups[g].isTrackSupported(it) }.map { g to it } }
+        val formats = tracks.map { (g, t) -> groups[g].getTrackFormat(t) }
+        val languages = formats.map(::languageName)
+        val counts = languages.groupingBy { it }.eachCount()
+        val options = tracks.mapIndexedTo(ArrayList()) { i, (g, t) ->
+            val language = languages[i]
+            val label = if (language != null && counts[language] == 1) language else details(formats[i], i + 1)
+            TrackOption(g, t, label, formats[i].language, groups[g].isTrackSelected(t))
         }
-        if (type == C.TRACK_TYPE_TEXT) options.add(0, TrackOption(-1, -1, "Off", null, !anySelected))
+        if (type == C.TRACK_TYPE_TEXT) options.add(0, TrackOption(-1, -1, "Off", null, options.none { it.selected }))
         return options
     }
 
@@ -108,13 +110,18 @@ class TrackChoices @Inject constructor(
         player.trackSelectionParameters = builder.build()
     }
 
-    /** "English · 5.1 · DD" or "Japanese · Signs". */
-    private fun label(format: Format, number: Int): String {
-        val parts = ArrayList<String>(4)
+    /** "English", or null when the track doesn't say. */
+    private fun languageName(format: Format): String? =
         format.language?.takeIf { it != C.LANGUAGE_UNDETERMINED }?.let {
-            parts += Locale.forLanguageTag(it).getDisplayLanguage(Locale.getDefault()).ifBlank { it }
+            Locale.forLanguageTag(it).getDisplayLanguage(Locale.getDefault()).ifBlank { it }
         }
+
+    /** "English · 5.1 · DD" or "Japanese · Signs". */
+    private fun details(format: Format, number: Int): String {
+        val parts = ArrayList<String>(5)
+        languageName(format)?.let { parts += it }
         format.label?.takeIf { it.isNotBlank() }?.let { parts += it }
+        if (format.selectionFlags and C.SELECTION_FLAG_FORCED != 0) parts += "forced"
         when (format.channelCount) {
             Format.NO_VALUE, 0 -> Unit
             1 -> parts += "mono"

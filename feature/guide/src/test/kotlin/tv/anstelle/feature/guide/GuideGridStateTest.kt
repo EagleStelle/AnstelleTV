@@ -18,7 +18,7 @@ class GuideGridStateTest {
     /** Two visible hours, opening at the current half hour. */
     private fun grid() = GuideGridState(at(10, 0), pxPerMs = 1200f / (2 * hour)).apply {
         widthPx = 1200
-        reset(1)
+        reset(1, now)
     }
 
     private val strip = ProgramStrip.fromRows(
@@ -32,9 +32,27 @@ class GuideGridStateTest {
     ).getValue(1)
 
     private fun cell(start: Long, end: Long, item: Long) =
-        GuideAiring(1, SlotKind.PROGRAM, item, start, end, "Item $item", null, null, null, null)
+        GuideAiring(1, SlotKind.PROGRAM, item, item, start, end, "Item $item", null, null, null, null)
 
     private val channels = listOf(1L, 2L, 3L).map { GuideChannel(it, it.toInt(), "Channel $it", null, isFavorite = false) }
+
+    @Test
+    fun `reset selects the program on now, not one that ended since the half hour`() {
+        val grid = grid()
+        grid.reset(2, at(10, 25))
+        assertEquals(2, grid.selectedChannel)
+        assertEquals(2L, strip.items[strip.indexAt(grid.selectedTime)])
+        assertEquals(at(10, 0), grid.targetStart)
+    }
+
+    @Test
+    fun `reset keeps later hours the user paged to`() {
+        val grid = grid()
+        grid.targetStart = at(14, 0)
+        grid.reset(2, now)
+        assertEquals(at(14, 0), grid.selectedTime)
+        assertEquals(at(14, 0), grid.targetStart)
+    }
 
     @Test
     fun `right steps cell by cell and pages once a cell starts near the edge`() {
@@ -94,6 +112,16 @@ class GuideGridStateTest {
         assertEquals(grid.windowStart, grid.targetStart)
         assertFalse(grid.scrollByPx(-1200f, now))
         assertEquals(at(10, 0), grid.windowStart)
+    }
+
+    @Test
+    fun `selecting now pages the hours back from later ones`() {
+        val grid = grid()
+        grid.targetStart = at(14, 0)
+        grid.selectNow(2, now)
+        assertEquals(2, grid.selectedChannel)
+        assertEquals(now, grid.selectedTime)
+        assertEquals(at(10, 0), grid.targetStart)
     }
 
     @Test

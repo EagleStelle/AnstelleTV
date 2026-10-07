@@ -6,6 +6,11 @@ import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.LiveTv
+import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 import kotlinx.serialization.Serializable
 
@@ -52,11 +57,14 @@ const val PlayerRouteNoChannel = -1
 /** Adds a language to the subtitle list when [subtitles], else to the audio list. */
 @Serializable data class LanguagePickerRoute(val subtitles: Boolean)
 
-/** Destinations reachable from the TV navigation drawer and the phone navigation bar. */
-enum class TopLevelDestination(val label: String, val icon: ImageVector, val route: Any) {
-    Guide("Guide", Icons.Filled.LiveTv, GuideRoute),
-    OnDemand("On demand", Icons.Filled.Movie, OnDemandGraph),
-    Dashboard("Dashboard", Icons.Filled.Dashboard, DashboardRoute),
-    Settings("Settings", Icons.Filled.Settings, SettingsGraph),
-    Profiles("Profiles", Icons.Filled.People, ProfilesRoute),
+/**
+ * Destinations reachable from the TV navigation drawer and the phone navigation bar. Phones
+ * show the filled [icon] for the open destination and the [outlinedIcon] for the rest.
+ */
+enum class TopLevelDestination(val label: String, val icon: ImageVector, val outlinedIcon: ImageVector, val route: Any) {
+    Guide("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv, GuideRoute),
+    OnDemand("On demand", Icons.Filled.Movie, Icons.Outlined.Movie, OnDemandGraph),
+    Dashboard("Dashboard", Icons.Filled.Dashboard, Icons.Outlined.Dashboard, DashboardRoute),
+    Settings("Settings", Icons.Filled.Settings, Icons.Outlined.Settings, SettingsGraph),
+    Profiles("Profiles", Icons.Filled.People, Icons.Outlined.People, ProfilesRoute),
 }

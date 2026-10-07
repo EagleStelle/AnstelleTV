@@ -2,7 +2,10 @@ package tv.anstelle.feature.ondemand
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +43,8 @@ import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.ondemand.OnDemandTitle
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
+import tv.anstelle.core.theme.components.OsdTab
+
 import javax.inject.Inject
 
 enum class OnDemandTab { SHOWS, MOVIES }
@@ -94,12 +100,21 @@ fun OnDemandScreen(
             .padding(horizontal = if (isTv) 48.dp else 12.dp, vertical = if (isTv) 28.dp else 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("On demand", size = if (isTv) 28 else 22, weight = FontWeight.SemiBold)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TabChip("TV shows (${state.shows.size})", tab == OnDemandTab.SHOWS) { viewModel.tab.value = OnDemandTab.SHOWS }
-            TabChip("Movies (${state.movies.size})", tab == OnDemandTab.MOVIES) { viewModel.tab.value = OnDemandTab.MOVIES }
+        androidx.compose.material3.Text(
+            "On demand",
+            style = if (isTv) {
+                androidx.compose.material3.MaterialTheme.typography.headlineLarge
+            } else {
+                androidx.compose.material3.MaterialTheme.typography.headlineMedium
+            },
+            color = theme.text,
+        )
+        Box {
+            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(1.dp).background(theme.line))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                OsdTab("TV shows", tab == OnDemandTab.SHOWS, count = state.shows.size, onClick = { viewModel.tab.value = OnDemandTab.SHOWS })
+                OsdTab("Movies", tab == OnDemandTab.MOVIES, count = state.movies.size, onClick = { viewModel.tab.value = OnDemandTab.MOVIES })
+            }
         }
         if (titles.isEmpty()) {
             Text(
@@ -112,8 +127,8 @@ fun OnDemandScreen(
         LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Adaptive(if (isTv) 128.dp else 112.dp),
-            horizontalArrangement = Arrangement.spacedBy(if (isTv) 20.dp else 10.dp),
-            verticalArrangement = Arrangement.spacedBy(if (isTv) 20.dp else 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isTv) 14.dp else 8.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isTv) 14.dp else 8.dp),
             contentPadding = PaddingValues(vertical = 8.dp),
         ) {
             itemsIndexed(titles, key = { _, title -> title.id }) { i, title ->
@@ -133,12 +148,3 @@ fun OnDemandScreen(
     }
 }
 
-@kotlin.OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TabChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    if (LocalIsTv.current) {
-        androidx.tv.material3.FilterChip(selected = selected, onClick = onClick) { androidx.tv.material3.Text(label) }
-    } else {
-        androidx.compose.material3.FilterChip(selected = selected, onClick = onClick, label = { androidx.compose.material3.Text(label) })
-    }
-}

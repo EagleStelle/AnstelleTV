@@ -3,30 +3,38 @@ package tv.anstelle.feature.player
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
+
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,9 +43,11 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -47,10 +57,14 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -64,21 +78,30 @@ import tv.anstelle.core.data.playback.PlaybackState
 import tv.anstelle.core.data.playback.ProgramInfo
 import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.data.playback.TuneStatus
+import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.player.SubtitleOverlays
+import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.FocusTile
+import tv.anstelle.core.theme.PanelShape
+import tv.anstelle.core.theme.components.AirMarker
+import tv.anstelle.core.theme.components.NumberBlock
+import tv.anstelle.core.theme.components.SegmentLadder
+import tv.anstelle.core.theme.components.TitleLogo
+
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.abs
 
-/** What the controls panel shows. */
+/** Where the banner's keys are: [CONTROLS] has focus on them, the others show a track list. */
 private enum class Panel { CONTROLS, AUDIO, SUBTITLES }
 
 /**
  * Full-screen channel playback, like a TV: up/down or the channel keys surf, digits enter a
- * number, left (or the last-channel key) jumps back, OK shows the info banner and then the
- * audio and subtitle choices. On phones, swipe up or down to surf and tap for the controls.
+ * number, left and right seek back 10 s and ahead 30 s (the channel's schedule moves with the
+ * program). The banner always carries its keys (audio, subtitles and Restart); it snaps in on
+ * every tune and seek with focus left on the picture, and OK, Info or Menu moves focus into the
+ * keys. On phones, swipe up or down to surf, tap for the banner and drag its bar to seek.
  */
 @Composable
 fun PlayerScreen(
@@ -96,6 +119,7 @@ fun PlayerScreen(
         viewModel.resume()
         onStopOrDispose { viewModel.pause() }
     }
+    LandscapeFullScreen()
 
     var bannerVisible by remember { mutableStateOf(true) }
     var bannerRequest by remember { mutableLongStateOf(0L) }
@@ -106,7 +130,23 @@ fun PlayerScreen(
     }
     var panel by remember { mutableStateOf<Panel?>(null) }
     BackHandler(enabled = panel != null) { panel = if (panel == Panel.CONTROLS) null else Panel.CONTROLS }
-    LaunchedEffect(panel) { if (panel == null) runCatching { focus.requestFocus() } }
+    val audioKey = remember { FocusRequester() }
+    val subtitlesKey = remember { FocusRequester() }
+    // The key that opened a track list gets focus back when the list closes.
+    var returnKey by remember { mutableStateOf<FocusRequester?>(null) }
+    LaunchedEffect(panel) {
+        when (panel) {
+            null -> {
+                returnKey = null
+                runCatching { focus.requestFocus() }
+            }
+            Panel.CONTROLS -> {
+                withFrameNanos { }
+                runCatching { (returnKey ?: audioKey).requestFocus() }
+            }
+            else -> Unit
+        }
+    }
 
     val swipeThreshold = with(LocalDensity.current) { 96.dp.toPx() }
     Box(
@@ -119,12 +159,8 @@ fun PlayerScreen(
                 // OK opens things on key-up: on key-down, the newly focused control would get the key-up as a click.
                 if (event.key in ConfirmKeys) {
                     if (event.type == KeyEventType.KeyUp) {
-                        when {
-                            event.key == Key.Info || event.key == Key.Menu -> panel = Panel.CONTROLS
-                            entry.isNotEmpty() -> viewModel.commitEntry()
-                            bannerVisible -> panel = Panel.CONTROLS
-                            else -> bannerRequest++
-                        }
+                        val menu = event.key == Key.Info || event.key == Key.Menu
+                        if (entry.isNotEmpty() && !menu) viewModel.commitEntry() else panel = Panel.CONTROLS
                     }
                     return@onKeyEvent true
                 }
@@ -136,7 +172,14 @@ fun PlayerScreen(
                 when (event.key) {
                     Key.DirectionUp, Key.ChannelUp -> viewModel.channelUp()
                     Key.DirectionDown, Key.ChannelDown -> viewModel.channelDown()
-                    Key.DirectionLeft, Key.LastChannel -> viewModel.lastChannel()
+                    Key.DirectionLeft, Key.MediaRewind -> {
+                        viewModel.seekBy(-BACK_MS)
+                        bannerRequest++
+                    }
+                    Key.DirectionRight, Key.MediaFastForward -> {
+                        viewModel.seekBy(AHEAD_MS)
+                        bannerRequest++
+                    }
                     else -> return@onKeyEvent false
                 }
                 true
@@ -162,42 +205,63 @@ fun PlayerScreen(
             else -> if (state.buffering || player == null) Message("Tuning…", subtle = true)
         }
 
-        if (bannerVisible || panel != null) {
-            InfoBanner(state, Modifier.align(Alignment.BottomCenter))
+        AnimatedVisibility(
+            visible = bannerVisible || panel != null,
+            enter = slideInVertically(tween(SNAP_MS)) { it / 2 } + fadeIn(tween(SNAP_MS)),
+            exit = slideOutVertically(tween(SNAP_MS)) { it / 2 } + fadeOut(tween(SNAP_MS)),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            // Read again whenever the playback state moves: the keys stay on screen across tunes.
+            val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.label?.substringBefore(" · ") }
+            val subtitles = remember(state, panel) { viewModel.subtitleOptions().firstOrNull { it.selected }?.label }
+            InfoBanner(
+                state = state,
+                // Phones drag the bar; the remote seeks with left and right.
+                onSeek = if (isTv) null else { position: Long -> viewModel.seekTo(position).also { bannerRequest++ } },
+                keys = when (panel) {
+                    null, Panel.CONTROLS -> {
+                        {
+                            OsdKey("Audio", Icons.Filled.Audiotrack, onClick = {
+                                returnKey = audioKey
+                                panel = Panel.AUDIO
+                            }, Modifier.focusRequester(audioKey), value = audio)
+                            OsdKey("Subtitles", Icons.Filled.Subtitles, onClick = {
+                                returnKey = subtitlesKey
+                                panel = Panel.SUBTITLES
+                            }, Modifier.focusRequester(subtitlesKey), value = subtitles)
+                            // Tracks on the left, the player's own action on the right.
+                            Spacer(Modifier.weight(1f))
+                            OsdKey("Restart", Icons.Filled.Replay, onClick = {
+                                panel = null
+                                viewModel.restart()
+                                bannerRequest++
+                            })
+                        }
+                    }
+                    Panel.AUDIO -> {
+                        {
+                            TrackChoices("Audio", remember { viewModel.audioOptions() }) {
+                                viewModel.selectAudio(it)
+                                panel = null
+                            }
+                        }
+                    }
+                    Panel.SUBTITLES -> {
+                        {
+                            TrackChoices("Subtitles", remember { viewModel.subtitleOptions() }) {
+                                viewModel.selectSubtitles(it)
+                                panel = null
+                            }
+                        }
+                    }
+                },
+            )
         }
         if (entry.isNotEmpty()) {
-            Text(
-                entry.padEnd(1, '-'),
-                size = if (isTv) 64 else 44,
-                weight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.TopEnd).padding(32.dp),
-            )
+            NumberEntry(entry, Modifier.align(Alignment.TopEnd).padding(12.dp))
         }
         notice?.let { Message(it, modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp)) }
 
-        when (panel) {
-            Panel.CONTROLS -> Controls(
-                isTv = isTv,
-                onAudio = { panel = Panel.AUDIO },
-                onSubtitles = { panel = Panel.SUBTITLES },
-                onLast = {
-                    panel = null
-                    viewModel.lastChannel()
-                },
-                onUp = viewModel::channelUp,
-                onDown = viewModel::channelDown,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp),
-            )
-            Panel.AUDIO -> TrackList("Audio", viewModel.audioOptions(), Modifier.align(Alignment.CenterEnd)) {
-                viewModel.selectAudio(it)
-                panel = null
-            }
-            Panel.SUBTITLES -> TrackList("Subtitles", viewModel.subtitleOptions(), Modifier.align(Alignment.CenterEnd)) {
-                viewModel.selectSubtitles(it)
-                panel = null
-            }
-            null -> Unit
-        }
     }
 }
 
@@ -230,10 +294,21 @@ private fun Video(player: androidx.media3.common.Player?) {
     )
 }
 
-/** Channel, the program on now with its progress, and what's next. */
+/**
+ * The OSD banner: the channel number on its accent block, NOW with the stream's technical line
+ * beside it, the program on now with its progress (time in, segment ladder, length), the
+ * [keys] under a hairline, and what's next behind a hollow marker. The number block and NEXT
+ * are squares of one size, as tall as the banner, with the program's column between them. With
+ * [onSeek] (phones), the ladder takes taps and drags.
+ */
 @Composable
-private fun InfoBanner(state: PlaybackState, modifier: Modifier) {
+private fun InfoBanner(
+    state: PlaybackState,
+    onSeek: ((positionMs: Long) -> Unit)?,
+    keys: @Composable RowScope.() -> Unit,
+) {
     val theme = LocalAnstelleTheme.current
+    val isTv = LocalIsTv.current
     val channel = state.channel ?: return
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -242,72 +317,211 @@ private fun InfoBanner(state: PlaybackState, modifier: Modifier) {
             delay(1_000)
         }
     }
-    Row(
-        modifier = modifier
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    // A small phone needs all of its width for the program's column.
+    val withNext = isTv || with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } >= NEXT_MIN_WIDTH
+    SquareEnds(
+        modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 24.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(theme.banner.copy(alpha = 0.92f))
-            .padding(horizontal = 28.dp, vertical = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(28.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.widthIn(min = 96.dp)) {
-            Text("${channel.number}", size = 48, weight = FontWeight.Bold, color = theme.primary)
-            Text(channel.name, size = 16, color = theme.bannerText, maxLines = 1)
-        }
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val program = state.now
-            Text(program?.title ?: "Tuning…", size = 28, weight = FontWeight.SemiBold, color = theme.bannerText, maxLines = 1)
-            program?.detail?.let { Text(it, size = 18, color = theme.textMuted, maxLines = 1) }
-            if (program != null) {
-                Text(timeRange(program) + if (state.transcoded) "  ·  converted by the server" else "", size = 16, color = theme.textMuted)
-                Progress(program, now)
+            .padding(12.dp)
+            .background(theme.banner, PanelShape)
+            .border(1.dp, theme.line, PanelShape),
+        start = {
+            Column(
+                Modifier.background(theme.accent, PanelShape).padding(horizontal = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                androidx.compose.material3.Text(
+                    "${channel.number}",
+                    style = if (isTv) typography.displayMedium else typography.displaySmall,
+                    color = theme.onAccent,
+                    maxLines = 1,
+                )
+                androidx.compose.material3.Text(
+                    channel.name,
+                    style = typography.labelMedium,
+                    color = theme.onAccent,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
             }
-        }
-        state.next?.let { next ->
-            Column(modifier = Modifier.widthIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Next at ${time(next.startUtcMs)}", size = 16, color = theme.secondary)
-                Text(next.title, size = 20, color = theme.bannerText, maxLines = 2)
+        },
+        middle = {
+            // Hand-held sizes off TV: the touch keys close the column, so it needs no bottom padding.
+            Column(
+                Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (isTv) 12.dp else 0.dp),
+                verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 2.dp, Alignment.CenterVertically),
+            ) {
+                val program = state.now
+                val label = @Composable {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AirMarker(onAir = program != null)
+                        androidx.compose.material3.Text("NOW", style = typography.labelMedium, color = theme.accent)
+                        if (program != null) {
+                            androidx.compose.material3.Text(timeRange(program), style = typography.labelMedium, color = theme.textMuted)
+                        }
+                    }
+                }
+                BannerHeader(state.stream, label)
+                TitleLogo(
+                    logoUrl = program?.logoUrl,
+                    title = program?.title ?: "Tuning…",
+                    height = if (isTv) 56.dp else 28.dp,
+                    maxLogoWidth = if (isTv) 360.dp else 220.dp,
+                    style = if (isTv) typography.headlineMedium else typography.headlineSmall,
+                    modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp),
+                )
+                program?.let { lineUnderLogo(it.detail, it.title, it.isEpisode, it.logoUrl != null) }?.let {
+                    androidx.compose.material3.Text(
+                        it,
+                        style = typography.bodyMedium,
+                        color = theme.textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (program != null) {
+                    ProgressRow(
+                        positionMs = now - program.startUtcMs,
+                        lengthMs = program.endUtcMs - program.startUtcMs,
+                        modifier = Modifier.padding(top = if (onSeek == null) 4.dp else 0.dp),
+                        onSeek = onSeek,
+                    )
+                }
+                OsdKeys(Modifier.padding(top = if (isTv) 2.dp else 0.dp), keys)
             }
+        },
+        end = if (!withNext) {
+            null
+        } else {
+            {
+                // A hairline divides NEXT off the program's column.
+                Box(
+                    Modifier.drawBehind { drawRect(theme.line, size = size.copy(width = 1.dp.toPx())) }.padding(horizontal = if (isTv) 16.dp else 14.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    state.next?.let { next ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                AirMarker(onAir = false)
+                                androidx.compose.material3.Text("NEXT  ${time(next.startUtcMs)}", style = typography.labelMedium, color = theme.textMuted, maxLines = 1)
+                            }
+                            TitleLogo(
+                                logoUrl = next.logoUrl,
+                                title = next.title,
+                                height = if (isTv) 44.dp else 24.dp,
+                                maxLogoWidth = 260.dp,
+                                style = typography.titleMedium,
+                                maxLines = 2,
+                            )
+                            nextLine(next)?.let {
+                                androidx.compose.material3.Text(
+                                    it,
+                                    style = typography.bodySmall,
+                                    color = theme.textMuted,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
+
+/** "S1E2 - Two Forces" for an episode; "Title (2025)" for a movie whose logo stands for its title. */
+private fun nextLine(next: ProgramInfo): String? = lineUnderLogo(next.detail, next.title, next.isEpisode, next.logoUrl != null)
+
+/**
+ * Lays out a banner as two squares of one size with [middle] between them: the squares are as
+ * tall as the banner, and the banner is as tall as [middle] needs at the width the squares leave
+ * it, so the side is settled in a few rounds of asking [middle] its height. The squares are
+ * never narrower than [start]'s content.
+ */
+@Composable
+private fun SquareEnds(
+    start: @Composable () -> Unit,
+    middle: @Composable () -> Unit,
+    end: (@Composable () -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Layout(contents = listOfNotNull(start, middle, end), modifier = modifier) { measurables, constraints ->
+        val first = measurables[0].first()
+        val center = measurables[1].first()
+        val last = measurables.getOrNull(2)?.firstOrNull()
+        val width = constraints.maxWidth
+        val ends = if (last != null) 2 else 1
+        var side = first.maxIntrinsicWidth(Constraints.Infinity)
+        repeat(SQUARE_ROUNDS) { side = maxOf(side, center.maxIntrinsicHeight((width - ends * side).coerceAtLeast(0))) }
+        val middleWidth = (width - ends * side).coerceAtLeast(0)
+        val centerPlaceable = center.measure(Constraints(minWidth = middleWidth, maxWidth = middleWidth, minHeight = side))
+        val height = maxOf(side, centerPlaceable.height)
+        val firstPlaceable = first.measure(Constraints.fixed(side, height))
+        val lastPlaceable = last?.measure(Constraints.fixed(side, height))
+        layout(width, height) {
+            firstPlaceable.place(0, 0)
+            centerPlaceable.place(side, 0)
+            lastPlaceable?.place(side + middleWidth, 0)
         }
     }
 }
 
+/**
+ * The digits typed so far, each dropping onto its own accent block, with hollow slots for
+ * the rest; the ladder under them drains for the two seconds before the channel tunes.
+ */
 @Composable
-private fun Progress(program: ProgramInfo, nowUtcMs: Long) {
+private fun NumberEntry(entry: String, modifier: Modifier) {
     val theme = LocalAnstelleTheme.current
-    val length = (program.endUtcMs - program.startUtcMs).coerceAtLeast(1)
-    val fraction = ((nowUtcMs - program.startUtcMs).toFloat() / length).coerceIn(0f, 1f)
-    Box(
-        Modifier
-            .padding(top = 6.dp)
-            .fillMaxWidth()
-            .height(6.dp)
-            .clip(RoundedCornerShape(3.dp))
-            .background(theme.surfaceVariant),
+    val isTv = LocalIsTv.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    val left = remember { Animatable(1f) }
+    LaunchedEffect(entry) {
+        left.snapTo(1f)
+        left.animateTo(0f, tween(ENTRY_MS.toInt(), easing = LinearEasing))
+    }
+    Column(
+        modifier
+            .background(theme.banner, PanelShape)
+            .border(1.dp, theme.line, PanelShape)
+            .padding(12.dp)
+            .width(IntrinsicSize.Min),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(
-            Modifier
-                .fillMaxWidth(fraction)
-                .height(6.dp)
-                .background(theme.primary),
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            val slot = Modifier.width(if (isTv) 48.dp else 40.dp).height(if (isTv) 64.dp else 56.dp)
+            for (i in 0 until ENTRY_DIGITS) {
+                val digit = entry.getOrNull(i)
+                if (digit != null) {
+                    NumberBlock(digit.toString(), style = if (isTv) typography.displayMedium else typography.displaySmall, modifier = slot)
+                } else {
+                    Box(slot.border(1.dp, theme.line, ControlShape))
+                }
+            }
+        }
+        SegmentLadder(left.value, segments = 16)
     }
 }
 
 @Composable
 private fun OffAir(state: PlaybackState) {
     val theme = LocalAnstelleTheme.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
     Column(
         modifier = Modifier.fillMaxSize().background(theme.background),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
     ) {
-        Text("OFF AIR", size = 72, weight = FontWeight.Bold, color = theme.primary)
-        Spacer(Modifier.height(12.dp))
-        state.now?.let { Text("Back on the air at ${time(it.endUtcMs)}", size = 24, color = theme.text) }
-        state.channel?.let { Text("${it.number}  ${it.name}", size = 18, color = theme.textMuted) }
+        state.channel?.let { NumberBlock("${it.number}", style = typography.displayMedium, modifier = Modifier.height(64.dp)) }
+        androidx.compose.material3.Text("OFF AIR", style = typography.displayLarge, color = theme.text)
+        state.now?.let {
+            androidx.compose.material3.Text("Back on the air at ${time(it.endUtcMs)}", style = typography.titleLarge, color = theme.textMuted)
+        }
+        state.channel?.let { androidx.compose.material3.Text(it.name, style = typography.labelMedium, color = theme.textMuted) }
     }
 }
 
@@ -315,90 +529,20 @@ private fun OffAir(state: PlaybackState) {
 private fun Message(text: String, modifier: Modifier = Modifier, subtle: Boolean = false) {
     val theme = LocalAnstelleTheme.current
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(
+        androidx.compose.material3.Text(
             text,
-            size = if (subtle) 18 else 22,
+            style = if (subtle) {
+                androidx.compose.material3.MaterialTheme.typography.titleMedium
+            } else {
+                androidx.compose.material3.MaterialTheme.typography.titleLarge
+            },
             color = if (subtle) theme.textMuted else theme.text,
             modifier = modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(theme.banner.copy(alpha = 0.85f))
+                .background(theme.banner, PanelShape)
+                .border(1.dp, theme.line, PanelShape)
                 .padding(horizontal = 24.dp, vertical = 14.dp),
         )
     }
-}
-
-@Composable
-private fun Controls(
-    isTv: Boolean,
-    onAudio: () -> Unit,
-    onSubtitles: () -> Unit,
-    onLast: () -> Unit,
-    onUp: () -> Unit,
-    onDown: () -> Unit,
-    modifier: Modifier,
-) {
-    val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        val tile = Modifier.width(if (isTv) 200.dp else 120.dp)
-        FocusTile("Audio", onClick = onAudio, icon = Icons.Filled.Audiotrack, modifier = tile.focusRequester(first))
-        FocusTile("Subtitles", onClick = onSubtitles, icon = Icons.Filled.Subtitles, modifier = tile)
-        FocusTile("Last channel", onClick = onLast, icon = Icons.AutoMirrored.Filled.Undo, modifier = tile)
-        if (!isTv) {
-            FocusTile("Up", onClick = onUp, icon = Icons.Filled.KeyboardArrowUp, modifier = tile)
-            FocusTile("Down", onClick = onDown, icon = Icons.Filled.KeyboardArrowDown, modifier = tile)
-        }
-    }
-}
-
-@Composable
-private fun TrackList(title: String, options: List<TrackOption>, modifier: Modifier, onPick: (TrackOption) -> Unit) {
-    val theme = LocalAnstelleTheme.current
-    val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
-    Column(
-        modifier = modifier
-            .padding(32.dp)
-            .width(420.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(theme.banner.copy(alpha = 0.95f))
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(title, size = 24, weight = FontWeight.SemiBold, color = theme.bannerText)
-        if (options.isEmpty()) Text("This program has none.", size = 18, color = theme.textMuted)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            itemsIndexed(options) { i, option ->
-                FocusTile(
-                    title = option.label,
-                    icon = if (option.selected) Icons.Filled.Check else null,
-                    onClick = { onPick(option) },
-                    modifier = Modifier.fillMaxWidth().let { if (i == 0) it.focusRequester(first) else it },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun Text(
-    text: String,
-    size: Int,
-    modifier: Modifier = Modifier,
-    weight: FontWeight = FontWeight.Normal,
-    color: Color = LocalAnstelleTheme.current.text,
-    maxLines: Int = Int.MAX_VALUE,
-) {
-    androidx.compose.material3.Text(
-        text,
-        modifier = modifier,
-        color = color,
-        fontSize = size.sp,
-        fontWeight = weight,
-        fontFamily = LocalAnstelleTheme.current.bodyFont,
-        maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis,
-    )
 }
 
 private fun digitOf(key: Key): Int? = when (key) {
@@ -419,6 +563,24 @@ private fun time(utcMs: Long): String = DateFormat.getTimeInstance(DateFormat.SH
 
 private fun timeRange(program: ProgramInfo) = "${time(program.startUtcMs)} – ${time(program.endUtcMs)}"
 
+
 private const val BANNER_MS = 5_000L
+
+/** Left and right seek this far back and ahead. */
+private const val BACK_MS = 10_000L
+private const val AHEAD_MS = 30_000L
+
+/** The banner and panels snap in: short, no bounce. */
+private const val SNAP_MS = 140
+
+/** Narrower touch screens leave NEXT out of the banner. */
+private val NEXT_MIN_WIDTH = 720.dp
+
+/** Rounds of asking the banner's middle its height before the squares' side settles. */
+private const val SQUARE_ROUNDS = 4
+
+/** Mirrors `PlayerViewModel`: four digits at most, tuned 2 s after the last one. */
+private const val ENTRY_DIGITS = 4
+private const val ENTRY_MS = 2_000L
 
 private val ConfirmKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.Info, Key.Menu)

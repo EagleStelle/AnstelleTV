@@ -44,6 +44,15 @@ import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AnstelleTextField
 import tv.anstelle.core.theme.components.FocusTile
+import tv.anstelle.core.theme.components.NumberBlock
+import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.ControlShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+
 import javax.inject.Inject
 
 enum class AddServerStep { ADDRESS, SIGN_IN, QUICK_CONNECT }
@@ -195,11 +204,11 @@ private fun AddressStep(state: AddServerUiState, viewModel: AddServerViewModel, 
         }
         item(key = "error") { state.error?.let { MessageText(it, isError = true) } }
         item(key = "connect") {
-            FocusTile(
-                title = if (state.busy) "Connecting…" else "Connect",
+            OsdButton(
+                text = if (state.busy) "Connecting…" else "Connect",
                 onClick = viewModel::connect,
                 icon = Icons.Filled.Link,
-                modifier = Modifier.fillMaxWidth(),
+                primary = true,
             )
         }
     }
@@ -249,11 +258,11 @@ private fun SignInStep(state: AddServerUiState, viewModel: AddServerViewModel, m
         }
         item(key = "error") { state.error?.let { MessageText(it, isError = true) } }
         item(key = "signin") {
-            FocusTile(
-                title = if (state.busy) "Signing in…" else "Sign in",
+            OsdButton(
+                text = if (state.busy) "Signing in…" else "Sign in",
                 onClick = viewModel::signInWithPassword,
                 icon = Icons.AutoMirrored.Filled.Login,
-                modifier = Modifier.fillMaxWidth(),
+                primary = true,
             )
         }
     }
@@ -270,15 +279,18 @@ private fun QuickConnectStep(state: AddServerUiState, viewModel: AddServerViewMo
         modifier = modifier,
     ) {
         item(key = "code") {
-            Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
-                androidx.compose.material3.Text(
-                    state.quickConnectCode ?: "······",
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = if (isTv) 72.sp else 48.sp,
-                    letterSpacing = 8.sp,
-                    color = theme.primary,
-                )
+            // The code on blocks, like the PIN and the channel number entry; hollow slots while it loads.
+            Row(Modifier.padding(vertical = 24.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                val code = state.quickConnectCode
+                val slot = Modifier.width(if (isTv) 60.dp else 44.dp).height(if (isTv) 80.dp else 60.dp)
+                for (i in 0 until (code?.length ?: 6)) {
+                    val char = code?.getOrNull(i)
+                    if (char != null) {
+                        NumberBlock(char.toString(), style = androidx.compose.material3.MaterialTheme.typography.displayMedium, modifier = slot)
+                    } else {
+                        Box(slot.border(1.dp, theme.line, ControlShape))
+                    }
+                }
             }
         }
         item(key = "waiting") { MessageText(if (state.quickConnectCode == null) "Getting a code…" else "Waiting for approval…") }

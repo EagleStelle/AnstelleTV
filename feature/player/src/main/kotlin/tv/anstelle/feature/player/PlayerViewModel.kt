@@ -100,9 +100,15 @@ class PlayerViewModel @Inject constructor(
 
     fun channelDown() = playback.channelDown()
 
-    fun lastChannel() {
-        if (playback.lastChannel() == null) show("No previous channel yet.")
-    }
+    /** Where the program on now is, in its media. */
+    val positionMs: Long get() = playback.positionMs
+
+    /** Seeks in the program on now; the channel's schedule moves with it. */
+    fun seekBy(deltaMs: Long) = playback.seekBy(deltaMs)
+
+    fun seekTo(positionMs: Long) = playback.seekTo(positionMs)
+
+    fun restart() = playback.restart()
 
     /** A digit of a channel number; the number tunes 2 s after the last digit, or at 4 digits. */
     fun digit(value: Int) {

@@ -3,8 +3,17 @@ package tv.anstelle.feature.settings.servers
 import android.text.format.DateUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
@@ -18,8 +27,17 @@ import tv.anstelle.core.model.MediaServer
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.compose.foundation.layout.Column
+import tv.anstelle.core.theme.components.BackBar
+import tv.anstelle.core.theme.components.PageHeader
+import tv.anstelle.core.theme.components.pagePadding
 
-/** The scrolling page layout shared by the server screens. */
+
+/**
+ * The page every settings screen uses: a header, then menu rows. On wide screens the column
+ * stops at a readable width instead of stretching rows across the TV.
+ */
 @Composable
 internal fun SettingsPage(
     title: String,
@@ -29,26 +47,32 @@ internal fun SettingsPage(
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
-    LazyColumn(
-        modifier = modifier.fillMaxSize().background(theme.background),
-        contentPadding = PaddingValues(horizontal = if (isTv) 48.dp else 16.dp, vertical = if (isTv) 32.dp else 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item(key = "title") {
-            androidx.compose.material3.Text(
-                title,
-                style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
-                color = theme.text,
-            )
-            if (subtitle != null) {
-                androidx.compose.material3.Text(
-                    subtitle,
-                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                    color = theme.textMuted,
-                )
-            }
+    val back = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    // The header stays put while the rows scroll, so it is never left half clipped. Phones get
+    // a back bar in its place; TV has the remote's Back.
+    Column(modifier.fillMaxSize().background(theme.background)) {
+        if (isTv) {
+            PageHeader(title, subtitle = subtitle, modifier = Modifier.widthIn(max = 960.dp).padding(start = pagePadding, end = pagePadding, top = 32.dp, bottom = 10.dp))
+        } else {
+            BackBar(onBack = { back?.onBackPressed() }, title = title)
         }
-        content()
+        LazyColumn(
+            modifier = Modifier.widthIn(max = 960.dp).weight(1f),
+            contentPadding = PaddingValues(start = pagePadding, end = pagePadding, top = if (isTv) 4.dp else 0.dp, bottom = if (isTv) 32.dp else 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (!isTv && subtitle != null) {
+                item(key = "subtitle") {
+                    androidx.compose.material3.Text(
+                        subtitle,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                        color = theme.textMuted,
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
+                }
+            }
+            content()
+        }
     }
 }
 
@@ -61,22 +85,27 @@ internal fun rememberInitialFocus(): FocusRequester {
 }
 
 @Composable
-internal fun SectionLabel(text: String) {
-    androidx.compose.material3.Text(
-        text,
-        style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
-        color = LocalAnstelleTheme.current.text,
-    )
-}
+internal fun SectionLabel(text: String) = tv.anstelle.core.theme.components.SectionLabel(text)
 
+/** A line of status or help. A problem carries a warning mark as well as the accent, so it reads without color. */
 @Composable
 internal fun MessageText(text: String, isError: Boolean = false) {
     val theme = LocalAnstelleTheme.current
-    androidx.compose.material3.Text(
-        text,
-        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-        color = if (isError) theme.secondary else theme.textMuted,
-    )
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 2.dp)) {
+        if (isError) {
+            androidx.compose.material3.Icon(
+                Icons.Filled.ErrorOutline,
+                contentDescription = "Problem",
+                tint = theme.accent,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        androidx.compose.material3.Text(
+            text,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            color = if (isError) theme.text else theme.textMuted,
+        )
+    }
 }
 
 /** "Synced 5 minutes ago", the sync error, or the running sync's progress. */

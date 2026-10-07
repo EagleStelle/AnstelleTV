@@ -105,16 +105,53 @@ class FakeScheduleDao : ScheduleDao {
         slots.values.filter { it.channelId == channelId && it.startUtcMs >= fromUtcMs && it.kind == SlotKind.PROGRAM }
             .mapNotNull { it.mediaItemId }
 
-    /** Items are titled "Item <id>", as [item] names them. */
+    /** Items are titled "Item <id>", as [item] names them, and are each a show of their own. */
     override suspend fun guideWindow(channelIds: List<Long>, fromUtcMs: Long, toUtcMs: Long, maxSlotMs: Long): List<GuideAiring> =
         slots.values
             .filter { it.channelId in channelIds && it.startUtcMs > fromUtcMs - maxSlotMs && it.startUtcMs < toUtcMs && it.endUtcMs > fromUtcMs }
-            .map { GuideAiring(it.channelId, it.kind, it.mediaItemId, it.startUtcMs, it.endUtcMs, it.mediaItemId?.let { id -> "Item $id" }, null, null, null, null) }
+            .map {
+                GuideAiring(it.channelId, it.kind, it.mediaItemId, it.mediaItemId, it.startUtcMs, it.endUtcMs, it.mediaItemId?.let { id -> "Item $id" }, null, null, null, null)
+            }
 
     override suspend fun maxSlotMs(): Long = slots.values.maxOfOrNull { it.endUtcMs - it.startUtcMs } ?: 0
 
+    private var nextId = 1L
+
     override suspend fun insertSlots(slots: List<ScheduleSlotEntity>) {
-        for (slot in slots) this.slots[slot.channelId to slot.startUtcMs] = slot
+        for (slot in slots) this.slots[slot.channelId to slot.startUtcMs] = if (slot.id == 0L) slot.copy(id = nextId++) else slot
+    }
+
+    override suspend fun slotEndingAt(channelId: Long, endUtcMs: Long): ScheduleSlotEntity? =
+        slots.values.firstOrNull { it.channelId == channelId && it.endUtcMs == endUtcMs }
+
+    override suspend fun setEnd(id: Long, endUtcMs: Long) {
+        slots.entries.firstOrNull { it.value.id == id }?.let { it.setValue(it.value.copy(endUtcMs = endUtcMs)) }
+    }
+
+    override suspend fun deleteBetween(channelId: Long, fromUtcMs: Long, toUtcMs: Long) {
+        slots.keys.removeIf { it.first == channelId && it.second >= fromUtcMs && it.second < toUtcMs }
+    }
+
+    override suspend fun cutAt(channelId: Long, atUtcMs: Long) {
+        for (entry in slots.entries) {
+            val slot = entry.value
+            if (slot.channelId == channelId && slot.startUtcMs < atUtcMs && slot.endUtcMs > atUtcMs) entry.setValue(slot.copy(endUtcMs = atUtcMs))
+        }
+    }
+
+    /** Fails like the unique (channelId, startUtcMs) index when a moved row lands on another. */
+    override suspend fun moveOut(channelId: Long, fromUtcMs: Long, deltaMs: Long) = rekey(channelId) { slot ->
+        if (slot.startUtcMs >= fromUtcMs) slot.copy(startUtcMs = -(slot.startUtcMs + deltaMs) - 1, endUtcMs = slot.endUtcMs + deltaMs) else slot
+    }
+
+    override suspend fun moveIn(channelId: Long) = rekey(channelId) { slot ->
+        if (slot.startUtcMs < 0) slot.copy(startUtcMs = -slot.startUtcMs - 1) else slot
+    }
+
+    private fun rekey(channelId: Long, change: (ScheduleSlotEntity) -> ScheduleSlotEntity) {
+        val moved = slots.values.filter { it.channelId == channelId }.map(change)
+        slots.keys.removeIf { it.first == channelId }
+        for (slot in moved) check(slots.put(slot.channelId to slot.startUtcMs, slot) == null) { "two slots start at ${slot.startUtcMs}" }
     }
 
     override suspend fun deleteFrom(channelId: Long, fromUtcMs: Long) {

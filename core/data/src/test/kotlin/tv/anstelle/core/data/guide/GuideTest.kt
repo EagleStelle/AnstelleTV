@@ -3,10 +3,12 @@ package tv.anstelle.core.data.guide
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import tv.anstelle.core.data.FakeScheduleDao
+import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.data.programDetail
 import tv.anstelle.core.data.stub
 import tv.anstelle.core.database.dao.GuideAiring
 import tv.anstelle.core.database.dao.MediaItemDao
+import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.model.HdrType
 import tv.anstelle.core.model.SlotKind
@@ -15,16 +17,27 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class GuideTest {
     private val minute = 60_000L
     private val hour = 60 * minute
 
-    private fun airing(channel: Long, start: Long, end: Long, item: Long?, show: String? = null, season: Int? = null, episode: Int? = null) =
+    private fun airing(
+        channel: Long,
+        start: Long,
+        end: Long,
+        item: Long?,
+        show: String? = null,
+        season: Int? = null,
+        episode: Int? = null,
+        showId: Long? = item,
+    ) =
         GuideAiring(
             channelId = channel,
             kind = if (item == null) SlotKind.OFF_AIR else SlotKind.PROGRAM,
             mediaItemId = item,
+            showId = showId,
             startUtcMs = start,
             endUtcMs = end,
             title = item?.let { "Episode $it" },
@@ -47,7 +60,7 @@ class GuideTest {
         val one = strips.getValue(1)
         assertContentEquals(longArrayOf(0, 22 * minute), one.starts)
         assertEquals("Show", one.titles[0])
-        assertEquals("S1E4 · Episode 10", one.details[0])
+        assertEquals("S1E4 - Episode 10", one.details[0])
         assertEquals("Off air", one.titles[1])
         assertEquals(true, one.isOffAir(1))
         assertNull(one.details[1])
@@ -79,8 +92,40 @@ class GuideTest {
         val merged = ProgramStrip.merge(listOf(second, first))
         assertContentEquals(longArrayOf(0, 5 * hour, 7 * hour), merged.starts)
         assertContentEquals(longArrayOf(1, 2, 3), merged.items)
+        assertContentEquals(longArrayOf(1, 2, 3), merged.shows)
         assertSame(first, ProgramStrip.merge(listOf(first, ProgramStrip.EMPTY)))
         assertSame(ProgramStrip.EMPTY, ProgramStrip.merge(emptyList()))
+    }
+
+    @Test
+    fun `back-to-back airings of a show share a run color and the next show takes another`() {
+        // Shows 100 (twice), 200, 300 (three times), off air, then 300 again, airing every 30 minutes.
+        val shows = listOf(100L, 100L, 200L, 300L, 300L, 300L, null, 300L)
+        val strip = ProgramStrip.fromRows(
+            shows.mapIndexed { i, show ->
+                airing(1, i * 30 * minute, (i + 1) * 30 * minute, show?.let { i + 1L }, showId = show)
+            },
+            "Off air",
+        ).getValue(1)
+        assertContentEquals(longArrayOf(100, 100, 200, 300, 300, 300, 0, 300), strip.shows)
+        for (count in 2..6) {
+            val runs = strip.runSlots(count)
+            assertEquals(runs[0], runs[1])
+            assertEquals(runs[3], runs[4])
+            assertEquals(runs[4], runs[5])
+            assertTrue(runs[1] != runs[2] && runs[2] != runs[3], "neighbouring shows differ with $count colors")
+            assertEquals(-1, runs[6])
+            assertTrue(runs.all { it in -1 until count })
+        }
+        // Every show in a long day stays apart from the one before it.
+        val day = ProgramStrip.fromRows(
+            (0 until 48).map { i -> airing(1, i * 30 * minute, (i + 1) * 30 * minute, i + 1L, showId = i / 2 * 7L % 5 + 1) },
+            "Off air",
+        ).getValue(1)
+        val runs = day.runSlots(4)
+        for (i in 1 until day.size) {
+            if (day.shows[i] == day.shows[i - 1]) assertEquals(runs[i - 1], runs[i]) else assertTrue(runs[i - 1] != runs[i])
+        }
     }
 
     @Test
@@ -93,7 +138,7 @@ class GuideTest {
                 ScheduleSlotEntity(channelId = 2, kind = SlotKind.PROGRAM, mediaItemId = 8, startUtcMs = 0, endUtcMs = hour),
             ),
         )
-        val repository = GuideRepository(dao, stub<MediaItemDao>(), Dispatchers.Unconfined)
+        val repository = GuideRepository(dao, stub<MediaItemDao>(), stub<MediaServerDao>(), Dispatchers.Unconfined)
         val window = repository.window(listOf(1, 2), fromUtcMs = hour, toUtcMs = 7 * hour)
         assertContentEquals(longArrayOf(0, 2 * hour), window.getValue(1).starts)
         assertEquals("Item 7", window.getValue(1).titles[0])
@@ -112,10 +157,15 @@ class GuideTest {
 
     @Test
     fun `program details read like the guide`() {
-        assertEquals("S2E3 · Pilot", programDetail("Pilot", "Show", 2, 3, 2001))
+        assertEquals("S2E3 - Pilot", programDetail("Pilot", "Show", 2, 3, 2001))
         assertEquals("Pilot", programDetail("Pilot", "Show", null, null, null))
         assertEquals("1999", programDetail("Movie", null, null, null, 1999))
         assertNull(programDetail("Movie", null, null, null, null))
+        // Under a logo, a movie is named with its year; an episode's line stays as it is.
+        assertEquals("Movie (1999)", lineUnderLogo("1999", "Movie", isEpisode = false, hasLogo = true))
+        assertEquals("1999", lineUnderLogo("1999", "Movie", isEpisode = false, hasLogo = false))
+        assertEquals("S2E3 - Pilot", lineUnderLogo("S2E3 - Pilot", "Show", isEpisode = true, hasLogo = true))
+        assertEquals("Movie", lineUnderLogo(null, "Movie", isEpisode = false, hasLogo = true))
         assertEquals("22 min", GuideRepository.durationLabel(22 * minute))
         assertEquals("1 h 54 min", GuideRepository.durationLabel(114 * minute))
         assertEquals("2 h", GuideRepository.durationLabel(2 * hour))

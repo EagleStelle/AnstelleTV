@@ -2,9 +2,11 @@ package tv.anstelle.feature.ondemand
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -15,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
@@ -36,6 +39,8 @@ import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusTile
+import tv.anstelle.core.theme.components.TileTrailing
+
 import javax.inject.Inject
 
 @Immutable
@@ -95,27 +100,27 @@ fun ItemScreen(
     val firstFocus = rememberInitialFocus(state.resumeMs > 0)
     val resume = state.resumeMs.takeIf { it > 0 && it < page.durationMs * 95 / 100 }
 
-    Page(modifier) {
-        item(key = "header") {
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                val wide = page.showId != null
-                Poster(
-                    page.imageUrl,
-                    page.title,
-                    Modifier.width(if (wide) (if (isTv) 280.dp else 180.dp) else (if (isTv) 150.dp else 110.dp))
-                        .aspectRatio(if (wide) 16f / 9f else 2f / 3f),
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(page.title, size = if (isTv) 30 else 22, weight = FontWeight.SemiBold)
-                    page.detail?.let { Text(it, size = 18) }
-                    Text(page.facts, size = 15, color = theme.textMuted)
-                    if (page.badges.isNotEmpty()) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { page.badges.forEach { Badge(it) } }
-                    }
-                    page.overview?.let { Text(it, size = 15, color = theme.textMuted, maxLines = if (isTv) 5 else 8) }
-                }
+    val hero: @Composable ColumnScope.() -> Unit = {
+        // An episode shows its own still, wide; a movie its poster.
+        val wide = page.showId != null
+        Row(horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else 16.dp), verticalAlignment = Alignment.Bottom) {
+            Poster(
+                page.imageUrl,
+                page.title,
+                Modifier.width(if (wide) (if (isTv) 300.dp else 160.dp) else (if (isTv) 160.dp else 104.dp))
+                    .aspectRatio(if (wide) 16f / 9f else 2f / 3f),
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
+                HeroTitle(page.artwork.logoUrl, page.title)
+                page.detail?.let { androidx.compose.material3.Text(it, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, color = theme.text) }
+                if (isTv) Facts(page.facts, page.badges)
             }
         }
+        if (!isTv) Facts(page.facts, page.badges)
+        page.overview?.let { Overview(it, Modifier.padding(top = 4.dp)) }
+    }
+
+    Page(page.artwork.backdropUrl, hero, modifier) {
         if (resume != null) {
             item(key = "resume") {
                 FocusTile(
@@ -150,6 +155,7 @@ fun ItemScreen(
                 FocusTile(
                     title = "All episodes of ${page.title}",
                     icon = Icons.Filled.Tv,
+                    trailing = TileTrailing.Chevron,
                     onClick = { onOpenShow(showId) },
                     modifier = Modifier.fillMaxWidth(),
                 )

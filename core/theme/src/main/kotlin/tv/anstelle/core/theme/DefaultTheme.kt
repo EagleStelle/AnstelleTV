@@ -2,29 +2,32 @@ package tv.anstelle.core.theme
 
 /**
  * Fallback theme used for the first frame, before the profile's theme is read from the
- * database. It mirrors `assets/themes/clean_modern.json`; a unit test keeps them equal.
+ * database. It mirrors `assets/themes/rose.json`; a unit test keeps them equal.
  */
 object DefaultTheme {
     val spec = ThemeSpec(
-        key = "clean_modern",
-        name = "Clean Modern",
+        key = "rose",
+        name = "Rose",
         colors = ThemeColors(
-            background = "#0E1116",
-            surface = "#171B22",
-            surfaceVariant = "#222834",
-            primary = "#4FB3FF",
-            onPrimary = "#04121F",
-            secondary = "#FFB547",
-            text = "#ECEFF4",
-            textMuted = "#9AA4B2",
-            focus = "#FFFFFF",
-            guideCell = "#1B2029",
-            guideCellAlt = "#1F2530",
-            guideCellFocused = "#2E6FA3",
-            nowLine = "#FF5A5F",
-            banner = "#E6171B22",
-            bannerText = "#ECEFF4",
+            background = "#130C0F",
+            surface = "#20161A",
+            surfaceHigh = "#291E23",
+            line = "#34272C",
+            text = "#F9F1F4",
+            textMuted = "#BFABB3",
+            accent = "#F978B6",
+            onAccent = "#130C0F",
+            accentContainer = "#4F1A35",
+            onAccentContainer = "#FFCEE2",
+            guideCell = "#20161A",
+            guideCellPast = "#181214",
+            // Teal, ochre, slate, moss: neighbours in the list sit far apart in hue.
+            guideRuns = listOf("#0D3737", "#402C12", "#1E3149", "#22361E"),
+            nowLine = "#F978B6",
+            banner = "#20161A",
+            bannerText = "#F9F1F4",
         ),
+        typography = ThemeTypography(display = FontChoice.CONDENSED, body = FontChoice.SANS),
     )
 
     val resolved: ResolvedTheme by lazy(LazyThreadSafetyMode.PUBLICATION) { ResolvedTheme.from(spec) }

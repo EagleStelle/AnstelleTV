@@ -67,6 +67,28 @@ class ScheduleRepository @Inject constructor(
         scheduleDao.replaceFrom(channelId, fromUtcMs, result.slots.toEntities(channelId), state)
     }
 
+    /**
+     * Moves [channelId]'s schedule after a seek in the airing that started at [startUtcMs]:
+     * from it on, everything airs [deltaMs] later (or earlier, when negative), the engine state
+     * included, so the guide and every later extension follow what the viewer is watching.
+     */
+    suspend fun shift(channelId: Long, startUtcMs: Long, deltaMs: Long) {
+        scheduleDao.shift(channelId, startUtcMs, deltaMs) { stored ->
+            val state = try {
+                EngineState.decode(stored.stateBlob)
+            } catch (e: Exception) {
+                AppLog.w(TAG, "Unreadable schedule state for channel $channelId, regenerating", e)
+                null
+            }
+            stored.copy(
+                generatedUntilUtcMs = stored.generatedUntilUtcMs + deltaMs,
+                // An unreadable state stays as it is; the next update regenerates it anyway.
+                stateBlob = state?.copy(nextStartUtcMs = state.nextStartUtcMs + deltaMs)?.encode() ?: stored.stateBlob,
+                updatedAtUtcMs = time.nowUtcMs(),
+            )
+        }
+    }
+
     private companion object {
         const val TAG = "Schedule"
     }

@@ -8,8 +8,10 @@ import kotlinx.coroutines.withContext
 import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
+import tv.anstelle.core.data.Artwork
 import tv.anstelle.core.data.guide.GuideRepository
 import tv.anstelle.core.data.guide.ProgramBadges
+import tv.anstelle.core.data.jellyfinImageUrl
 import tv.anstelle.core.data.programDetail
 import tv.anstelle.core.data.programTitle
 import tv.anstelle.core.database.dao.MediaItemDao
@@ -36,7 +38,7 @@ data class OnDemandTitle(
 /** One episode on a show's page. */
 data class EpisodeEntry(
     val id: Long,
-    /** "S1E4 · Pilot". */
+    /** "S1E4 - Pilot". */
     val label: String,
     val season: Int?,
     val facts: String?,
@@ -49,6 +51,7 @@ data class ShowPage(
     val facts: String,
     val overview: String?,
     val imageUrl: String?,
+    val artwork: Artwork,
     val episodes: List<EpisodeEntry>,
 )
 
@@ -62,6 +65,8 @@ data class ItemPage(
     val overview: String?,
     val badges: List<String>,
     val imageUrl: String?,
+    /** The movie's backdrop and logo, or the show's for an episode. */
+    val artwork: Artwork,
     val durationMs: Long,
     /** The local id of the episode's show, or null for a movie. */
     val showId: Long?,
@@ -107,7 +112,8 @@ class OnDemandRepository @Inject constructor(
                 "${episodes.size} ${if (episodes.size == 1) "episode" else "episodes"}",
             ).joinToString(" · "),
             overview = series.overview?.takeIf { it.isNotBlank() },
-            imageUrl = base?.let { imageUrl(it, series.remoteId, series.primaryImageTag, POSTER_HEIGHT) },
+            imageUrl = base?.let { posterUrl(it, series.remoteId, series.primaryImageTag) },
+            artwork = Artwork.of(base, series, null),
             episodes = episodes.map { episode ->
                 EpisodeEntry(
                     id = episode.id,
@@ -126,8 +132,8 @@ class OnDemandRepository @Inject constructor(
         val series = item.seriesRemoteId?.let { itemDao.byRemoteId(item.serverId, it) }
         val image = when {
             base == null -> null
-            item.primaryImageTag != null -> imageUrl(base, item.remoteId, item.primaryImageTag, POSTER_HEIGHT)
-            series != null -> imageUrl(base, series.remoteId, series.primaryImageTag, POSTER_HEIGHT)
+            item.primaryImageTag != null -> posterUrl(base, item.remoteId, item.primaryImageTag)
+            series != null -> posterUrl(base, series.remoteId, series.primaryImageTag)
             else -> null
         }
         ItemPage(
@@ -138,6 +144,7 @@ class OnDemandRepository @Inject constructor(
             overview = item.overview?.takeIf { it.isNotBlank() },
             badges = ProgramBadges.of(item.hdrType, item.width, item.height, item.audioFormat, item.audioChannels),
             imageUrl = image,
+            artwork = Artwork.of(base, item, series),
             durationMs = item.durationMs,
             showId = series?.id,
         )
@@ -179,7 +186,7 @@ class OnDemandRepository @Inject constructor(
     private suspend fun baseUrls(): Map<Long, String> = serverDao.all().associate { it.id to it.baseUrl }
 
     private fun OnDemandRow.poster(bases: Map<Long, String>): String? =
-        bases[serverId]?.let { imageUrl(it, remoteId, primaryImageTag, POSTER_HEIGHT) }
+        bases[serverId]?.let { posterUrl(it, remoteId, primaryImageTag) }
 
     companion object {
         private const val TAG = "OnDemand"
@@ -187,10 +194,8 @@ class OnDemandRepository @Inject constructor(
         /** Poster height asked of the server, in pixels: enough for a tile on a 1080p TV. */
         private const val POSTER_HEIGHT = 480
 
-        /** The item's primary image from Jellyfin, or null when it has none. The tag makes the URL change with the image. */
-        fun imageUrl(baseUrl: String, remoteId: String, tag: String?, maxHeight: Int): String? {
-            if (tag == null) return null
-            return "${baseUrl.trimEnd('/')}/Items/$remoteId/Images/Primary?tag=$tag&maxHeight=$maxHeight&quality=90"
-        }
+        /** The item's primary image from Jellyfin, or null when it has none. */
+        private fun posterUrl(baseUrl: String, remoteId: String, tag: String?): String? =
+            jellyfinImageUrl(baseUrl, remoteId, "Primary", tag, maxHeight = POSTER_HEIGHT)
     }
 }

@@ -7,8 +7,8 @@ import kotlin.test.assertFailsWith
 
 class ThemeSpecTest {
     @Test
-    fun bundledCleanModernMatchesCodeFallback() {
-        val text = File("src/main/assets/themes/clean_modern.json").readText()
+    fun bundledRoseMatchesCodeFallback() {
+        val text = File("src/main/assets/themes/rose.json").readText()
         assertEquals(DefaultTheme.spec, ThemeSpec.parse(text))
     }
 
@@ -26,8 +26,8 @@ class ThemeSpecTest {
 
     @Test
     fun parsesRgbAndArgbColors() {
-        assertEquals(0xFF0E1116.toInt(), ResolvedTheme.parseColor("#0E1116").value.shr(32).toInt())
-        assertEquals(0xE6171B22.toInt(), ResolvedTheme.parseColor("#E6171B22").value.shr(32).toInt())
+        assertEquals(0xFF130C0F.toInt(), ResolvedTheme.parseColor("#130C0F").value.shr(32).toInt())
+        assertEquals(0xF5130C0F.toInt(), ResolvedTheme.parseColor("#F5130C0F").value.shr(32).toInt())
         assertFailsWith<IllegalArgumentException> { ResolvedTheme.parseColor("#123") }
     }
 }

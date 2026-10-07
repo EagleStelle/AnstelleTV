@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,11 +19,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.common.TimeSource
+import tv.anstelle.core.data.Artwork
+import tv.anstelle.core.data.ScheduleRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.channels.ScheduleUpdater
@@ -55,10 +60,14 @@ import javax.inject.Singleton
 data class ProgramInfo(
     /** The show (or movie) title. */
     val title: String,
-    /** "S1E4 · Pilot", a movie's year, or null. */
+    /** "S1E4 - Pilot", a movie's year, or null. */
     val detail: String?,
     val startUtcMs: Long,
     val endUtcMs: Long,
+    /** The show's or movie's title logo, which the banner shows in place of [title]; null when there is none. */
+    val logoUrl: String? = null,
+    /** True for an episode, false for a movie or anything else without a show. */
+    val isEpisode: Boolean = false,
 )
 
 enum class TuneStatus { IDLE, TUNING, PLAYING, OFF_AIR, NO_SCHEDULE, ERROR }
@@ -69,7 +78,8 @@ data class PlaybackState(
     val buffering: Boolean = false,
     val now: ProgramInfo? = null,
     val next: ProgramInfo? = null,
-    val transcoded: Boolean = false,
+    /** The server, play method and picture and sound of the program on now. */
+    val stream: StreamFacts? = null,
     val message: String? = null,
     /** Goes up with every tune, so the screen knows to show the info banner. */
     val tuneCount: Int = 0,
@@ -82,10 +92,16 @@ private class Program(
     val server: MediaServerEntity,
     val token: String,
     val stream: ProgramStream,
+    val logoUrl: String?,
 ) {
     val mediaItem: MediaItem = stream.mediaItem("${slot.channelId}@${slot.startUtcMs}")
 
-    val info: ProgramInfo = programInfo(item, slot.startUtcMs, slot.endUtcMs)
+    val info: ProgramInfo = programInfo(item, slot.startUtcMs, slot.endUtcMs, logoUrl)
+
+    val facts: StreamFacts = StreamFacts.of(item, server.name, stream.transcoded)
+
+    /** The same program after its airing moved by [deltaMs]. */
+    fun shifted(deltaMs: Long) = Program(slot.copy(startUtcMs = slot.startUtcMs + deltaMs, endUtcMs = slot.endUtcMs + deltaMs), item, server, token, stream, logoUrl)
 }
 
 /**
@@ -100,6 +116,9 @@ private class Program(
  * - **Tracks:** each program starts on the profile's audio and subtitle defaults.
  * - **Pool:** the channel in the surfing direction (or the one focused in the guide) is
  *   pre-warmed on the standby player, and tuning to it swaps the players.
+ * - **Seeking** works as in any video, and the channel's schedule moves with it: the airing
+ *   now starts where the new position puts it, and everything after it on the channel moves by
+ *   the same amount, so the guide and the next program follow what is on screen.
  * - **Off air** shows until the off-air stretch ends, then the channel tunes itself again.
  * - **Fallback:** a file the device turns out not to play is retried once through Jellyfin's
  *   HLS transcoding.
@@ -116,6 +135,7 @@ class ChannelPlayer @Inject constructor(
     private val probe: CapabilityProbe,
     private val streams: JellyfinStreams,
     private val scheduleDao: ScheduleDao,
+    private val schedules: ScheduleRepository,
     private val itemDao: MediaItemDao,
     private val serverDao: MediaServerDao,
     private val tokens: TokenStore,
@@ -139,7 +159,6 @@ class ChannelPlayer @Inject constructor(
 
     private var lineup: List<Channel> = emptyList()
     private var current: Channel? = null
-    private var previous: Channel? = null
     private var direction = 1
     private var holders = 0
 
@@ -160,6 +179,9 @@ class ChannelPlayer @Inject constructor(
     private var waitJob: Job? = null
     private var tickJob: Job? = null
     private var handoverJob: Job? = null
+
+    /** Schedule moves are written one at a time, in the order the seeks happened. */
+    private val shifts = Mutex()
 
     /** The channels surfing goes through, in number order. */
     fun setLineup(channels: List<Channel>) {
@@ -214,7 +236,47 @@ class ChannelPlayer @Inject constructor(
 
     fun channelDown() = neighbor(-1)?.let { tuneTo(it, surf = -1) }
 
-    fun lastChannel() = previous?.let { tuneTo(it, surf = 0) }
+    /** Where the program on now is, in its media; 0 while nothing plays. */
+    val positionMs: Long get() = _player.value?.currentPosition ?: 0
+
+    /**
+     * Seeks to [positionMs] in the program on now (kept short of its end, so the seek never
+     * runs into the next one). The channel's schedule moves to match.
+     */
+    fun seekTo(positionMs: Long) {
+        val player = _player.value ?: return
+        val program = queue.firstOrNull() ?: return
+        if (_state.value.status != TuneStatus.PLAYING) return
+        val length = program.slot.endUtcMs - program.slot.startUtcMs
+        val target = positionMs.coerceIn(0, (length - SEEK_END_MARGIN_MS).coerceAtLeast(0))
+        player.seekTo(player.currentMediaItemIndex, target)
+        retime(program, time.nowUtcMs() - target - program.slot.startUtcMs)
+    }
+
+    fun seekBy(deltaMs: Long) = seekTo(positionMs + deltaMs)
+
+    /** Starts the program on now over from its beginning. */
+    fun restart() = seekTo(0)
+
+    /** Moves [program]'s airing, and everything after it on the channel, by [deltaMs]. */
+    private fun retime(program: Program, deltaMs: Long) {
+        if (kotlin.math.abs(deltaMs) < MIN_SHIFT_MS) return
+        val moved = queue.map { it.shifted(deltaMs) }
+        queue.clear()
+        queue.addAll(moved)
+        _state.update { state ->
+            state.copy(
+                now = moved.first().info,
+                next = state.next?.let { it.copy(startUtcMs = it.startUtcMs + deltaMs, endUtcMs = it.endUtcMs + deltaMs) },
+            )
+        }
+        val channelId = program.slot.channelId
+        val from = program.slot.startUtcMs
+        scope.launch {
+            shifts.withLock { withContext(io + NonCancellable) { schedules.shift(channelId, from, deltaMs) } }
+        }
+        AppLog.i(TAG, "Seek on ${current?.number}: the schedule moved ${deltaMs / 1000} s")
+    }
 
     fun trackOptions(type: Int): List<TrackOption> = _player.value?.let { tracks.options(it, type) }.orEmpty()
 
@@ -239,7 +301,6 @@ class ChannelPlayer @Inject constructor(
     private fun tuneTo(channel: Channel, surf: Int) {
         if (surf != 0) direction = surf
         standbyTarget = null
-        if (current?.id != channel.id) previous = current
         current = channel
         tuneJob?.cancel()
         waitJob?.cancel()
@@ -307,7 +368,7 @@ class ChannelPlayer @Inject constructor(
                 status = TuneStatus.PLAYING,
                 now = playing.info,
                 next = queue.getOrNull(1)?.info ?: upcoming(slot),
-                transcoded = playing.stream.transcoded,
+                stream = playing.facts,
             )
         }
         startTicker()
@@ -355,7 +416,7 @@ class ChannelPlayer @Inject constructor(
             server.baseUrl, token, item.remoteId, item.mediaSourceId,
             transcode = decision is StreamDecision.Transcode, tracks = item.tracks, prefs = prefs,
         )
-        return Program(slot, item, server, token, stream)
+        return Program(slot, item, server, token, stream, logoUrl(item, server))
     }
 
     /** The program right after [slot], or null when the channel goes off air or has nothing scheduled. */
@@ -369,7 +430,13 @@ class ChannelPlayer @Inject constructor(
     private suspend fun upcoming(slot: ScheduleSlotEntity): ProgramInfo? {
         val next = scheduleDao.slotsFrom(slot.channelId, slot.endUtcMs, 1).firstOrNull() ?: return null
         val item = next.mediaItemId?.let { itemDao.byId(it) } ?: return ProgramInfo(OFF_AIR_TITLE, null, next.startUtcMs, next.endUtcMs)
-        return programInfo(item, next.startUtcMs, next.endUtcMs)
+        return programInfo(item, next.startUtcMs, next.endUtcMs, serverDao.byId(item.serverId)?.let { logoUrl(item, it) })
+    }
+
+    /** [item]'s title logo, or its show's for an episode. */
+    private suspend fun logoUrl(item: MediaItemEntity, server: MediaServerEntity): String? {
+        val series = item.seriesRemoteId?.let { itemDao.byRemoteId(item.serverId, it) }
+        return Artwork.of(server.baseUrl, item, series).logoUrl
     }
 
     private suspend fun offAir(channel: Channel, slot: ScheduleSlotEntity) {
@@ -410,7 +477,7 @@ class ChannelPlayer @Inject constructor(
         queue.clear()
         queue.addAll(programs)
         pooled.player.playWhenReady = true
-        _state.update { it.copy(status = TuneStatus.PLAYING, transcoded = true, message = null) }
+        _state.update { it.copy(status = TuneStatus.PLAYING, stream = program.facts, message = null) }
     }
 
     private fun startTicker() {
@@ -529,7 +596,7 @@ class ChannelPlayer @Inject constructor(
             startSession(program, maxOf(expected, 0))
             tracks.applyDefaults(pool.active, prefs)
             retriedSlot = Long.MIN_VALUE
-            _state.update { it.copy(now = program.info, next = null, transcoded = program.stream.transcoded) }
+            _state.update { it.copy(now = program.info, next = null, stream = program.facts) }
             scope.launch { queueAfter(program) }
         }
 
@@ -591,6 +658,12 @@ class ChannelPlayer @Inject constructor(
         const val TAG = "Player"
         const val OFF_AIR_TITLE = "Off air"
         const val MAX_DRIFT_MS = 3_000L
+
+        /** A seek stops this far before the program's end, so it never runs into the next one. */
+        const val SEEK_END_MARGIN_MS = 3_000L
+
+        /** Smaller moves than this leave the schedule alone. */
+        const val MIN_SHIFT_MS = 1_000L
         const val RETUNE_GRACE_MS = 500L
         const val RETRY_MS = 10_000L
         const val TICK_MS = 1_000L
@@ -604,11 +677,13 @@ class ChannelPlayer @Inject constructor(
 
 private fun MediaItemEntity.streamInfo() = StreamInfo(container, videoCodec, audioCodec, width, height, videoBitDepth)
 
-private fun programInfo(item: MediaItemEntity, startUtcMs: Long, endUtcMs: Long) = ProgramInfo(
+private fun programInfo(item: MediaItemEntity, startUtcMs: Long, endUtcMs: Long, logoUrl: String? = null) = ProgramInfo(
     title = programTitle(item.title, item.showTitle),
     detail = programDetail(item.title, item.showTitle, item.season, item.episode, item.year),
     startUtcMs = startUtcMs,
     endUtcMs = endUtcMs,
+    logoUrl = logoUrl,
+    isEpisode = item.showTitle != null,
 )
 
 /** The text track type, for screens that don't depend on Media3 directly. */

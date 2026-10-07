@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
+import tv.anstelle.core.data.Artwork
 import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.programDetail
 import tv.anstelle.core.data.programTitle
@@ -48,11 +49,16 @@ data class OnDemandState(
     val status: OnDemandStatus = OnDemandStatus.LOADING,
     /** The show's title for an episode. */
     val title: String? = null,
-    /** "S1E4 · Pilot", a movie's year, or null. */
+    /** "S1E4 - Pilot", a movie's year, or null. */
     val detail: String? = null,
+    /** The show's or movie's title logo, shown in place of [title]; null when there is none. */
+    val logoUrl: String? = null,
+    /** True for an episode, false for a movie. */
+    val isEpisode: Boolean = false,
     val playing: Boolean = false,
     val buffering: Boolean = false,
-    val transcoded: Boolean = false,
+    /** The server, play method and picture and sound of what is playing. */
+    val stream: StreamFacts? = null,
     /** What plays after this episode, or null. */
     val next: String? = null,
     val message: String? = null,
@@ -100,8 +106,9 @@ class OnDemandPlayer @Inject constructor(
         pooled = it
     }
 
-    private class Entry(val item: MediaItemEntity, val server: MediaServerEntity, val token: String, val stream: ProgramStream) {
+    private class Entry(val item: MediaItemEntity, val server: MediaServerEntity, val token: String, val stream: ProgramStream, val logoUrl: String?) {
         val mediaItem: MediaItem = stream.mediaItem("demand@${item.id}")
+        val facts: StreamFacts = StreamFacts.of(item, server.name, stream.transcoded)
     }
 
     /** The player's playlist; the first entry is playing. */
@@ -227,7 +234,8 @@ class OnDemandPlayer @Inject constructor(
             server.baseUrl, token, item.remoteId, item.mediaSourceId,
             transcode = decision is StreamDecision.Transcode, tracks = item.tracks, prefs = prefs,
         )
-        return Entry(item, server, token, stream)
+        val series = item.seriesRemoteId?.let { itemDao.byRemoteId(item.serverId, it) }
+        return Entry(item, server, token, stream, Artwork.of(server.baseUrl, item, series).logoUrl)
     }
 
     /**
@@ -255,7 +263,9 @@ class OnDemandPlayer @Inject constructor(
                 status = OnDemandStatus.PLAYING,
                 title = programTitle(item.title, item.showTitle),
                 detail = programDetail(item.title, item.showTitle, item.season, item.episode, item.year),
-                transcoded = entry.stream.transcoded,
+                logoUrl = entry.logoUrl,
+                isEpisode = item.showTitle != null,
+                stream = entry.facts,
                 next = (queue.getOrNull(1) ?: deferred)?.item?.let(::nextLabel),
                 message = null,
             )

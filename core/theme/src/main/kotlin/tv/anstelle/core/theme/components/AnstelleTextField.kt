@@ -1,6 +1,7 @@
 package tv.anstelle.core.theme.components
 
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -18,6 +19,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 
 /**
@@ -66,16 +68,22 @@ fun AnstelleTextField(
             onNext = { focusManager.moveFocus(FocusDirection.Down) },
             onDone = { onDone() },
         ),
+        shape = ControlShape,
+        textStyle = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = theme.text,
             unfocusedTextColor = theme.text,
-            focusedBorderColor = theme.focus,
-            unfocusedBorderColor = theme.textMuted,
-            focusedLabelColor = theme.focus,
+            disabledTextColor = theme.textMuted,
+            focusedBorderColor = theme.accent,
+            unfocusedBorderColor = theme.line,
+            disabledBorderColor = theme.line,
+            focusedLabelColor = theme.accent,
             unfocusedLabelColor = theme.textMuted,
-            cursorColor = theme.focus,
+            cursorColor = theme.accent,
+            selectionColors = TextSelectionColors(handleColor = theme.accent, backgroundColor = theme.accentContainer),
             focusedContainerColor = theme.surface,
             unfocusedContainerColor = theme.surface,
+            disabledContainerColor = theme.background,
         ),
     )
 }

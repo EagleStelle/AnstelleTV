@@ -66,6 +66,50 @@ class ScheduleRepositoryTest {
         assertEquals(start, dao.states.getValue(9).updatedAtUtcMs)
     }
 
+    /** (item, start, end) of channel 9's slots, minutes from [start]. */
+    private fun layout() = dao.slotsOf(9).map { Triple(it.mediaItemId, (it.startUtcMs - start) / minute, (it.endUtcMs - start) / minute) }
+
+    private suspend fun saveTwoHours() {
+        val result = ScheduleEngine.generate(inputs, ScheduleEngine.initialState(inputs, start), start + 2 * 60 * minute)
+        repository.save(9, start, result, inputs.fingerprint())
+    }
+
+    @Test
+    fun seekingBackMovesTheRestOfTheScheduleLater() = runTest {
+        saveTwoHours()
+        val until = repository.stored(9)!!.generatedUntilUtcMs
+        // Ten minutes into episode 1, the viewer starts it over.
+        repository.shift(9, start, 10 * minute)
+        assertEquals(
+            listOf(Triple(1L, 0L, 10L), Triple(1L, 10L, 34L), Triple(2L, 34L, 58L), Triple(3L, 58L, 82L), Triple(4L, 82L, 106L), Triple(1L, 106L, 130L)),
+            layout(),
+        )
+        assertEquals(1L, repository.nowPlaying(9, start + 10 * minute)!!.mediaItemId)
+        assertEquals(0L, repository.nowPlaying(9, start + 10 * minute)!!.mediaPositionMs)
+        val stored = repository.stored(9)!!
+        assertEquals(until + 10 * minute, stored.generatedUntilUtcMs)
+        assertEquals(until + 10 * minute, stored.state.nextStartUtcMs)
+
+        // Five more minutes back: the part already shown stays one airing.
+        repository.shift(9, start + 10 * minute, 5 * minute)
+        assertEquals(listOf(Triple(1L, 0L, 15L), Triple(1L, 15L, 39L), Triple(2L, 39L, 63L)), layout().take(3))
+    }
+
+    @Test
+    fun seekingAheadMovesItEarlierOverWhatAiredBefore() = runTest {
+        saveTwoHours()
+        // Episode 2 began at 24 min; 30 minutes ahead it began at -6, over all of episode 1.
+        repository.shift(9, start + 24 * minute, -30 * minute)
+        assertEquals(
+            listOf(Triple(2L, -6L, 18L), Triple(3L, 18L, 42L), Triple(4L, 42L, 66L), Triple(1L, 66L, 90L)),
+            layout(),
+        )
+        // A smaller step ahead cuts the airing before it short instead.
+        repository.shift(9, start + 18 * minute, -4 * minute)
+        assertEquals(listOf(Triple(2L, -6L, 14L), Triple(3L, 14L, 38L)), layout().take(2))
+        assertEquals(repository.stored(9)!!.state.nextStartUtcMs, dao.slotsOf(9).last().endUtcMs)
+    }
+
     @Test
     fun unreadableStateIsTreatedAsMissing() = runTest {
         dao.upsertState(ScheduleStateEntity(9, start, byteArrayOf(42), 1, start))

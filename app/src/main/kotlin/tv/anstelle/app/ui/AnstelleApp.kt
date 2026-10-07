@@ -1,16 +1,46 @@
 package tv.anstelle.app.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.plus
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -30,7 +60,12 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.tv.material3.NavigationDrawerItem
 import tv.anstelle.core.theme.AnstelleTheme
+import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
+import tv.anstelle.core.theme.LocalIsTv
+
+import tv.anstelle.core.theme.components.AnstelleMark
+import tv.anstelle.core.theme.components.Wordmark
 import tv.anstelle.feature.dashboard.DashboardScreen
 import tv.anstelle.feature.guide.GuideScreen
 import tv.anstelle.feature.ondemand.ItemScreen
@@ -212,24 +247,45 @@ private fun NavHostController.navigateTopLevel(destination: TopLevelDestination)
     }
 }
 
-/** Phone and tablet: Material 3 navigation bar. */
+/**
+ * Phones: a tab bar along the bottom. Tablets and other wide screens: the same tabs as a rail
+ * headed by the bug. Both sit flush on the page's own ground, with no divider, no pill and no
+ * hover or ripple: the open tab is the filled icon with a bright label, the rest are outlined
+ * and quiet, and a press shrinks the icon for a moment.
+ */
 @Composable
 private fun PhoneShell(
     selected: TopLevelDestination?,
     onNavigate: (TopLevelDestination) -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
+    val theme = LocalAnstelleTheme.current
+    if (LocalConfiguration.current.screenWidthDp >= RAIL_MIN_WIDTH_DP) {
+        Row(Modifier.fillMaxSize().background(theme.background)) {
+            NavRail(selected, onNavigate, Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)))
+            // The rail owns the start edge; the screen keeps clear of the other system bars.
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.End)),
+            ) { content(Modifier.fillMaxSize()) }
+        }
+        return
+    }
     androidx.compose.material3.Scaffold(
-        containerColor = LocalAnstelleTheme.current.background,
+        containerColor = theme.background,
         bottomBar = {
-            androidx.compose.material3.NavigationBar {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(theme.surface)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .height(BAR_HEIGHT)
+                    .selectableGroup(),
+            ) {
                 for (destination in TopLevelDestination.entries) {
-                    NavigationBarItem(
-                        selected = destination == selected,
-                        onClick = { onNavigate(destination) },
-                        icon = { androidx.compose.material3.Icon(destination.icon, contentDescription = null) },
-                        label = { androidx.compose.material3.Text(destination.label) },
-                    )
+                    NavTab(destination, destination == selected, { onNavigate(destination) }, Modifier.weight(1f).fillMaxHeight())
                 }
             }
         },
@@ -238,39 +294,132 @@ private fun PhoneShell(
     }
 }
 
-/** TV: Compose-for-TV navigation drawer that expands when it receives D-pad focus. */
+/**
+ * The rail beside the screen, on tablets and TV alike: the bug, then the tabs. On TV, coming
+ * in from the screen lands focus on the open destination, wherever the D-pad entered.
+ */
+@Composable
+private fun NavRail(selected: TopLevelDestination?, onNavigate: (TopLevelDestination) -> Unit, modifier: Modifier = Modifier) {
+    val theme = LocalAnstelleTheme.current
+    val isTv = LocalIsTv.current
+    val requesters = remember { TopLevelDestination.entries.associateWith { FocusRequester() } }
+    Box(Modifier.fillMaxHeight().background(theme.surface)) {
+        Column(
+            modifier
+                .fillMaxHeight()
+                .width(if (isTv) TV_RAIL_WIDTH else RAIL_WIDTH)
+                .then(
+                    if (isTv) {
+                        Modifier
+                            .focusProperties { onEnter = { selected?.let { requesters.getValue(it).requestFocus() } } }
+                            .focusGroup()
+                    } else {
+                        Modifier
+                    },
+                )
+                .selectableGroup()
+                .padding(horizontal = if (isTv) 6.dp else 0.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(if (isTv) 4.dp else 0.dp),
+        ) {
+            AnstelleMark(Modifier.padding(top = if (isTv) 24.dp else 16.dp, bottom = 20.dp).size(if (isTv) 32.dp else 36.dp))
+            for (destination in TopLevelDestination.entries) {
+                NavTab(
+                    destination,
+                    destination == selected,
+                    { onNavigate(destination) },
+                    Modifier
+                        .fillMaxWidth()
+                        .height(if (isTv) TV_RAIL_ITEM_HEIGHT else RAIL_ITEM_HEIGHT)
+                        .then(if (isTv) Modifier.focusRequester(requesters.getValue(destination)) else Modifier),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * One tab, the same on phone, tablet and TV: an icon over its label. The open tab has the
+ * filled icon and a bright label; the rest are outlined and quiet. Touch gets no ripple or
+ * hover, only a quick shrink of the icon on press. On TV the D-pad's focus fills the tab with
+ * the accent, the focus every other TV control uses.
+ */
+@Composable
+private fun NavTab(destination: TopLevelDestination, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    val theme = LocalAnstelleTheme.current
+    val isTv = LocalIsTv.current
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val focused by interaction.collectIsFocusedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.84f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+        label = "tab press",
+    )
+    val tint by animateColorAsState(
+        when {
+            focused -> theme.onAccent
+            selected -> theme.text
+            else -> theme.textMuted
+        },
+        tween(TAB_FADE_MS),
+        label = "tab tint",
+    )
+    Column(
+        modifier
+            .background(if (focused) theme.accent else Color.Transparent, ControlShape)
+            .selectable(
+                selected = selected,
+                onClick = onClick,
+                role = Role.Tab,
+                interactionSource = interaction,
+                indication = null,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+    ) {
+        androidx.compose.material3.Icon(
+            if (selected || focused) destination.icon else destination.outlinedIcon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier
+                .size(24.dp)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                },
+        )
+        androidx.compose.material3.Text(
+            destination.label,
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall.copy(
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Medium,
+            ),
+            color = tint,
+            maxLines = 1,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+/** TV: the same rail as tablets, with the screen beside it. */
 @Composable
 private fun TvShell(
     selected: TopLevelDestination?,
     onNavigate: (TopLevelDestination) -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
-    val requesters = remember { TopLevelDestination.entries.associateWith { FocusRequester() } }
-    androidx.tv.material3.NavigationDrawer(
-        drawerContent = {
-            androidx.compose.foundation.layout.Column(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .background(LocalAnstelleTheme.current.surface)
-                    // Coming in from the screen, focus lands on the open destination, wherever the D-pad entered.
-                    .focusProperties { onEnter = { selected?.let { requesters.getValue(it).requestFocus() } } }
-                    .focusGroup()
-                    .padding(12.dp),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
-            ) {
-                for (destination in TopLevelDestination.entries) {
-                    NavigationDrawerItem(
-                        selected = destination == selected,
-                        onClick = { onNavigate(destination) },
-                        leadingContent = { androidx.tv.material3.Icon(destination.icon, contentDescription = null) },
-                        modifier = Modifier.focusRequester(requesters.getValue(destination)),
-                    ) {
-                        androidx.tv.material3.Text(destination.label)
-                    }
-                }
-            }
-        },
-    ) {
-        content(Modifier.fillMaxSize())
+    Row(Modifier.fillMaxSize().background(LocalAnstelleTheme.current.background)) {
+        NavRail(selected, onNavigate)
+        Box(Modifier.weight(1f).fillMaxHeight()) { content(Modifier.fillMaxSize()) }
     }
 }
+
+private const val RAIL_MIN_WIDTH_DP = 600
+private val RAIL_WIDTH = 88.dp
+private val RAIL_ITEM_HEIGHT = 72.dp
+private val TV_RAIL_WIDTH = 80.dp
+private val TV_RAIL_ITEM_HEIGHT = 60.dp
+private val BAR_HEIGHT = 64.dp
+private const val TAB_FADE_MS = 150

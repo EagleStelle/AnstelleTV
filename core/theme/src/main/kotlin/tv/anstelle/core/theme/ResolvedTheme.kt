@@ -10,16 +10,17 @@ class ResolvedTheme(
     val spec: ThemeSpec,
     val background: Color,
     val surface: Color,
-    val surfaceVariant: Color,
-    val primary: Color,
-    val onPrimary: Color,
-    val secondary: Color,
+    val surfaceHigh: Color,
+    val line: Color,
     val text: Color,
     val textMuted: Color,
-    val focus: Color,
+    val accent: Color,
+    val onAccent: Color,
+    val accentContainer: Color,
+    val onAccentContainer: Color,
     val guideCell: Color,
-    val guideCellAlt: Color,
-    val guideCellFocused: Color,
+    val guideCellPast: Color,
+    val guideRuns: List<Color>,
     val nowLine: Color,
     val banner: Color,
     val bannerText: Color,
@@ -33,16 +34,17 @@ class ResolvedTheme(
                 spec = spec,
                 background = parseColor(c.background),
                 surface = parseColor(c.surface),
-                surfaceVariant = parseColor(c.surfaceVariant),
-                primary = parseColor(c.primary),
-                onPrimary = parseColor(c.onPrimary),
-                secondary = parseColor(c.secondary),
+                surfaceHigh = parseColor(c.surfaceHigh),
+                line = parseColor(c.line),
                 text = parseColor(c.text),
                 textMuted = parseColor(c.textMuted),
-                focus = parseColor(c.focus),
+                accent = parseColor(c.accent),
+                onAccent = parseColor(c.onAccent),
+                accentContainer = parseColor(c.accentContainer),
+                onAccentContainer = parseColor(c.onAccentContainer),
                 guideCell = parseColor(c.guideCell),
-                guideCellAlt = parseColor(c.guideCellAlt),
-                guideCellFocused = parseColor(c.guideCellFocused),
+                guideCellPast = parseColor(c.guideCellPast),
+                guideRuns = c.guideRuns.map(::parseColor),
                 nowLine = parseColor(c.nowLine),
                 banner = parseColor(c.banner),
                 bannerText = parseColor(c.bannerText),
@@ -62,12 +64,11 @@ class ResolvedTheme(
             }
         }
 
-        // Bundled OFL fonts arrive with the theme designer (Phase 8); system families until then.
         private fun fontFamily(choice: FontChoice): FontFamily = when (choice) {
-            FontChoice.SANS -> FontFamily.SansSerif
+            FontChoice.SANS -> AnstelleFonts.Barlow
+            FontChoice.CONDENSED -> AnstelleFonts.BarlowCondensed
             FontChoice.SERIF -> FontFamily.Serif
             FontChoice.MONO -> FontFamily.Monospace
-            FontChoice.CONDENSED -> FontFamily.SansSerif
         }
     }
 }

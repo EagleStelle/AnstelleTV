@@ -31,22 +31,40 @@ data class ThemeSpec(
     fun toJson(): String = json.encodeToString(serializer(), this)
 }
 
-/** Colors as `#RRGGBB` or `#AARRGGBB`. */
+/**
+ * Colors as `#RRGGBB` or `#AARRGGBB`. Focus is always [accent] filled with [onAccent] text,
+ * so a theme sets one accent and every focused control, cell and tab follows it.
+ */
 @Serializable
 data class ThemeColors(
+    /** The ground every screen sits on. */
     val background: String,
+    /** Rows, cells and panels one step up from the ground. */
     val surface: String,
-    val surfaceVariant: String,
-    val primary: String,
-    val onPrimary: String,
-    val secondary: String,
+    /** A second step: pressed rows, raised panels. */
+    val surfaceHigh: String,
+    /** Dividers, outlines and empty progress segments. */
+    val line: String,
     val text: String,
+    /** Secondary text, tinted from the palette rather than a neutral grey. */
     val textMuted: String,
-    val focus: String,
+    /** Focus fills, the now line, live markers and primary actions. */
+    val accent: String,
+    val onAccent: String,
+    /** Selected (not focused) items, such as the open destination. */
+    val accentContainer: String,
+    val onAccentContainer: String,
+    /** A guide cell on air, and later airings of the show on air in its row. */
     val guideCell: String,
-    val guideCellAlt: String,
-    val guideCellFocused: String,
+    /** A guide cell that has finished airing. */
+    val guideCellPast: String,
+    /**
+     * Upcoming guide cells of other shows, taken in turn: a show's back-to-back airings share
+     * one, and the next show always takes another. At least two.
+     */
+    val guideRuns: List<String>,
     val nowLine: String,
+    /** The player's banner and panels over video. */
     val banner: String,
     val bannerText: String,
 )
@@ -61,17 +79,21 @@ data class ThemeTypography(
     val scale: Float = 1f,
 )
 
+/**
+ * Guide row heights. Touch rows stay tall enough to tap; TV rows are tighter, since the
+ * remote moves the selection and the 10-foot screen should show more channels at once.
+ */
 @Serializable
-enum class GuideDensity(val rowHeightDp: Int) {
-    COMPACT(48),
-    COMFORTABLE(64),
-    SPACIOUS(80),
+enum class GuideDensity(val rowHeightDp: Int, val tvRowHeightDp: Int) {
+    COMPACT(48, 40),
+    COMFORTABLE(64, 52),
+    SPACIOUS(80, 64),
 }
 
 @Serializable
 data class GuideStyle(
     val density: GuideDensity = GuideDensity.COMFORTABLE,
-    val cellRadiusDp: Int = 8,
+    val cellRadiusDp: Int = 2,
     val showChannelLogos: Boolean = true,
 )
 

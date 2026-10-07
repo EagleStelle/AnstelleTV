@@ -89,11 +89,26 @@ class GuideViewModel @Inject constructor(
     val playbackState = playback.state
     val player = playback.player
 
+    private val _follow = MutableStateFlow<Long?>(null)
+
+    /**
+     * A channel the preview opened on at launch, came back on from the full-screen player, or
+     * changed to while the guide was out of view; the selection moves to it, its row to the
+     * top. Cleared by [followed].
+     */
+    val follow: StateFlow<Long?> = _follow.asStateFlow()
+
     private val tab = MutableStateFlow<String?>(null)
     private var profileId = 0L
     private var tunable: List<Channel> = emptyList()
     private var previewWanted = false
     private var previewStarted = false
+
+    /** The channel in the preview when the guide last went out of view; null before it was first shown. */
+    private var hiddenOn: Long? = null
+
+    /** True while the full-screen player the guide opened is on top of it. */
+    private var inPlayer = false
 
     /** Loaded windows by index (start / [WINDOW_MS]), least recently used first. */
     private val windows = LinkedHashMap<Long, Map<Long, ProgramStrip>>(16, 0.75f, true)
@@ -236,13 +251,29 @@ class GuideViewModel @Inject constructor(
         if (previewStarted || tunable.isEmpty()) return
         previewStarted = true
         playback.acquire()
+        val left = hiddenOn
+        val fromPlayer = inPlayer
+        hiddenOn = null
+        inPlayer = false
         viewModelScope.launch {
             val last = settings.get(Settings.lastChannel(profileId))
             val channel = playback.state.value.channel?.takeIf { on -> tunable.any { it.id == on.id } }
                 ?: tunable.firstOrNull { it.id == last }
                 ?: tunable.first()
             playback.tune(channel.id)
+            // At launch the grid picked its first selection without waiting for the last channel to be read.
+            if (left != channel.id || fromPlayer) _follow.value = channel.id
         }
+    }
+
+    /** The guide is opening the full-screen player; back from it, the grid returns to the channel left on. */
+    fun openingPlayer() {
+        inPlayer = true
+    }
+
+    /** The selection moved to [follow]'s channel. */
+    fun followed() {
+        _follow.value = null
     }
 
     /** Shows [channelId] in the preview window. */
@@ -255,6 +286,7 @@ class GuideViewModel @Inject constructor(
         previewWanted = false
         if (!previewStarted) return
         previewStarted = false
+        hiddenOn = playback.state.value.channel?.id
         prewarmJob?.cancel()
         playback.release()
     }

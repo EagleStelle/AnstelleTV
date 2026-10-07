@@ -9,4 +9,6 @@ dependencies {
     api(libs.androidx.compose.material3)
     api(libs.androidx.tv.material)
     implementation(libs.kotlinx.serialization.json)
+    // Backdrops and title logos from the server.
+    implementation(libs.coil.compose)
 }

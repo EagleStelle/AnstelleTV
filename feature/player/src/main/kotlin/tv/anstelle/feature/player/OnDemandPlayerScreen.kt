@@ -4,23 +4,25 @@ import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.widthIn
+
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material.icons.filled.Check
+
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -35,9 +37,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -65,6 +68,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tv.anstelle.core.data.ProfileRepository
+import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.data.playback.ChannelPlayer
 import tv.anstelle.core.data.playback.OnDemandPlayer
 import tv.anstelle.core.data.playback.OnDemandState
@@ -75,7 +79,10 @@ import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.FocusTile
+import tv.anstelle.core.theme.PanelShape
+import tv.anstelle.core.theme.components.AirMarker
+import tv.anstelle.core.theme.components.TitleLogo
+
 import javax.inject.Inject
 
 @HiltViewModel
@@ -132,9 +139,10 @@ class OnDemandPlayerViewModel @Inject constructor(
 private enum class DemandPanel { CONTROLS, AUDIO, SUBTITLES }
 
 /**
- * Full-screen on-demand playback. Unlike a channel it can be paused and sought: OK plays or
- * pauses, left and right jump back 10 s and ahead 30 s, up or Menu opens the controls
- * (audio, subtitles, next episode). Phones tap for the controls.
+ * Full-screen on-demand playback: OK plays or pauses, left and right jump back 10 s and ahead
+ * 30 s. The banner always carries its keys (audio and subtitles on the left; play, the jumps and
+ * next episode on the right); up, down or Menu moves focus into them. Phones tap for the banner
+ * and drag its bar to seek.
  */
 @Composable
 fun OnDemandPlayerScreen(
@@ -151,6 +159,7 @@ fun OnDemandPlayerScreen(
     LifecycleStartEffect(viewModel) {
         onStopOrDispose { viewModel.pause() }
     }
+    LandscapeFullScreen()
     LaunchedEffect(overlay, state.playing, panel) {
         overlayVisible = true
         if (state.playing && panel == null) {
@@ -159,7 +168,24 @@ fun OnDemandPlayerScreen(
         }
     }
     BackHandler(enabled = panel != null) { panel = if (panel == DemandPanel.CONTROLS) null else DemandPanel.CONTROLS }
-    LaunchedEffect(panel) { if (panel == null) runCatching { focus.requestFocus() } }
+    val playKey = remember { FocusRequester() }
+    val audioKey = remember { FocusRequester() }
+    val subtitlesKey = remember { FocusRequester() }
+    // The key that opened a track list gets focus back when the list closes.
+    var returnKey by remember { mutableStateOf<FocusRequester?>(null) }
+    LaunchedEffect(panel) {
+        when (panel) {
+            null -> {
+                returnKey = null
+                runCatching { focus.requestFocus() }
+            }
+            DemandPanel.CONTROLS -> {
+                withFrameNanos { }
+                runCatching { (returnKey ?: playKey).requestFocus() }
+            }
+            else -> Unit
+        }
+    }
 
     Box(
         modifier
@@ -203,32 +229,66 @@ fun OnDemandPlayerScreen(
             else -> if (state.buffering) Message("Loading…")
         }
         if (overlayVisible || panel != null || !state.playing) {
-            Overlay(state, viewModel, Modifier.align(Alignment.BottomCenter))
-        }
-        when (panel) {
-            DemandPanel.CONTROLS -> DemandControls(
+            // Read again whenever the playback state moves: the keys stay on screen across episodes.
+            val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.label?.substringBefore(" · ") }
+            val subtitles = remember(state, panel) { viewModel.subtitleOptions().firstOrNull { it.selected }?.label }
+            Overlay(
                 state = state,
-                isTv = isTv,
-                onPlay = viewModel::togglePlay,
-                onBack = { viewModel.seekBy(-BACK_MS) },
-                onAhead = { viewModel.seekBy(AHEAD_MS) },
-                onNext = {
-                    panel = null
-                    viewModel.next()
+                viewModel = viewModel,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                keys = when (panel) {
+                    null, DemandPanel.CONTROLS -> {
+                        {
+                            OsdKey("Audio", Icons.Filled.Audiotrack, onClick = {
+                                returnKey = audioKey
+                                panel = DemandPanel.AUDIO
+                            }, Modifier.focusRequester(audioKey), value = audio)
+                            OsdKey("Subtitles", Icons.Filled.Subtitles, onClick = {
+                                returnKey = subtitlesKey
+                                panel = DemandPanel.SUBTITLES
+                            }, Modifier.focusRequester(subtitlesKey), value = subtitles)
+                            // Tracks on the left, the player's own actions on the right.
+                            Spacer(Modifier.weight(1f))
+                            OsdKey(
+                                if (state.playing) "Pause" else "Play",
+                                if (state.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                onClick = viewModel::togglePlay,
+                                modifier = Modifier.focusRequester(playKey),
+                            )
+                            OsdKey("10 s", Icons.Filled.Replay10, onClick = {
+                                viewModel.seekBy(-BACK_MS)
+                                overlay++
+                            })
+                            OsdKey("30 s", Icons.Filled.Forward30, onClick = {
+                                viewModel.seekBy(AHEAD_MS)
+                                overlay++
+                            })
+                            if (state.next != null) {
+                                OsdKey("Next episode", Icons.Filled.SkipNext, onClick = {
+                                    panel = null
+                                    viewModel.next()
+                                })
+                            }
+                        }
+                    }
+                    DemandPanel.AUDIO -> {
+                        {
+                            TrackChoices("Audio", remember { viewModel.audioOptions() }) {
+                                viewModel.selectAudio(it)
+                                panel = null
+                            }
+                        }
+                    }
+                    DemandPanel.SUBTITLES -> {
+                        {
+                            TrackChoices("Subtitles", remember { viewModel.subtitleOptions() }) {
+                                viewModel.selectSubtitles(it)
+                                panel = null
+                            }
+                        }
+                    }
                 },
-                onAudio = { panel = DemandPanel.AUDIO },
-                onSubtitles = { panel = DemandPanel.SUBTITLES },
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp),
             )
-            DemandPanel.AUDIO -> Tracks("Audio", viewModel.audioOptions(), Modifier.align(Alignment.CenterEnd)) {
-                viewModel.selectAudio(it)
-                panel = null
-            }
-            DemandPanel.SUBTITLES -> Tracks("Subtitles", viewModel.subtitleOptions(), Modifier.align(Alignment.CenterEnd)) {
-                viewModel.selectSubtitles(it)
-                panel = null
-            }
-            null -> Unit
         }
     }
 }
@@ -260,115 +320,113 @@ private fun Video(player: androidx.media3.common.Player) {
     )
 }
 
-/** Title, position and a seek bar. On phones the bar can be dragged. */
+/**
+ * The on-demand banner: ON DEMAND or PAUSED with the stream's technical line beside it, the
+ * title, the time in with the bar and the length, what plays next and the [keys] under a
+ * hairline. Phones and tablets set what plays next beside the detail line, and their ladder
+ * takes taps and drags.
+ */
 @Composable
-private fun Overlay(state: OnDemandState, viewModel: OnDemandPlayerViewModel, modifier: Modifier) {
+private fun Overlay(
+    state: OnDemandState,
+    viewModel: OnDemandPlayerViewModel,
+    modifier: Modifier,
+    keys: @Composable RowScope.() -> Unit,
+) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     var position by remember { mutableLongStateOf(viewModel.positionMs) }
     var duration by remember { mutableLongStateOf(viewModel.durationMs) }
-    var dragging by remember { mutableStateOf(false) }
-    var dragFraction by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
         while (true) {
-            if (!dragging) position = viewModel.positionMs
+            position = viewModel.positionMs
             duration = viewModel.durationMs
             delay(POSITION_MS)
         }
     }
+    val typography = androidx.compose.material3.MaterialTheme.typography
     Column(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 24.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(theme.banner.copy(alpha = 0.92f))
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(12.dp)
+            .background(theme.banner, PanelShape)
+            .border(1.dp, theme.line, PanelShape),
     ) {
-        Text(state.title ?: "", size = 24, weight = FontWeight.SemiBold)
-        state.detail?.let { Text(it, size = 16, color = theme.textMuted) }
-        val fraction = if (dragging) dragFraction else if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
-        if (isTv) {
-            Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(theme.surfaceVariant)) {
-                Box(Modifier.fillMaxWidth(fraction).height(6.dp).background(theme.primary))
-            }
-        } else {
-            androidx.compose.material3.Slider(
-                value = fraction,
-                onValueChange = {
-                    dragging = true
-                    dragFraction = it
-                },
-                onValueChangeFinished = {
-                    viewModel.seekTo((dragFraction * duration).toLong())
-                    position = (dragFraction * duration).toLong()
-                    dragging = false
-                },
-            )
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            val shown = if (dragging) (dragFraction * duration).toLong() else position
-            Text(
-                "${clock(shown)} / ${clock(duration)}" + if (state.transcoded) "  ·  converted by the server" else "",
-                size = 14,
-                color = theme.textMuted,
-            )
-            state.next?.let { Text("Next: $it", size = 14, color = theme.secondary) }
-        }
-    }
-}
-
-@Composable
-private fun DemandControls(
-    state: OnDemandState,
-    isTv: Boolean,
-    onPlay: () -> Unit,
-    onBack: () -> Unit,
-    onAhead: () -> Unit,
-    onNext: () -> Unit,
-    onAudio: () -> Unit,
-    onSubtitles: () -> Unit,
-    modifier: Modifier,
-) {
-    val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        val tile = Modifier.width(if (isTv) 150.dp else 96.dp)
-        FocusTile(if (state.playing) "Pause" else "Play", onClick = onPlay, icon = if (state.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, modifier = tile.focusRequester(first))
-        FocusTile("Back 10 s", onClick = onBack, icon = Icons.Filled.Replay10, modifier = tile)
-        FocusTile("Ahead 30 s", onClick = onAhead, icon = Icons.Filled.Forward30, modifier = tile)
-        if (state.next != null) FocusTile("Next episode", onClick = onNext, icon = Icons.Filled.SkipNext, modifier = tile)
-        FocusTile("Audio", onClick = onAudio, icon = Icons.Filled.Audiotrack, modifier = tile)
-        FocusTile("Subtitles", onClick = onSubtitles, icon = Icons.Filled.Subtitles, modifier = tile)
-    }
-}
-
-@Composable
-private fun Tracks(title: String, options: List<TrackOption>, modifier: Modifier, onPick: (TrackOption) -> Unit) {
-    val theme = LocalAnstelleTheme.current
-    val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
-    Column(
-        modifier
-            .padding(32.dp)
-            .width(420.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(theme.banner.copy(alpha = 0.95f))
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(title, size = 24, weight = FontWeight.SemiBold)
-        if (options.isEmpty()) Text("This one has none.", size = 18, color = theme.textMuted)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            itemsIndexed(options) { i, option ->
-                FocusTile(
-                    title = option.label,
-                    icon = if (option.selected) Icons.Filled.Check else null,
-                    onClick = { onPick(option) },
-                    modifier = Modifier.fillMaxWidth().let { if (i == 0) it.focusRequester(first) else it },
+        // Hand-held sizes off TV: the touch keys close the column, so it needs no bottom padding.
+        Column(
+            Modifier.padding(start = 16.dp, end = 16.dp, top = if (isTv) 14.dp else 12.dp, bottom = if (isTv) 14.dp else 0.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 2.dp),
+        ) {
+            BannerHeader(state.stream) {
+                androidx.compose.material3.Text(
+                    if (state.playing) "ON DEMAND" else "PAUSED",
+                    style = typography.labelMedium,
+                    color = theme.accent,
                 )
             }
+            TitleLogo(
+                logoUrl = state.logoUrl,
+                title = state.title.orEmpty(),
+                height = if (isTv) 56.dp else 28.dp,
+                maxLogoWidth = if (isTv) 360.dp else 220.dp,
+                style = if (isTv) typography.headlineMedium else typography.headlineSmall,
+                modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp),
+            )
+            val detail = lineUnderLogo(state.detail, state.title.orEmpty(), state.isEpisode, state.logoUrl != null)
+            if (isTv) {
+                detail?.let { DetailLine(it) }
+            } else if (detail != null || state.next != null) {
+                // This and next on one line, as an OSD pairs them.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    DetailLine(detail.orEmpty(), Modifier.weight(1f))
+                    state.next?.let { NextLine(it, Modifier.widthIn(max = NEXT_MAX_WIDTH)) }
+                }
+            }
+            ProgressRow(
+                positionMs = position,
+                lengthMs = duration,
+                modifier = Modifier.padding(top = if (isTv) 4.dp else 0.dp),
+                // Phones tap or drag the ladder; the remote seeks with left and right.
+                onSeek = if (isTv) {
+                    null
+                } else {
+                    { target: Long ->
+                        viewModel.seekTo(target)
+                        position = target
+                    }
+                },
+            )
+            if (isTv) state.next?.let { NextLine(it) }
+            OsdKeys(Modifier.padding(top = if (isTv) 2.dp else 0.dp), keys)
         }
+    }
+}
+
+/** The line under the title: S1E2 - its title for an episode, the year for a movie. */
+@Composable
+private fun DetailLine(text: String, modifier: Modifier = Modifier) {
+    androidx.compose.material3.Text(
+        text,
+        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+        color = LocalAnstelleTheme.current.textMuted,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+    )
+}
+
+/** What plays next, behind a hollow marker. */
+@Composable
+private fun NextLine(next: String, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AirMarker(onAir = false)
+        androidx.compose.material3.Text(
+            "NEXT  $next",
+            style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+            color = LocalAnstelleTheme.current.textMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -376,49 +434,25 @@ private fun Tracks(title: String, options: List<TrackOption>, modifier: Modifier
 private fun Message(text: String) {
     val theme = LocalAnstelleTheme.current
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(
+        androidx.compose.material3.Text(
             text,
-            size = 20,
+            style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+            color = theme.text,
             modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(theme.banner.copy(alpha = 0.85f))
+                .background(theme.banner, PanelShape)
+                .border(1.dp, theme.line, PanelShape)
                 .padding(horizontal = 24.dp, vertical = 14.dp),
         )
     }
 }
 
-@Composable
-private fun Text(
-    text: String,
-    size: Int,
-    modifier: Modifier = Modifier,
-    weight: FontWeight = FontWeight.Normal,
-    color: Color = LocalAnstelleTheme.current.text,
-) {
-    androidx.compose.material3.Text(
-        text,
-        modifier = modifier,
-        color = color,
-        fontSize = size.sp,
-        fontWeight = weight,
-        fontFamily = LocalAnstelleTheme.current.bodyFont,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-    )
-}
-
-/** "12:34" or "1:02:03". */
-private fun clock(ms: Long): String {
-    val seconds = ms.coerceAtLeast(0) / 1000
-    val h = seconds / 3600
-    val m = seconds % 3600 / 60
-    val s = seconds % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
-}
 
 private const val BACK_MS = 10_000L
 private const val AHEAD_MS = 30_000L
 private const val OVERLAY_MS = 4_000L
 private const val POSITION_MS = 500L
+
+/** How much of the detail line NEXT may take on phones and tablets. */
+private val NEXT_MAX_WIDTH = 360.dp
 
 private val ConfirmKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.Menu, Key.Info)

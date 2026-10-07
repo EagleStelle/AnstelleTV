@@ -16,6 +16,8 @@ data class GuideAiring(
     val channelId: Long,
     val kind: SlotKind,
     val mediaItemId: Long?,
+    /** The episode's series, or the item itself when it has none. */
+    val showId: Long?,
     val startUtcMs: Long,
     val endUtcMs: Long,
     val title: String?,
@@ -69,9 +71,10 @@ interface ScheduleDao {
      */
     @Query(
         """
-        SELECT s.channelId, s.kind, s.mediaItemId, s.startUtcMs, s.endUtcMs,
-               m.title, m.showTitle, m.season, m.episode, m.year
+        SELECT s.channelId, s.kind, s.mediaItemId, COALESCE(series.id, m.id) AS showId,
+               s.startUtcMs, s.endUtcMs, m.title, m.showTitle, m.season, m.episode, m.year
         FROM schedule_slot s LEFT JOIN media_item m ON m.id = s.mediaItemId
+        LEFT JOIN media_item series ON series.serverId = m.serverId AND series.remoteId = m.seriesRemoteId
         WHERE s.channelId IN (:channelIds)
           AND s.startUtcMs > :fromUtcMs - :maxSlotMs AND s.startUtcMs < :toUtcMs
           AND s.endUtcMs > :fromUtcMs
@@ -122,6 +125,64 @@ interface ScheduleDao {
 
     @Query("SELECT MAX(generatedUntilUtcMs) FROM schedule_state")
     fun observeGeneratedUntil(): Flow<Long?>
+
+    @Query("SELECT * FROM schedule_slot WHERE channelId = :channelId AND endUtcMs = :endUtcMs LIMIT 1")
+    suspend fun slotEndingAt(channelId: Long, endUtcMs: Long): ScheduleSlotEntity?
+
+    @Query("UPDATE schedule_slot SET endUtcMs = :endUtcMs WHERE id = :id")
+    suspend fun setEnd(id: Long, endUtcMs: Long)
+
+    @Query("DELETE FROM schedule_slot WHERE channelId = :channelId AND startUtcMs >= :fromUtcMs AND startUtcMs < :toUtcMs")
+    suspend fun deleteBetween(channelId: Long, fromUtcMs: Long, toUtcMs: Long)
+
+    /** Ends the slot running across [atUtcMs] there. */
+    @Query("UPDATE schedule_slot SET endUtcMs = :atUtcMs WHERE channelId = :channelId AND startUtcMs < :atUtcMs AND endUtcMs > :atUtcMs")
+    suspend fun cutAt(channelId: Long, atUtcMs: Long)
+
+    /**
+     * First half of moving the slots from [fromUtcMs] on by [deltaMs]: their starts go negative
+     * (and moved), so no row lands on another's start while the unique index is checked row by
+     * row. [moveIn] flips them back.
+     */
+    @Query(
+        """
+        UPDATE schedule_slot SET startUtcMs = -(startUtcMs + :deltaMs) - 1, endUtcMs = endUtcMs + :deltaMs
+        WHERE channelId = :channelId AND startUtcMs >= :fromUtcMs
+        """,
+    )
+    suspend fun moveOut(channelId: Long, fromUtcMs: Long, deltaMs: Long)
+
+    @Query("UPDATE schedule_slot SET startUtcMs = -startUtcMs - 1 WHERE channelId = :channelId AND startUtcMs < 0")
+    suspend fun moveIn(channelId: Long)
+
+    /**
+     * Re-times [channelId] after a seek: the airing that started at [startUtcMs] starts
+     * [deltaMs] later (a seek back) or earlier (a seek ahead), and every later slot moves the
+     * same way. Earlier airings it now overlaps are cut short; when it moves later, the part
+     * already shown stays in the history as an airing of its own (merged with one left by an
+     * earlier seek). [restate] moves the engine state to match.
+     */
+    @Transaction
+    suspend fun shift(channelId: Long, startUtcMs: Long, deltaMs: Long, restate: (ScheduleStateEntity) -> ScheduleStateEntity) {
+        if (deltaMs == 0L) return
+        val newStart = startUtcMs + deltaMs
+        if (deltaMs < 0) {
+            deleteBetween(channelId, newStart, startUtcMs)
+            cutAt(channelId, newStart)
+        }
+        moveOut(channelId, startUtcMs, deltaMs)
+        moveIn(channelId)
+        if (deltaMs > 0) {
+            val moved = slotAt(channelId, newStart)?.takeIf { it.startUtcMs == newStart }
+            val before = slotEndingAt(channelId, startUtcMs)
+            when {
+                moved == null -> Unit
+                before != null && before.kind == moved.kind && before.mediaItemId == moved.mediaItemId -> setEnd(before.id, newStart)
+                else -> insertSlots(listOf(moved.copy(id = 0, startUtcMs = startUtcMs, endUtcMs = newStart)))
+            }
+        }
+        state(channelId)?.let { upsertState(restate(it)) }
+    }
 
     /** Replaces everything from [fromUtcMs] on and stores the new engine state, atomically. */
     @Transaction

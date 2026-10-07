@@ -36,10 +36,21 @@ class GuideGridState(openingUtcMs: Long, val pxPerMs: Float) {
 
     val spanMs: Long get() = (widthPx / pxPerMs).toLong()
 
-    /** Selects [channelId] at the start of the visible hours. */
-    fun reset(channelId: Long) {
+    /**
+     * Selects what [channelId] airs at the first visible moment that hasn't gone by: the
+     * program on now while the hours start at the current half hour.
+     */
+    fun reset(channelId: Long, nowMs: Long) {
         selectedChannel = channelId
-        selectedTime = targetStart
+        selectedTime = maxOf(targetStart, nowMs)
+        reveal(selectedTime, nowMs)
+    }
+
+    /** Selects what [channelId] airs at [nowMs], paging the hours back to it. */
+    fun selectNow(channelId: Long, nowMs: Long) {
+        selectedChannel = channelId
+        selectedTime = nowMs
+        reveal(nowMs, nowMs)
     }
 
     /** Moves hours that have gone by (the guide was away a while) up to the current half hour. */
