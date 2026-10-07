@@ -13,6 +13,7 @@ import tv.anstelle.core.jellyfin.toJellyfinId
 import tv.anstelle.core.model.AudioStream
 import tv.anstelle.core.model.FontAttachment
 import tv.anstelle.core.model.HdrType
+import tv.anstelle.core.model.Languages
 import tv.anstelle.core.model.MediaTracks
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.SubtitleStream
@@ -51,6 +52,7 @@ object ItemMapper {
             ?: streams.firstOrNull { it.type == MediaStreamType.AUDIO }
         val officialRating = item.officialRating?.takeIf { it.isNotBlank() } ?: series?.officialRating
         val remoteId = item.id.toJellyfinId()
+        val tracks = tracks(streams, source?.defaultAudioStreamIndex, source?.mediaAttachments.orEmpty())
 
         return MediaItemEntity(
             id = existingId,
@@ -85,7 +87,8 @@ object ItemMapper {
             videoBitDepth = video?.bitDepth,
             audioChannels = audio?.channels,
             mediaSourceId = source?.id ?: remoteId.takeIf { type != MediaType.SERIES },
-            tracks = tracks(streams, source?.defaultAudioStreamIndex, source?.mediaAttachments.orEmpty()),
+            tracks = tracks,
+            audioLanguages = audioLanguages(tracks),
             primaryImageTag = item.imageTags?.get(ImageType.PRIMARY),
             playedOnServer = item.userData?.played ?: false,
             updatedAtUtcMs = context.nowUtcMs,
@@ -108,6 +111,10 @@ object ItemMapper {
             .mapNotNull { a -> a.fileName?.let { FontAttachment(a.index, it) } }
         return MediaTracks(audio, subtitles, fonts)
     }
+
+    /** `|jpn|eng|`: the known audio languages, the default track's first; `""` when none is known. */
+    fun audioLanguages(tracks: MediaTracks): String =
+        pipeJoin(tracks.audio.sortedByDescending { it.isDefault }.mapNotNull { Languages.normalize(it.language) })
 
     fun hdrType(video: MediaStream?): HdrType = when (video?.videoRangeType) {
         VideoRangeType.HDR10 -> HdrType.HDR10

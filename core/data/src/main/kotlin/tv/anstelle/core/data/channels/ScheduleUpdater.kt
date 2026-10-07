@@ -50,6 +50,7 @@ class ScheduleUpdater @Inject constructor(
     private val itemDao: MediaItemDao,
     private val profileDao: ProfileDao,
     private val schedules: ScheduleRepository,
+    private val words: ChannelWordsSource,
     private val time: TimeSource,
 ) {
     private val mutex = Mutex()
@@ -59,7 +60,7 @@ class ScheduleUpdater @Inject constructor(
         val started = time.nowUtcMs()
         val channels = channelDao.all()
         if (channels.isEmpty()) return@withLock emptyMap()
-        val catalog = Catalog(itemDao.catalog())
+        val catalog = Catalog(itemDao.catalog(), words.words().types)
         val limits = profileDao.all().associate { it.id to it.maxRatingScore }
         val outcomes = channels.map { channel -> updateLocked(channel, catalog, limits[channel.profileId], zone) }
         val summary = outcomes.groupingBy { it }.eachCount()
@@ -71,7 +72,7 @@ class ScheduleUpdater @Inject constructor(
     suspend fun update(channelId: Long, zone: ZoneId = ZoneId.systemDefault()): ScheduleOutcome? = mutex.withLock {
         val channel = channelDao.byId(channelId) ?: return@withLock null
         val limit = profileDao.byId(channel.profileId)?.maxRatingScore
-        updateLocked(channel, Catalog(itemDao.catalog()), limit, zone)
+        updateLocked(channel, Catalog(itemDao.catalog(), words.words().types), limit, zone)
     }
 
     private suspend fun updateLocked(channel: ChannelEntity, catalog: Catalog, maxRatingScore: Int?, zone: ZoneId): ScheduleOutcome {

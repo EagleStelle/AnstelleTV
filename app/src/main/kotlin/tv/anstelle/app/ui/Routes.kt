@@ -13,7 +13,10 @@ import kotlinx.serialization.Serializable
 @Serializable data object GuideRoute
 @Serializable data object DashboardRoute
 /** [channelNumber] 0 resumes the channel watched last. */
-@Serializable data class PlayerRoute(val channelNumber: Int = 0)
+/** No channel asked for: the player resumes the last one. 0 is a channel number like any other. */
+const val PlayerRouteNoChannel = -1
+
+@Serializable data class PlayerRoute(val channelNumber: Int = PlayerRouteNoChannel)
 
 /** On-demand browsing and the pages below it, so the On demand tab stays selected on all of them. */
 @Serializable data object OnDemandGraph
@@ -41,7 +44,8 @@ import kotlinx.serialization.Serializable
 
 /** [channelId] 0 builds a new channel. */
 @Serializable data class ChannelLineupRoute(val channelId: Long = 0)
-@Serializable data object ChannelTemplatesRoute
+@Serializable data object RemovedChannelsRoute
+@Serializable data object ChannelNumbersRoute
 @Serializable data object ChannelGroupsRoute
 @Serializable data object PlaybackLanguagesRoute
 

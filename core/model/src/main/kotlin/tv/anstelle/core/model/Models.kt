@@ -20,6 +20,8 @@ data class ChannelGroup(
     val profileId: Long,
     val name: String,
     val sortOrder: Int,
+    /** For a segment someone made: where its channels' numbers start. Null for other groups. */
+    val numberStart: Int? = null,
 )
 
 @Serializable
@@ -35,6 +37,8 @@ data class Channel(
     val isHidden: Boolean,
     val isFavorite: Boolean,
     val groupId: Long?,
+    /** A channel made from the library that still follows it (until someone edits it). */
+    val isManaged: Boolean,
 )
 
 @Serializable

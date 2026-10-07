@@ -27,6 +27,8 @@ data class ChannelGroupEntity(
     val profileId: Long,
     val name: String,
     val sortOrder: Int,
+    /** For a segment someone made: its channels are numbered up from here. Null for other groups. */
+    val numberStart: Int? = null,
 )
 
 @Entity(
@@ -65,8 +67,13 @@ data class ChannelEntity(
     val isHidden: Boolean,
     val isFavorite: Boolean,
     val groupId: Long?,
-    /** Template this channel was generated from, or null for custom channels. */
-    val templateId: String?,
+    /** The library channel this channel was made from (e.g. `genre:comedy`), or null for a channel built by hand. */
+    val autoKey: String?,
+    /**
+     * True while a library channel follows the library: renamed, updated, renumbered and
+     * removed with it. Editing the channel clears it.
+     */
+    val isManaged: Boolean,
     val createdAtUtcMs: Long,
     val updatedAtUtcMs: Long,
 )
@@ -153,4 +160,22 @@ data class ChannelDaypartEntity(
     val minRatingScore: Int?,
     /** Optional extra rule group applied only inside the window. */
     val ruleLogicGroup: Int?,
+)
+
+/** A library channel someone deleted: its key isn't made into a channel again. */
+@Entity(
+    tableName = "dismissed_channel",
+    primaryKeys = ["profileId", "autoKey"],
+    foreignKeys = [
+        ForeignKey(
+            entity = ProfileEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["profileId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class DismissedChannelEntity(
+    val profileId: Long,
+    val autoKey: String,
 )

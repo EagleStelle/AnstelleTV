@@ -21,6 +21,7 @@ import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelGroupEntity
 import tv.anstelle.core.database.entity.ChannelRuleEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
+import tv.anstelle.core.database.entity.DismissedChannelEntity
 import tv.anstelle.core.database.entity.LibraryEntity
 import tv.anstelle.core.database.entity.LiveChannelEntity
 import tv.anstelle.core.database.entity.LiveProgramEntity
@@ -50,6 +51,7 @@ import tv.anstelle.core.database.entity.WatchEventEntity
         ChannelRuleEntity::class,
         ChannelSeasonEntity::class,
         ChannelDaypartEntity::class,
+        DismissedChannelEntity::class,
         LiveSourceEntity::class,
         LiveChannelEntity::class,
         LiveProgramEntity::class,
@@ -78,13 +80,13 @@ abstract class AnstelleDatabase : RoomDatabase() {
     abstract fun settingDao(): SettingDao
 
     companion object {
-        const val VERSION = 3
+        const val VERSION = 4
         const val NAME = "anstelle.db"
 
         /** Tables the web UI can subscribe to for live updates. */
         val OBSERVED_TABLES = arrayOf(
             "media_server", "profile", "library", "media_item", "channel_group", "channel",
-            "channel_rule", "channel_season", "channel_daypart", "live_source", "live_channel",
+            "channel_rule", "channel_season", "channel_daypart", "dismissed_channel", "live_source", "live_channel",
             "live_program", "schedule_slot", "theme", "watch_event", "paired_client", "setting",
         )
 
@@ -101,6 +103,6 @@ abstract class AnstelleDatabase : RoomDatabase() {
                 .apply { if (allowDestructiveMigration) fallbackToDestructiveMigration(dropAllTables = true) }
                 .build()
 
-        private val PRE_RELEASE_VERSIONS = intArrayOf(1, 2)
+        private val PRE_RELEASE_VERSIONS = intArrayOf(1, 2, 3)
     }
 }

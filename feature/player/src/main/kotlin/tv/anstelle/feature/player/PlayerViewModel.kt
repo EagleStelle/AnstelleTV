@@ -30,7 +30,8 @@ class PlayerViewModel @Inject constructor(
     private val settings: SettingsRepository,
 ) : ViewModel() {
     /** Matches the `channelNumber` argument of the navigation route; 0 resumes the last channel. */
-    private val requestedNumber: Int = savedState.get<Int>("channelNumber") ?: 0
+    /** The channel number asked for; negative when none was (0 is a channel number like any other). */
+    private val requestedNumber: Int = savedState.get<Int>("channelNumber") ?: -1
 
     val state = playback.state
     val player = playback.player
@@ -57,7 +58,7 @@ class PlayerViewModel @Inject constructor(
                 playback.setLineup(tunable)
                 if (lineup == null) {
                     val last = settings.get(Settings.lastChannel(profile.id))
-                    resumeChannelId = (tunable.firstOrNull { it.number == requestedNumber } ?: tunable.firstOrNull { it.id == last } ?: tunable.firstOrNull())?.id
+                    resumeChannelId = (tunable.firstOrNull { requestedNumber >= 0 && it.number == requestedNumber } ?: tunable.firstOrNull { it.id == last } ?: tunable.firstOrNull())?.id
                     lineup = tunable
                     if (visible) start()
                 }

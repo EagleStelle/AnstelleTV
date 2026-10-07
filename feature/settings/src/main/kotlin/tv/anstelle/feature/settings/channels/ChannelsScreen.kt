@@ -4,9 +4,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.runtime.Composable
@@ -29,9 +30,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.channels.ChannelRepository
@@ -46,6 +47,8 @@ import javax.inject.Inject
 @Immutable
 data class ChannelsUiState(
     val channels: List<ChannelSummary> = emptyList(),
+    /** Library channels that were deleted. */
+    val removed: Int = 0,
     val loaded: Boolean = false,
 )
 
@@ -59,8 +62,11 @@ class ChannelsViewModel @Inject constructor(
     channels: ChannelRepository,
 ) : ViewModel() {
     val state: StateFlow<ChannelsUiState> = profiles.activeProfileId()
-        .flatMapLatest { channels.observeChannels(it) }
-        .map { ChannelsUiState(it, loaded = true) }
+        .flatMapLatest { profileId ->
+            combine(channels.observeChannels(profileId), channels.observeRemovedCount(profileId)) { list, removed ->
+                ChannelsUiState(list, removed, loaded = true)
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChannelsUiState())
 }
 
@@ -69,7 +75,8 @@ class ChannelsViewModel @Inject constructor(
 fun ChannelsScreen(
     onOpenChannel: (Long) -> Unit,
     onNewChannel: () -> Unit,
-    onOpenTemplates: () -> Unit,
+    onOpenRemoved: () -> Unit,
+    onOpenNumbers: () -> Unit,
     onOpenGroups: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ChannelsViewModel = hiltViewModel(),
@@ -100,15 +107,6 @@ fun ChannelsScreen(
                 modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
             )
         }
-        item(key = "templates") {
-            FocusTile(
-                title = "Add from templates",
-                subtitle = "Ready-made channels your library has enough content for.",
-                icon = Icons.Filled.AutoAwesome,
-                onClick = onOpenTemplates,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
         item(key = "groups") {
             FocusTile(
                 title = "Groups",
@@ -118,9 +116,29 @@ fun ChannelsScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        item(key = "numbers") {
+            FocusTile(
+                title = "Channel numbers",
+                subtitle = "Where each group of channels is numbered from.",
+                icon = Icons.Filled.FormatListNumbered,
+                onClick = onOpenNumbers,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (state.removed > 0) {
+            item(key = "removed") {
+                FocusTile(
+                    title = "Removed channels",
+                    subtitle = "Bring back channels made from your library that were deleted.",
+                    icon = Icons.Filled.Restore,
+                    onClick = onOpenRemoved,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
         if (state.loaded && state.channels.isEmpty()) {
             item(key = "empty") {
-                MessageText("No channels yet. They are created from templates after the first library sync, or add your own.")
+                MessageText("No channels yet. They are made from your library after it syncs, or add your own.")
             }
         }
         if (state.channels.isNotEmpty()) item(key = "label") { SectionLabel("Your channels") }

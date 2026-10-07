@@ -1,8 +1,76 @@
 # AnstelleTV — product and build context
 
+<!-- impeccable:product-schema 1 -->
+
 AnstelleTV turns a Jellyfin library into 24/7 retro cable TV on Android phones, tablets, Android TV / Google TV and Fire TV (one APK, touch and D-pad). Channels play programs back to back. There is no backend. All data lives in on-device SQLite (Room). A LAN web UI (SvelteKit) is served by the app itself for setup and in-browser watching.
 
 The app is native: Kotlin + Jetpack Compose (Compose for TV on TV, Material 3 on phones), with ExoPlayer for playback. There is no WebView. The web UI is for browsers on other devices on the LAN.
+
+## Platform
+
+android
+
+This one record covers both surfaces: the native Android app (phones, tablets, TV) and the SvelteKit web UI it serves on the LAN.
+
+## Users
+
+- **Now:** the owner and their household, watching their own Jellyfin library.
+- **Later:** a public release for Jellyfin owners in general. Design for someone who installs the app without help, even though no one outside the household uses it yet.
+- **The job:** put the library on like cable TV. Turn it on, surf, land on something, and stop choosing what to watch. On demand is there when they do want to choose.
+
+## Product Purpose
+
+AnstelleTV makes a personal media library feel like broadcast TV again: always-on channels with a schedule, a guide and channel surfing, built from what the library already holds. Success means a new user gets working channels after signing in, with no setup.
+
+## Positioning
+
+- **No server to run.** Everything runs on the TV or phone. Tunarr and ErsatzTV need a separate server plus an IPTV client.
+- **Channels build themselves** from the library's own metadata (genres, tags, decades, studios), with no templates or hand curation. Edits are optional and always win.
+- **Plays like real TV:** a wall-clock schedule, no seeking inside a channel's program, surfing with the remote, a real guide grid.
+- **No monetization:** no ads, subscriptions or paid features, unlike QuasiTV and NostalgiaTV.
+
+## Operating Context
+
+- **TV:** Android TV, Google TV and Fire TV, used from the couch with a D-pad remote and no touch. Fire TV has no Google services, so nothing can depend on them (fonts are bundled, not downloaded).
+- **Phone and tablet:** the same APK with touch: swipe to surf, tap for controls.
+- **Browser on the LAN:** a laptop or phone opens the web UI the app serves. It pairs with a 6-digit PIN shown on the TV, then configures the app or watches in the browser.
+- **Jellyfin:** one or more servers, on the LAN or remote, signed in with Quick Connect or a password. Jellyfin UX follows the official Jellyfin apps where one exists.
+- **Profiles:** several per device, including kid profiles with rating limits (Phase 8).
+
+## Capabilities and Constraints
+
+The sections below record what is built and how. Product-level constraints:
+
+- Nothing plays filler: no commercials, bumpers, station IDs or breaks. Programs run back to back.
+- Phase 8 ships a few user-selectable themes, fewer than the nine first planned; the exact set is undecided. The UI has to stay themeable.
+- The web UI reaches parity with the app in Phase 10.
+- Music libraries and music channels are on hold.
+- Live TV (Phase 7) is skipped for now.
+
+## Brand Commitments
+
+- The name **AnstelleTV** stays.
+- The brand gets a new palette tied to Stelle from Honkai: Star Rail: the black-and-white contrast of her outfit and the Trailblazer's fire. It uses no yellow, grey, blue or violet. The reference is never named anywhere in the UI.
+- A new logo, made to fit that palette, replaces the A-frame antenna on a retro TV. The current colors (`#0E1116`, `#4FB3FF`, `#FFB547`) are no longer binding.
+- The branding stays original: no artwork, logos or text from other products, the game included.
+
+## Evidence on Hand
+
+- The owner's Jellyfin library is the only real content. It is private: its address, titles and contents never appear in the repo, screenshots meant for others, or store copy.
+- Verification numbers come from emulators (see the verification sections below). Real-device numbers wait for the Fire TV Stick in Phase 11.
+- There are no outside users, testimonials, reviews or store listing yet. Don't invent any.
+
+## Product Principles
+
+1. **It plays like TV.** The clock decides what is on. Surfing and the guide are the main way in; on demand is the side door.
+2. **Zero setup.** A new user signs in and gets channels.
+3. **Everything on the device.** No backend, no account, nothing beyond Jellyfin and the LAN.
+4. **Nothing in the way.** No ads, no filler, no upsell.
+5. **Remote and touch alike.** Every screen works with a D-pad remote, and with touch on phones and tablets.
+
+## Accessibility & Inclusion
+
+- The web UI meets WCAG 2.2 AA, including contrast and full keyboard use.
 
 ## Status
 
@@ -11,10 +79,10 @@ The app is native: Kotlin + Jetpack Compose (Compose for TV on TV, Material 3 on
 | 1 | Scaffold: modules, catalog, Room schema, Hilt, placeholder screens with D-pad focus, Ktor server with pairing, SvelteKit shell, baseline profile + benchmark modules | Done |
 | 2 | Jellyfin login (Quick Connect, password), multiple servers, incremental sync, reconciliation, rating scores | Done |
 | 3 | Scheduler engine: back-to-back airings, playback orders, seasonal lineups, dayparts, resumable state, `nowPlaying` | Done |
-| 4 | Channels: 167 templates, matcher, auto-generation, lineup builder, groups, numbers, logos, schedule worker | Done |
+| 4 | Channels: channels made from library metadata, matcher, lineup builder, groups, numbers, logos, schedule worker | Done |
 | 5 | Playback: player pool, local tuning, surfing, info banner, tracks, off air, watch reporting | Done |
 | 6 | Guide grid with preview window and details, group tabs, on-demand movies and shows, Add to channel | Done |
-| 7 | Live TV | Next |
+| 7 | Live TV | Skipped for now |
 | 8–11 | Profiles/themes, dashboard/backup, web UI parity, performance | Planned |
 
 The full plan, with key designs for every phase, lives in `C:\Users\Impulsor\.claude\plans\the-name-of-the-kind-shell.md`.
@@ -23,9 +91,7 @@ The full plan, with key designs for every phase, lives in `C:\Users\Impulsor\.cl
 
 - App name: **AnstelleTV**, from the folder name. It replaces the spec's "RetroCast" placeholder.
 - applicationId and root package: `tv.anstelle.app`. Modules use `tv.anstelle.core.*`, `tv.anstelle.feature.*` and `tv.anstelle.webserver`.
-- Brand: an A-frame antenna (the letter A) on a retro TV with fading scanlines.
-  - Colors: `#0E1116` background, `#4FB3FF` blue, `#FFB547` amber.
-  - Assets are regenerated with `python tools/brand/generate_brand.py`.
+- Brand: see *Brand Commitments*. Until the new logo and palette land, the app ships the A-frame antenna mark, regenerated with `python tools/brand/generate_brand.py`.
 - Testing uses the owner's private Jellyfin 12.1.0 server with a non-admin account. Its address and contents are deliberately kept out of this repository, and test fixtures recorded from it are anonymized.
 
 ## Toolchain
@@ -67,7 +133,7 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 | `core/jellyfin` | The shared `OkHttpClient` and `Jellyfin` SDK instance, server discovery, sign-in, Keystore token store, library source and the DTO → Room mappers |
 | `core/player` | `PlayerPool` (two ExoPlayers), `PlayerFactory` (OkHttp data source with the server's auth header, FFmpeg audio fallback), `CapabilityProbe`, `StreamPlanner` (direct play or HLS), `JellyfinStreams` (local stream URLs, side-loaded subtitles), `LanguageTrackSelector`, `PlayerSubtitles` and `SubtitleOverlays` (libass), `FontCache`, `TuneTrace` |
 | `core/theme` | `ThemeSpec` JSON model, `AnstelleTheme` (Material 3 + TV), shared focusable components |
-| `core/data` | Hilt modules, repositories (`ServerRepository`, `ScheduleRepository`, `ChannelRepository`, profiles, settings), `LibrarySyncer`, channel templates and the lineup matcher (`channels/`), `ScheduleUpdater`, guide cells and program details (`guide/`), on-demand pages (`ondemand/`), `ChannelPlayer`, `OnDemandPlayer` and `PlaybackReporter` (`playback/`), `DatabaseChanges`, `WebServerController`, workers. Template JSON lives in `core/data/src/main/assets/templates` |
+| `core/data` | Hilt modules, repositories (`ServerRepository`, `ScheduleRepository`, `ChannelRepository`, profiles, settings), `LibrarySyncer`, library channels and the lineup matcher (`channels/`), `ScheduleUpdater`, guide cells and program details (`guide/`), on-demand pages (`ondemand/`), `ChannelPlayer`, `OnDemandPlayer` and `PlaybackReporter` (`playback/`), `DatabaseChanges`, `WebServerController`, workers. The channel word list is `core/data/src/main/assets/channel-words.json` |
 | `feature/*` | Guide (grid, preview window, details, tabs), on-demand browsing, the channel and on-demand players, settings (media servers, channels, Add to channel), dashboard (log viewer), profiles (placeholder) |
 | `webserver` | Ktor CIO server, pairing, LAN guard, static SPA serving, `/api`, `/ws` |
 | `baselineprofile`, `benchmark` | Baseline profile generator and macrobenchmarks (stub journeys) |
@@ -134,15 +200,32 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 
 ### Channels (learned in Phase 4)
 
-- **Templates are data.** Every `*.json` file in `core/data/src/main/assets/templates` is read (`{"templates": [...]}`), so a new template is a new file or entry, never code. A template has an `id` (lowercase, dashes), `name`, `category` (its guide group), `order` and `blockSize`, `minItems`/`minShows` (a movie counts as a show), rule `groups`, and optionally `era` (a year range added to every group), `visible` (MM-DD dates when the channel is in the guide, may wrap the year) and `seasons` (lineups that replace the rules on their dates). A broken file is logged and skipped on the device; the unit tests parse every shipped file.
-- **Rules.** A lineup is rule groups (OR) of rules (AND), plus shows or items always included (with a weight) and never included. Text compares ignoring case. `KEYWORD` matches whole words or phrases in the title, the show title and the tags (punctuation ignored), not overviews, which matched too loosely. `OFFICIAL_RATING` with `AT_MOST`/`AT_LEAST`/`BETWEEN` compares the numeric score; unrated items never pass a limit. `DECADE` values are first years (1980). A program's running time only sets the length of its airing; there is no rule on it. A missing value only passes `NOT_ANY_OF`. An item's weight is the highest of the groups and picks that take it; excludes always win.
+- **Rules.** A lineup is rule groups (OR) of rules (AND), plus shows or items always included (with a weight) and never included. Text compares ignoring case. `KEYWORD` matches whole words or phrases in the title, the show title and the tags (punctuation ignored), not overviews, which matched too loosely. `OFFICIAL_RATING` with `AT_MOST`/`AT_LEAST`/`BETWEEN` compares the numeric score; unrated items never pass a limit. `DECADE` values are first years (1980). `KIND` compares a show's kind (anime, cartoons, `unclear` or `none`; see *Library channels*). A program's running time only sets the length of its airing; there is no rule on it. A missing value only passes `NOT_ANY_OF`. An item's weight is the highest of the groups and picks that take it; excludes always win.
 - **Storage.** Lineups are `channel_rule` rows: each group's rules share a `logicGroup` and carry the group's weight; picks are `INCLUDE`/`EXCLUDE` rows with `logicGroup` -1; lists are `|`-separated. A daypart that names a `ruleLogicGroup` uses that group only as an extra filter inside its window, so the group is left out of the base lineup. Show and item picks store Jellyfin ids, which survive a resync.
 - **Matching is in memory.** `MediaItemDao.catalog()` loads every item once with the fields rules test; `LineupMatcher` compiles the rules (lowercased sets, parsed numbers). 50,000 items match in under 50 ms on the JVM (unit-tested).
-- **Auto-generation.** `ScheduleWorker` runs after every library sync, at app start and every 12 hours. The first time a profile's library has items, it creates every template channel with enough content (a setting per profile remembers it), numbered from 1 in template order, each in a group named after its category. "Add from templates" on the channel list adds the matching templates a profile doesn't have yet, one by one or all at once. Kid profiles only count items within their rating limit, the same filter their schedules use.
 - **Schedules follow the channel.** `ScheduleUpdater` keeps every visible channel 30 days ahead (it tops up once a schedule is 12 hours short). A new channel starts at the current hour. When the inputs hash changes (rules, playback order, matched items, the device zone) or sync marks the schedule stale, the airing on now and the next one stay and the rest is regenerated; an off-air stretch or an airing whose item was deleted is not kept. A schedule that ran out while the app was unused restarts at the current hour instead of filling the past. Hidden channels are not scheduled. Edits in the channel screens reschedule that channel right away.
-- **Channel numbers** are unique per profile: giving a channel a taken number swaps the two.
+- **Channel numbers** are 0–9999 and unique per profile: giving a channel a taken number swaps the two. The player's route uses -1 for "no channel asked for", since 0 is a real number.
 - **Logos** are decoded, scaled to at most 256 px and stored as PNG in `files/logos`, with a new file name per upload so cached copies refresh. Phones pick one with the system picker; any device can upload over the web API (`PUT /api/channels/{id}/logo` with the image bytes, at most 4 MB; `GET` serves it, `DELETE` removes it). `/api/channels` reports a versioned `logoUrl`.
 - **Collections** (box sets) aren't part of item pages, so reconciliation lists the box sets, reads each one's items and writes their names into `collections`; episodes get their series' box sets. Incremental sync keeps the stored value.
+
+### Library channels
+
+- **Made from metadata.** `ChannelGenerator` decides which channels exist and what they air from the library's own genres, tags, years and studios (the values Jellyfin's metadata providers fill in, such as TMDB and TVDB). Nothing lists titles, studios or networks. Four segments, each a guide group, in this order:
+  - **Productions:** each Studios value by its own name, airing everything it made (series and movies, anime, cartoons and the rest). For series that includes the network ("Netflix", "NBC").
+  - **Decades:** TV, movies and each media type's series and movies by decade ("90s TV", "80s Movies", "2010s Anime", "2010s Anime Movies"). An episode counts in the decade it aired.
+  - **Genres:** each genre, each pair of genres and each genre with a media type, as a series channel and a movie channel ("Fright Night" and "Horror Picture Show" for Horror, "Case Files" and "Crime Sagas" for Crime and Drama, "Anime After Dark" and "Anime Midnight Show" for Anime and Horror).
+  - **Themes:** each tag ("Isekai"), airing everything with it.
+- **What may mix.** A genre or decade channel airs series or movies, never both, and one kind of show: anime, cartoons, or neither. Themes and productions air everything with their tag or studio. Channels someone builds may mix anything; the lineup builder offers the kind as one more optional rule.
+- **Anime or cartoon** is decided per show by `MediaKinds` in the catalog, from the genres, tags and audio languages of all its episodes together. Anime: its genres or tags say anime (TMDB marks anime with the `anime` keyword) and its audio has Japanese, or no audio language is known. Cartoons: its genres say animation, nothing says anime, and no episode or movie plays Japanese first. Animation whose signals disagree (an anime genre with only English audio, an untagged film that plays Japanese, a western cartoon whose file defaults to a Japanese dub) is *unclear* and airs on no genre or decade channel. The word list says which language confirms a type (`"language": "jpn"` for Anime). A library folder's name decides nothing: one can hold both.
+- **Order and numbers.** Segments in that order, names alphabetical inside each (case and accents ignored), decades by year and then TV, movies and each media type's series and movies. Each segment counts up from its own start, per profile: Productions 1000, Decades 2000, Genres 3000, Themes 4000 by default, changed under Settings, Channels, *Channel numbers* (any start from 0 to 9999; changing one renumbers that segment at once). A channel's number skips numbers other channels hold, so numbers stay unique even when starts overlap.
+- **Genre channel names** come from the word list: `names` for series channels and `movieNames` for movie channels, retro TV-block names of at most three words for every genre TMDB and TVDB use (35, after merging spellings), each of them with Anime and with Cartoons, and every pair of them (700 names each; a unit test checks every combination has both, none of the 1,400 repeats and none is longer than three words). A genre outside that list (a custom one added in Jellyfin) gets a made-up name, with "Movies" after it for a movie channel.
+- **Made-up names.** A genre has one modifier everywhere: its adjective when it has one ("Comedic Drama", "Comedic Anime", "Comedic Cartoons"), else itself ("Sports Anime", "Drama Cartoons"). In a pair, a head genre (Drama, Comedy, Thriller, Adventure…) ends the name ("Action Comedy", "Action Adventure", "Crime Drama"); between two heads or two others, the genre with an adjective modifies ("Comedic Drama", "Romantic Comedy"), else the one with fewer shows ("Mystery Thriller"). A genre value with `&` ("Sci-Fi & Fantasy") is two genres, so no name joins genres with "&". All-lowercase tags are title-cased ("Based on Manga"). Decades 1920–1990 are written short ("90s"), others in full ("2010s").
+- **Word list.** `core/data/src/main/assets/channel-words.json` holds only language: the media types with the genres, tags and audio language that mark them, spellings of one genre (`Sci-Fi` = `Science Fiction`), head genres, adjectives, tags to ignore (TMDB's credit-stinger, sequel/remake, time-setting and mood keywords such as "amused" or "admiring"), title-case minor words and the genre channel names. It names no title, studio or network and decides no lineup. An unreadable file is logged and channels are made without it.
+- **Thresholds** (`ChannelGenerator`): a channel needs 3 shows (a movie counts as one) and 12 hours of airtime; a theme needs 8 shows. Tags on more than half the library's shows, tags that equal a genre and media-type tags are skipped. A channel whose shows are 85% the same as a channel kept before it (genres first, then themes, decades and productions) is dropped, and so is a pair or typed genre that is 85% its parent genre or media type. A studio with 90% of its shows inside a bigger kept studio is dropped too: anime lists every regional station that carried a show, and those stations mostly repeat a bigger network's lineup.
+- **Lineups** are ordinary rules, so the lineup editor, the matcher and the scheduler treat library channels like any other: every library spelling of the genre, tag or studio (`ANY_OF`), a `KIND` rule (anime, cartoons or `none`) and an exact `MEDIA_TYPE` rule for genre and decade channels, a `DECADE` rule. A unit test checks that every lineup matches exactly the items the generator counted, and that genre and decade channels keep to one kind and one media type. Movies-only channels shuffle; the rest play in episode order.
+- **Following the library.** `ScheduleWorker` runs `ChannelRepository.syncGenerated()` after every library sync, at app start and every 12 hours, for every profile (kid profiles count only items within their rating limit). It adds the channels the library newly has content for, updates the name, lineup and group of managed channels, removes a managed channel that is no longer made unless it would still be made at three quarters of the thresholds (so channels near the limit don't flicker; a channel that stops qualifying for another reason goes at once), and renumbers managed channels from their segment's start around the numbers other channels hold. `GeneratedChannelSync` makes these decisions and is unit-tested.
+- **Edits and deletions win.** A channel is `isManaged` until someone renames it, changes its lineup (Add to channel included), playback order, number or group; from then on it keeps its changes and is never updated, removed or renumbered. Favorites, hiding and logos don't count as edits. Deleting a library channel stores its key in `dismissed_channel`, so it isn't made again; *Removed channels* on the channel list brings it back while the library still has content for it.
+- **Your segments and channels.** *Add a segment* on the *Channel numbers* page makes a named group with a start of its own: the next thousand after every start and channel number (5000 with the defaults; nothing is made until someone adds one). A channel put in it with its Group setting takes its first free number, and changing the segment's start renumbers its channels in their order. Segments are guide groups like any other (`channel_group.numberStart`), so the Groups page renames, moves and deletes them too. A channel someone builds outside a segment takes the first free number after every segment's start (5000 with the defaults), so it never lands inside one.
 
 ### Playback (learned in Phase 5)
 
@@ -177,10 +260,21 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - **Rules** (`TrackRules`, unit-tested). Audio: the first listed language the item has, else its default track. Subtitles: the first listed language the item has, a full track before a forced one, else none. *When audio is in another language* shows none when the audio is in one of the subtitle languages; audio without a language counts as another language. Languages are compared as ISO 639-2/T, so `ja`, `jpn` and `ja-JP` match, and so do `fre` and `fra`.
 - **Direct play.** Media3 picks the audio from the language list; `LanguageTrackSelector` (a `DefaultTrackSelector`) picks the subtitle by the rules once the audio is known. Subtitle files next to the video are loaded alongside the stream.
 - **Transcoded streams** carry the audio track asked for (`audioStreamIndex`, picked on the device) and no subtitles, so the subtitle the rules pick, if it is text, is loaded next to the stream from `/Videos/{id}/{source}/Subtitles/{index}/Stream.ass` (or `.srt`). The player only offers that one. Image subtitles (PGS, VobSub) aren't available when transcoding.
-- **Sync stores the tracks.** Each item keeps its audio and subtitle streams and its font attachments (`media_item.tracks`, JSON), so picking them needs no server call.
+- **Sync stores the tracks.** Each item keeps its audio and subtitle streams and its font attachments (`media_item.tracks`, JSON), so picking them needs no server call, and its audio languages with the default first (`media_item.audioLanguages`, `|jpn|eng|`), which the catalog reads to tell anime from cartoons.
 - **ASS and SSA are drawn by libass** (`io.github.peerless2012:ass-media` 0.5.1, the library Jellyfin's Android TV app uses), so styling, positioning, karaoke and animation look as authored. It draws in its own layer over the video (OpenGL, at most 1080p, scaled up on 4K screens). Fonts come from the Matroska file's attachments or, for a side-loaded subtitle, from the item's attachments (`/Videos/{id}/{source}/Attachments/{index}`, kept in `cache/fonts` up to 150 MB; tuning waits at most about 3 s for them).
 - **libass holds one item at a time.** It drops its tracks whenever the player moves to another item, so a program or episode with ASS subtitles isn't queued behind the one before it: it starts on its own when that one ends, a short pause instead of a gapless hand-off. libass keeps every font it is given until its player is released, so each font goes in once.
 - **Views.** The full-screen player, the on-demand player and the guide's preview put their player's libass layer into the `PlayerView` (`SubtitleOverlays`). When two views show the same player, the one opened last draws.
+
+## Library channels verification (2026-10-07)
+
+- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 169 unit tests, 0 failures (generator names, segments, mixing rules, anime and cartoon decisions, thresholds, duplicates, order, rating limits, determinism, lineups matching exactly what was counted; the sync's add, refresh, remove and segment numbering; the word list and its 1,400 names; audio languages from the mapper). Lint shows no issues in any library module; the app module keeps its two earlier warnings.
+- **Speed:** 50,000 items generate in about 150–220 ms on a warm JVM. Reading each show's genre, tag and studio lists once instead of once per episode made it about three times faster.
+- **Google TV AVD, real server** (276 shows, 3,749 items, mostly anime; TVDB and TMDB metadata):
+  - The first rules made 185 channels: TMDB's mood, time-setting and meta keywords became themes, and anime lists every regional station that carried a show. With ignored tags, an 8-show bar for themes and the rule that drops a studio inside a bigger one, the library gets 106 channels: Productions 32 (1000–1031), Decades 7 (2000–2006), Genres 30 (3000–3029), Themes 37 (4000–4036), scheduled 30 days ahead in about 9 s (debug build).
+  - Of 276 shows, 221 are anime, 10 cartoons, 42 neither and 3 unclear (an untagged anime film with Japanese audio, a western cartoon whose files default to a Japanese dub, and one more). A check of every scheduled airing found no genre or decade channel mixing series and movies or kinds, or airing unclear animation.
+  - Following the library: new rules installed over existing channels removed and added channels at the next sync and renamed others in place. Changing a channel's playback order stopped it being managed while the rest moved around it. Deleting a managed channel recorded it and renumbered the rest; *Removed channels* listed it and *Bring back* restored it in its place.
+  - *Channel numbers*: setting Productions to 100 renumbered them 100–130 at once, and back to 1000–1030. *Add a segment* made a named group starting at the next free thousand.
+- Not checked on a device: the phone layouts of the new screens, kid profiles (the AVD has one profile), putting a channel into a segment, and the last change to where a segment or a channel built outside one starts (5000 with the defaults; covered by the build only).
 
 ## Audio and subtitles verification (2026-10-07)
 
@@ -218,13 +312,11 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - **Unit tests:**
   - Matcher: every field and operator, case-insensitive lists, whole-word keywords, rating text and scores, missing values, AND within a group and OR across groups, weights, includes and excludes; 50,000 items match in under 50 ms.
   - Rule rows round-trip, including picks, weights and groups kept for dayparts.
-  - Every shipped template parses and is valid (167, unique ids). A new template file with no code change becomes a planned channel; broken files name the file and template and don't stop the others.
-  - Planner thresholds (`minItems`, `minShows`), existing templates skipped, kid rating limits.
   - Inputs: base pool, rating limit, override seasons as seasonal pools, daypart rule groups only inside their window, fingerprints.
   - `ScheduleUpdater`: a new schedule starts at the current hour and reaches 30 days; unchanged inputs are left alone; extension keeps every existing row and stays contiguous; a new lineup keeps the airing on now and the next one; an airing whose item was deleted is replaced from its start; hidden channels get nothing; a schedule that ran out restarts at the current hour.
   - Box-set membership changes (own and series box sets, removals), box-set reading through the SDK, logo upload routes (401, 404, 400 for non-images, 413, versioned caching).
 - **Google TV AVD, real server:**
-  - After a full sync, auto-generation created 42 template channels (6 of them seasonal) in 8 groups and scheduled them in 4.7 s (debug build); 73k rows, all contiguous, every program exactly its item's length, 30 days ahead, starting at the current hour. App restarts and later syncs report every schedule up to date.
+  - After a full sync, 42 channels in 8 groups were scheduled in 4.7 s (debug build); 73k rows, all contiguous, every program exactly its item's length, 30 days ahead, starting at the current hour. App restarts and later syncs report every schedule up to date.
   - Channel list, detail (now and next airings at back-to-back times), lineup editor with live match counts, a new channel built with the D-pad (genre filter, multi-pick, a second rule), playback order, favorite, group, rename and renumber (swapping two channels), and delete all work; edits reschedule the channel at once.
   - A 512 px PNG uploaded over `PUT /api/channels/1/logo` was stored as 256 px, served with a versioned immutable URL and shown on the channel page.
 
@@ -270,13 +362,15 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 
 ## Known follow-ups
 
+- A channel playing in the preview or full screen keeps the number it was tuned with, so after a sync renumbers channels its label is out of date until it is tuned again.
+- In an anime-heavy library several school themes overlap (School, High School, Japanese High School, School Life); none is similar enough to another to be dropped.
+
 - On a focused tile, the muted subtitle color has low contrast. This will be tuned with the theme work in Phase 8.
 - Movie sync is covered by the derived fixture only. Give the test account a movie library to check it against a real server.
 - `ScheduleEngine.rewind` rewinds show cursors but not shuffle decks: items in discarded slots of a shuffle channel wait for the next deck.
 - Box-set membership is only checked against hand-made fixtures: the test account's one box set lists no items it can see.
 - On TV, moving D-pad focus onto a text field opens the on-screen keyboard right away, so scrolling past name and number fields means closing it first. Look at showing the keyboard only on OK.
 - Choosing a logo on the device uses the system file picker, which many TV devices lack (not tried on the TV AVD); a browser can upload one with `PUT /api/channels/{id}/logo`. The web page for it comes with web UI parity (Phase 10).
-- Template channels are created once per profile; templates added in an app update only appear under "Add from templates".
 - HLS takes about 9 s to start on the test server, and a channel tuned that way runs behind until its next program. Measure on the Fire TV Stick; the standby could pre-warm HLS channels earlier.
 - The off-air screen and the phone gestures weren't exercised on a device: no channel has dayparts yet, and only the TV AVD was used.
 - Music channels (and their now-playing screen) wait until music libraries are back.

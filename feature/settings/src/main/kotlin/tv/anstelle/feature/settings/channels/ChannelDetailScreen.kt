@@ -142,8 +142,8 @@ class ChannelDetailViewModel @Inject constructor(
 
     fun setNumber(text: String) = act { channel ->
         val number = text.trim().toIntOrNull()
-        if (number == null || number !in 1..ChannelRepository.MAX_NUMBER) {
-            _message.value = "Channel numbers are 1 to ${ChannelRepository.MAX_NUMBER}."
+        if (number == null || number !in ChannelRepository.MIN_NUMBER..ChannelRepository.MAX_NUMBER) {
+            _message.value = "Channel numbers are ${ChannelRepository.MIN_NUMBER} to ${ChannelRepository.MAX_NUMBER}."
         } else if (number != channel.number) {
             repository.setNumber(channelId, number)
             _message.value = "Now channel $number."
@@ -246,6 +246,9 @@ fun ChannelDetailScreen(
             state.airings.drop(1).forEach { airing ->
                 MessageText("${timeLabel(airing.startUtcMs)}  ${airing.title ?: "Off air"}")
             }
+        }
+        if (channel.isManaged) {
+            item(key = "managed") { MessageText("Made from your library. Editing it keeps your changes and stops automatic updates.") }
         }
         item(key = "message") { message?.let { MessageText(it, isError = true) } }
         item(key = "watch") {
@@ -376,7 +379,7 @@ fun ChannelDetailScreen(
         item(key = "delete") {
             FocusTile(
                 title = if (confirmDelete) "Select again to delete ${channel.name}" else "Delete channel",
-                subtitle = "Removes the channel and its schedule.",
+                subtitle = if (channel.isManaged) "Removes the channel and its schedule. Removed channels can bring it back." else "Removes the channel and its schedule.",
                 icon = Icons.Filled.DeleteForever,
                 onClick = { if (confirmDelete) viewModel.delete() else confirmDelete = true },
                 modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) confirmDelete = false },

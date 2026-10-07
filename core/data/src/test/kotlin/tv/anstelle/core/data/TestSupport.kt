@@ -39,6 +39,7 @@ fun item(
     score: Int? = null,
     library: String? = "library-1",
     remoteId: String = "item-$id",
+    audio: List<String> = emptyList(),
 ) = CatalogRow(
     id = id,
     remoteId = remoteId,
@@ -57,6 +58,7 @@ fun item(
     year = year,
     officialRating = rating,
     ratingScore = score,
+    audioLanguages = pipes(audio),
 )
 
 /** [count] episodes of series [key] in season 1, ids `idBase + 1 ..`. */

@@ -18,7 +18,7 @@ import tv.anstelle.core.data.channels.ScheduleUpdater
 import java.util.concurrent.TimeUnit
 
 /**
- * Creates the template channels after the first library sync, then keeps every channel's
+ * Brings the channels made from the library in line with it, then keeps every channel's
  * schedule 30 days ahead and regenerates the ones whose inputs changed. Runs after each
  * sync, at app start and twice a day.
  */
@@ -30,8 +30,7 @@ class ScheduleWorker @AssistedInject constructor(
     private val updater: ScheduleUpdater,
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = try {
-        val created = channels.autoGenerateIfNeeded()
-        if (created > 0) AppLog.i(TAG, "Created $created channels from templates")
+        channels.syncGenerated()
         updater.updateAll()
         Result.success()
     } catch (e: CancellationException) {

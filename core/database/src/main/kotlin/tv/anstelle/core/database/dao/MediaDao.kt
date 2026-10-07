@@ -55,6 +55,8 @@ data class CatalogRow(
     val year: Int?,
     val officialRating: String?,
     val ratingScore: Int?,
+    /** `|jpn|eng|`, the default audio track's language first. */
+    val audioLanguages: String,
 )
 
 /** A show or movie as the on-demand pages list it. */
@@ -171,7 +173,7 @@ interface MediaItemDao {
         """
         SELECT m.id, m.remoteId, l.remoteId AS libraryRemoteId, m.type, m.title, m.seriesRemoteId,
                m.showTitle, m.season, m.episode, m.durationMs, m.genres, m.studios, m.tags,
-               m.collections, m.year, m.officialRating, m.ratingScore
+               m.collections, m.year, m.officialRating, m.ratingScore, m.audioLanguages
         FROM media_item m LEFT JOIN library l ON l.id = m.libraryId
         ORDER BY m.id
         """,

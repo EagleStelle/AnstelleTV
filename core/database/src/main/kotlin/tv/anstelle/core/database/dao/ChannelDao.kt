@@ -3,6 +3,7 @@ package tv.anstelle.core.database.dao
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
@@ -13,6 +14,7 @@ import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelGroupEntity
 import tv.anstelle.core.database.entity.ChannelRuleEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
+import tv.anstelle.core.database.entity.DismissedChannelEntity
 import tv.anstelle.core.model.RuleOp
 
 @Dao
@@ -41,8 +43,21 @@ interface ChannelDao {
     @Query("SELECT COALESCE(MAX(number), 0) FROM channel WHERE profileId = :profileId")
     suspend fun maxNumber(profileId: Long): Int
 
-    @Query("SELECT templateId FROM channel WHERE profileId = :profileId AND templateId IS NOT NULL")
-    suspend fun templateIds(profileId: Long): List<String>
+    /** Library channels stop following the library once edited. */
+    @Query("UPDATE channel SET isManaged = 0 WHERE id = :id")
+    suspend fun stopManaging(id: Long)
+
+    @Query("SELECT autoKey FROM dismissed_channel WHERE profileId = :profileId")
+    suspend fun dismissedKeys(profileId: Long): List<String>
+
+    @Query("SELECT COUNT(*) FROM dismissed_channel WHERE profileId = :profileId")
+    fun observeDismissedCount(profileId: Long): Flow<Int>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun dismiss(dismissed: DismissedChannelEntity)
+
+    @Query("DELETE FROM dismissed_channel WHERE profileId = :profileId AND autoKey = :autoKey")
+    suspend fun undismiss(profileId: Long, autoKey: String)
 
     @Insert
     suspend fun insert(channel: ChannelEntity): Long

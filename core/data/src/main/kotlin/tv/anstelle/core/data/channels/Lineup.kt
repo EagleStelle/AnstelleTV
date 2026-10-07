@@ -57,7 +57,7 @@ data class Rule(val field: RuleField, val op: RuleOp, val values: List<String>) 
             RuleField.YEAR, RuleField.DECADE ->
                 listOf(RuleOp.BETWEEN, RuleOp.AT_LEAST, RuleOp.AT_MOST) + ListOps
             RuleField.KEYWORD -> listOf(RuleOp.ANY_OF, RuleOp.NOT_ANY_OF)
-            RuleField.LIBRARY, RuleField.SERIES, RuleField.ITEM, RuleField.MEDIA_TYPE -> ListOps
+            RuleField.LIBRARY, RuleField.SERIES, RuleField.ITEM, RuleField.MEDIA_TYPE, RuleField.KIND -> ListOps
         }
     }
 }

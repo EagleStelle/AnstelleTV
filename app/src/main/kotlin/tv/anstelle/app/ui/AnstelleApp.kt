@@ -44,7 +44,8 @@ import tv.anstelle.feature.settings.channels.AddToChannelScreen
 import tv.anstelle.feature.settings.channels.ChannelDetailScreen
 import tv.anstelle.feature.settings.channels.ChannelGroupsScreen
 import tv.anstelle.feature.settings.channels.ChannelLineupScreen
-import tv.anstelle.feature.settings.channels.ChannelTemplatesScreen
+import tv.anstelle.feature.settings.channels.ChannelNumbersScreen
+import tv.anstelle.feature.settings.channels.RemovedChannelsScreen
 import tv.anstelle.feature.settings.channels.ChannelsScreen
 import tv.anstelle.feature.settings.playback.LanguageList
 import tv.anstelle.feature.settings.playback.LanguagePickerScreen
@@ -147,7 +148,8 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                 ChannelsScreen(
                     onOpenChannel = { navController.navigate(ChannelDetailRoute(it)) },
                     onNewChannel = { navController.navigate(ChannelLineupRoute()) },
-                    onOpenTemplates = { navController.navigate(ChannelTemplatesRoute) },
+                    onOpenRemoved = { navController.navigate(RemovedChannelsRoute) },
+                    onOpenNumbers = { navController.navigate(ChannelNumbersRoute) },
                     onOpenGroups = { navController.navigate(ChannelGroupsRoute) },
                 )
             }
@@ -171,7 +173,8 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onBack = { navController.popBackStack() },
                 )
             }
-            composable<ChannelTemplatesRoute> { ChannelTemplatesScreen() }
+            composable<RemovedChannelsRoute> { RemovedChannelsScreen() }
+            composable<ChannelNumbersRoute> { ChannelNumbersScreen() }
             composable<ChannelGroupsRoute> { ChannelGroupsScreen() }
             composable<ServersRoute> {
                 ServersScreen(

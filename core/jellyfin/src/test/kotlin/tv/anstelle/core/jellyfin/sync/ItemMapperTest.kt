@@ -124,8 +124,11 @@ class ItemMapperTest {
     @Test
     fun `tracks keep audio, subtitles and fonts`() {
         val dto = Fixtures.decode<BaseItemDtoQueryResult>("items_subtitles_derived.json").items.single()
-        val tracks = map(dto)!!.tracks
+        val item = map(dto)!!
+        val tracks = item.tracks
         assertEquals(listOf(AudioStream(1, "eng", isDefault = false), AudioStream(2, "jpn", isDefault = true)), tracks.audio)
+        // The default track's language comes first.
+        assertEquals("|jpn|eng|", item.audioLanguages)
         assertEquals(
             listOf(
                 SubtitleStream(3, "eng", "Full", "ass", isDefault = true),

@@ -1,6 +1,7 @@
 package tv.anstelle.feature.settings.channels
 
 import tv.anstelle.core.data.channels.MatchResult
+import tv.anstelle.core.data.channels.MediaKinds
 import tv.anstelle.core.data.channels.Rule
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.PlaybackOrder
@@ -41,6 +42,7 @@ internal val BuilderFields = listOf(
     RuleField.YEAR,
     RuleField.DECADE,
     RuleField.MEDIA_TYPE,
+    RuleField.KIND,
     RuleField.SERIES,
 )
 
@@ -57,6 +59,7 @@ internal fun fieldLabel(field: RuleField): String = when (field) {
     RuleField.SERIES -> "Show"
     RuleField.ITEM -> "Item"
     RuleField.MEDIA_TYPE -> "Type"
+    RuleField.KIND -> "Anime or cartoon"
 }
 
 internal fun fieldHint(field: RuleField): String = when (field) {
@@ -72,6 +75,7 @@ internal fun fieldHint(field: RuleField): String = when (field) {
     RuleField.SERIES -> "Specific shows"
     RuleField.ITEM -> "A specific episode or movie"
     RuleField.MEDIA_TYPE -> "Episodes, movies or music videos"
+    RuleField.KIND -> "Anime, cartoons, unclear animation or neither, decided per show"
 }
 
 /** True when the rule compares numbers (a rating comparison is by score). */
@@ -103,7 +107,15 @@ internal fun mediaTypeLabel(name: String): String = when (name.uppercase()) {
 internal fun valueLabel(field: RuleField, value: String, titleOf: (String) -> String?): String = when (field) {
     RuleField.DECADE -> "${value}s"
     RuleField.MEDIA_TYPE -> mediaTypeLabel(value)
+    RuleField.KIND -> kindLabel(value)
     RuleField.SERIES, RuleField.ITEM -> titleOf(value) ?: "a show not in your library"
+    else -> value
+}
+
+/** "anime" → "anime"; the two kinds that aren't media types get words. */
+internal fun kindLabel(value: String): String = when (value) {
+    MediaKinds.NONE -> "neither"
+    MediaKinds.UNCLEAR -> "unclear animation"
     else -> value
 }
 

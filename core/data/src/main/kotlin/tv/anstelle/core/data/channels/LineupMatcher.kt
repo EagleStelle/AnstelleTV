@@ -83,6 +83,7 @@ private class CompiledRule(rule: Rule) {
         RuleField.SERIES -> single(item.row.seriesRemoteId?.lowercase(Locale.ROOT))
         RuleField.ITEM -> single(item.row.remoteId.lowercase(Locale.ROOT))
         RuleField.MEDIA_TYPE -> single(item.typeName)
+        RuleField.KIND -> single(item.kind)
     }
 
     /** A multi-valued field: any value counts, and NOT_ANY_OF needs none of them. */

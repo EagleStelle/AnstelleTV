@@ -34,7 +34,7 @@ object ChannelInputs {
      */
     fun build(setup: ChannelSetup, catalog: Catalog, maxRatingScore: Int?, zone: ZoneId): ScheduleInputs {
         val channel = setup.channel
-        val items = catalog.items.filter { ChannelPlanner.allowedFor(it, maxRatingScore) }
+        val items = catalog.items.filter { it.allowedFor(maxRatingScore) }
         val base = LineupRows.decode(setup.rules.filter { it.seasonId == null })
         val daypartGroups = setup.dayparts.mapNotNullTo(HashSet()) { it.ruleLogicGroup }
 

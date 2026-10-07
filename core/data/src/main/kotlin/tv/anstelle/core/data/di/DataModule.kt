@@ -16,8 +16,8 @@ import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.ApplicationScope
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.common.TimeSource
-import tv.anstelle.core.data.channels.AssetTemplateSource
-import tv.anstelle.core.data.channels.TemplateSource
+import tv.anstelle.core.data.channels.AssetChannelWords
+import tv.anstelle.core.data.channels.ChannelWordsSource
 import tv.anstelle.core.database.AnstelleDatabase
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.LibraryDao
@@ -58,7 +58,7 @@ object CoroutinesModule {
 @InstallIn(SingletonComponent::class)
 abstract class ChannelsModule {
     @Binds
-    abstract fun templateSource(source: AssetTemplateSource): TemplateSource
+    abstract fun channelWords(source: AssetChannelWords): ChannelWordsSource
 }
 
 @Module

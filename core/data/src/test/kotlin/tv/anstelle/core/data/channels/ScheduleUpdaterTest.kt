@@ -39,7 +39,7 @@ private const val DAY = 24 * HOUR
 private fun channel(id: Long = 1, order: PlaybackOrder = PlaybackOrder.EPISODE_ORDER, hidden: Boolean = false) = ChannelEntity(
     id = id, profileId = 1, number = id.toInt(), name = "Channel $id", logoUri = null, kind = ChannelKind.GENERATED,
     seed = 42, playbackOrder = order, blockSize = 1, isHidden = hidden, isFavorite = false, groupId = null,
-    templateId = null, createdAtUtcMs = 0, updatedAtUtcMs = 0,
+    autoKey = null, isManaged = false, createdAtUtcMs = 0, updatedAtUtcMs = 0,
 )
 
 private fun genres(channelId: Long, vararg genres: String, group: Int = 0, seasonId: Long? = null) =
@@ -126,7 +126,7 @@ class ScheduleUpdaterTest {
     private val itemDao = object : MediaItemDao by stub() {
         override suspend fun catalog() = rows
     }
-    private val updater = ScheduleUpdater(channelDao, scheduleDao, itemDao, profileDao, ScheduleRepository(scheduleDao, time), time)
+    private val updater = ScheduleUpdater(channelDao, scheduleDao, itemDao, profileDao, ScheduleRepository(scheduleDao, time), { ChannelWords.EMPTY }, time)
 
     private fun slots(channelId: Long = 1) = scheduleDao.slotsOf(channelId)
 

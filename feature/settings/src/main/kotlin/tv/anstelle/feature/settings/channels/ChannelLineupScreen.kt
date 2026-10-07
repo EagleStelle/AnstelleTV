@@ -330,6 +330,7 @@ class ChannelLineupViewModel @Inject constructor(
             ValueOption(type.name, mediaTypeLabel(type.name), catalog.items.count { it.row.type == type })
         }.filter { it.count > 0 }
         RuleField.SERIES -> catalog.shows.filter { catalog.isSeries(it.remoteId) }.map { ValueOption(it.remoteId, it.title, it.itemCount) }
+        RuleField.KIND -> catalog.values(field).map { ValueOption(it.value, kindLabel(it.value), it.count) }
         else -> catalog.values(field).map { ValueOption(it.value, it.value, it.count) }
     }
 

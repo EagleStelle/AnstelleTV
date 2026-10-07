@@ -127,6 +127,8 @@ data class MediaItemEntity(
     val mediaSourceId: String?,
     /** Audio and subtitle streams and font attachments, for picking tracks without a server call. */
     val tracks: MediaTracks,
+    /** Audio languages as `|jpn|eng|` (ISO 639-2/T), the default track's first; `""` when none is known. */
+    val audioLanguages: String,
     val primaryImageTag: String?,
     /** Played state on the server at last sync, used by the REPORT_NO_MARK report mode. */
     val playedOnServer: Boolean,

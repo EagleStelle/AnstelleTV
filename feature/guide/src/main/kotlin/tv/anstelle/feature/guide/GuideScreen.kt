@@ -125,7 +125,7 @@ fun GuideScreen(
         }
         PlaceholderScreen(
             title = "Guide",
-            description = "No channels yet. They are created from templates after your library syncs, or built in Settings, Channels.",
+            description = "No channels yet. They are made from your library after it syncs, or built in Settings, Channels.",
             actions = actions,
             modifier = modifier,
         )

@@ -62,6 +62,10 @@ object Settings {
 
     /** The guide tab the profile had open: "all", "favorites" or "group:<id>". */
     fun guideTab(profileId: Long) = SettingKey.StringKey("guide.tab.$profileId", "all")
+
+    /** The number the profile's library channels of [segment] count up from. */
+    fun channelNumberStart(profileId: Long, segment: tv.anstelle.core.data.channels.ChannelSegment) =
+        SettingKey.IntKey("channels.start.${segment.name.lowercase()}.$profileId", segment.defaultStart)
 }
 
 @Singleton

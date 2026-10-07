@@ -83,6 +83,12 @@ enum class RuleField(override val code: Int) : CodedEnum {
 
     /** EPISODE, MOVIE or MUSIC_VIDEO. */
     MEDIA_TYPE(11),
+
+    /**
+     * What kind of show the item belongs to: a media type's key ("anime", "cartoons"), "unclear"
+     * for animation whose genres and audio disagree, or "none". Decided per show by the catalog.
+     */
+    KIND(12),
 }
 
 enum class RuleOp(override val code: Int) : CodedEnum {
