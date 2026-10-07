@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.runtime.Composable
@@ -29,24 +30,31 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ServerRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.WebServerController
 import tv.anstelle.core.data.WebServerStatus
+import tv.anstelle.core.data.playback.TrackChoices
 import tv.anstelle.core.database.dao.PairedClientDao
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.core.model.MediaServer
+import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.model.WatchReportMode
 import tv.anstelle.core.model.codeOf
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusTile
+import tv.anstelle.feature.settings.channels.activeProfileId
+import tv.anstelle.feature.settings.playback.summary as playbackSummary
 import javax.inject.Inject
 
 @Immutable
@@ -56,14 +64,18 @@ data class SettingsUiState(
     val pairedClients: List<PairedClientEntity> = emptyList(),
     val servers: List<MediaServer> = emptyList(),
     val reporting: WatchReportMode = WatchReportMode.REPORT_NO_MARK,
+    val tracks: TrackPrefs = TrackPrefs(),
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val webServer: WebServerController,
     pairedClients: PairedClientDao,
     servers: ServerRepository,
+    profiles: ProfileRepository,
+    tracks: TrackChoices,
 ) : ViewModel() {
     val state: StateFlow<SettingsUiState> = combine(
         settings.observe(Settings.WebServerEnabled),
@@ -73,6 +85,8 @@ class SettingsViewModel @Inject constructor(
         settings.observe(Settings.WatchReporting),
     ) { enabled, status, clients, serverList, reporting ->
         SettingsUiState(enabled, status, clients, serverList, codeOf(reporting))
+    }.combine(profiles.activeProfileId().flatMapLatest { tracks.observePrefs(it) }) { state, prefs ->
+        state.copy(tracks = prefs)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     /** Steps through: report without marking watched → report everything → don't report. */
@@ -100,6 +114,7 @@ class SettingsViewModel @Inject constructor(
 fun SettingsScreen(
     onOpenServers: () -> Unit,
     onOpenChannels: () -> Unit,
+    onOpenLanguages: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -168,6 +183,15 @@ fun SettingsScreen(
                 },
                 icon = Icons.Filled.History,
                 onClick = viewModel::nextReporting,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            FocusTile(
+                title = "Audio and subtitles",
+                subtitle = playbackSummary(state.tracks),
+                icon = Icons.Filled.Subtitles,
+                onClick = onOpenLanguages,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

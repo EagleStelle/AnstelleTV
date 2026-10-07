@@ -138,3 +138,12 @@ enum class WatchReportMode(override val code: Int) : CodedEnum {
     REPORT_NO_MARK(1),
     FULL(2),
 }
+
+/** When subtitles show. */
+enum class SubtitleMode(override val code: Int) : CodedEnum {
+    OFF(0),
+    ALWAYS(1),
+
+    /** Only when the audio isn't in one of the subtitle languages. */
+    WHEN_AUDIO_DIFFERS(2),
+}

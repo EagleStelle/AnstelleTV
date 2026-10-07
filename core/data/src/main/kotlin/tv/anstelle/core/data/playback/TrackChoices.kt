@@ -7,8 +7,14 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
+import tv.anstelle.core.model.Languages
+import tv.anstelle.core.model.TrackPrefs
+import tv.anstelle.core.model.codeOf
+import tv.anstelle.core.player.PooledPlayer
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,25 +29,51 @@ data class TrackOption(
 )
 
 /**
- * Audio and subtitle choices. A pick applies to the program on now and becomes the profile's
- * default language, so the next programs follow it.
+ * Audio and subtitle choices. The profile's defaults (Settings, Audio and subtitles) pick the
+ * tracks of every program; a pick in the player only changes the program on now.
  */
 @Singleton
 @OptIn(UnstableApi::class)
 class TrackChoices @Inject constructor(
     private val settings: SettingsRepository,
 ) {
-    /** Sets the player up with the profile's languages and every track type on. */
-    suspend fun applyDefaults(player: Player, profileId: Long) {
-        val audio = settings.get(Settings.audioLanguage(profileId)).ifBlank { null }
-        val subtitles = settings.get(Settings.subtitleLanguage(profileId)).ifBlank { null }
+    /** The profile's audio and subtitle defaults. */
+    suspend fun prefs(profileId: Long): TrackPrefs = TrackPrefs(
+        audioLanguages = Languages.decodeList(settings.get(Settings.audioLanguages(profileId))),
+        subtitleMode = codeOf(settings.get(Settings.subtitleMode(profileId))),
+        subtitleLanguages = Languages.decodeList(settings.get(Settings.subtitleLanguages(profileId))),
+    )
+
+    fun observePrefs(profileId: Long): Flow<TrackPrefs> = combine(
+        settings.observe(Settings.audioLanguages(profileId)),
+        settings.observe(Settings.subtitleMode(profileId)),
+        settings.observe(Settings.subtitleLanguages(profileId)),
+    ) { audio, mode, subtitles ->
+        TrackPrefs(Languages.decodeList(audio), codeOf(mode), Languages.decodeList(subtitles))
+    }
+
+    /** Changes the profile's defaults; programs started from now on follow them. */
+    suspend fun update(profileId: Long, change: (TrackPrefs) -> TrackPrefs) {
+        val old = prefs(profileId)
+        val new = change(old)
+        if (new.audioLanguages != old.audioLanguages) settings.set(Settings.audioLanguages(profileId), Languages.encodeList(new.audioLanguages))
+        if (new.subtitleMode != old.subtitleMode) settings.set(Settings.subtitleMode(profileId), new.subtitleMode.code)
+        if (new.subtitleLanguages != old.subtitleLanguages) settings.set(Settings.subtitleLanguages(profileId), Languages.encodeList(new.subtitleLanguages))
+    }
+
+    /**
+     * Sets the player up with [prefs] and every track type on, dropping any pick made in the
+     * player. Called for each program, so a pick never carries over to the next one.
+     */
+    fun applyDefaults(pooled: PooledPlayer, prefs: TrackPrefs) {
+        pooled.trackSelector.setPrefs(prefs)
+        val player = pooled.player
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .clearOverrides()
             .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
             .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-            .setPreferredAudioLanguage(audio)
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, subtitles == null)
-            .setPreferredTextLanguage(subtitles)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setPreferredAudioLanguages(*prefs.audioLanguages.toTypedArray())
             .build()
     }
 
@@ -63,7 +95,8 @@ class TrackChoices @Inject constructor(
         return options
     }
 
-    suspend fun select(player: Player, profileId: Long, type: Int, option: TrackOption) {
+    /** Plays [option] for the program on now; the next program goes back to the defaults. */
+    fun select(player: Player, type: Int, option: TrackOption) {
         val builder = player.trackSelectionParameters.buildUpon()
         if (option.groupIndex < 0) {
             builder.setTrackTypeDisabled(type, true)
@@ -71,17 +104,6 @@ class TrackChoices @Inject constructor(
             val group = player.currentTracks.groups.getOrNull(option.groupIndex) ?: return
             builder.setTrackTypeDisabled(type, false)
                 .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, option.trackIndex))
-        }
-        val language = option.language.orEmpty()
-        when (type) {
-            C.TRACK_TYPE_AUDIO -> {
-                builder.setPreferredAudioLanguage(language.ifBlank { null })
-                settings.set(Settings.audioLanguage(profileId), language)
-            }
-            C.TRACK_TYPE_TEXT -> {
-                builder.setPreferredTextLanguage(language.ifBlank { null })
-                settings.set(Settings.subtitleLanguage(profileId), if (option.groupIndex < 0) "" else language)
-            }
         }
         player.trackSelectionParameters = builder.build()
     }

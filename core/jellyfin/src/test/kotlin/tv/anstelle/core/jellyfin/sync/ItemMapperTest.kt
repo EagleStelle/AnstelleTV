@@ -6,8 +6,12 @@ import org.jellyfin.sdk.model.api.ParentalRating
 import tv.anstelle.core.database.dao.SeriesMetadataRow
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.jellyfin.Fixtures
+import tv.anstelle.core.model.AudioStream
+import tv.anstelle.core.model.FontAttachment
 import tv.anstelle.core.model.HdrType
+import tv.anstelle.core.model.MediaTracks
 import tv.anstelle.core.model.MediaType
+import tv.anstelle.core.model.SubtitleStream
 import java.time.Instant
 import java.util.TimeZone
 import kotlin.test.AfterTest
@@ -115,6 +119,26 @@ class ItemMapperTest {
         assertEquals("PG-13", movie.officialRating)
         assertEquals(13, movie.ratingScore)
         assertEquals("|Example Pictures|", movie.studios)
+    }
+
+    @Test
+    fun `tracks keep audio, subtitles and fonts`() {
+        val dto = Fixtures.decode<BaseItemDtoQueryResult>("items_subtitles_derived.json").items.single()
+        val tracks = map(dto)!!.tracks
+        assertEquals(listOf(AudioStream(1, "eng", isDefault = false), AudioStream(2, "jpn", isDefault = true)), tracks.audio)
+        assertEquals(
+            listOf(
+                SubtitleStream(3, "eng", "Full", "ass", isDefault = true),
+                SubtitleStream(4, "eng", "Signs", "ass", isForced = true),
+                SubtitleStream(5, "spa", null, "pgssub"),
+                SubtitleStream(6, "eng", null, "subrip", isExternal = true),
+            ),
+            tracks.subtitles,
+        )
+        assertEquals(listOf(FontAttachment(0, "ExampleSans.ttf"), FontAttachment(2, "ExampleSerif.otf")), tracks.fonts)
+        assertTrue(tracks.hasAss)
+        // Stored and read back unchanged.
+        assertEquals(tracks, MediaTracks.decode(tracks.encode()))
     }
 
     @Test

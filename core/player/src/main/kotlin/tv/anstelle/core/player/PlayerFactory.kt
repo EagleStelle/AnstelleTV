@@ -17,6 +17,7 @@ import androidx.media3.exoplayer.source.TrackGroupArray
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection
 import androidx.media3.exoplayer.upstream.Allocator
 import dagger.hilt.android.qualifiers.ApplicationContext
+import io.github.peerless2012.ass.media.factory.AssRenderersFactory
 import okhttp3.OkHttpClient
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,6 +29,8 @@ import javax.inject.Singleton
  * `Authorization` header added by [StreamAuth]. Platform decoders come first; the FFmpeg
  * audio renderer only steps in when the device can't decode a format itself (TrueHD or DTS
  * on a phone, say). Passthrough to a receiver follows the device's `AudioCapabilities`.
+ * Each player has its own libass ([PlayerSubtitles]) and picks tracks by language
+ * ([LanguageTrackSelector]).
  */
 @Singleton
 @OptIn(UnstableApi::class)
@@ -42,19 +45,31 @@ class PlayerFactory @Inject constructor(
     }
 
     fun create(): PooledPlayer {
-        val renderersFactory = DefaultRenderersFactory(context)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-            .setEnableDecoderFallback(true)
+        val subtitles = PlayerSubtitles()
+        val renderersFactory = AssRenderersFactory(
+            subtitles.handler,
+            DefaultRenderersFactory(context)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+                .setEnableDecoderFallback(true),
+        )
+        val trackSelector = LanguageTrackSelector(context)
         val loadControl = PoolLoadControl(
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, START_BUFFER_MS, REBUFFER_MS)
                 .build(),
         )
         val player = ExoPlayer.Builder(context, renderersFactory)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setTrackSelector(trackSelector)
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(dataSourceFactory, subtitles.extractorsFactory)
+                    // Side-loaded subtitle files go through libass too.
+                    .setSubtitleParserFactory(subtitles.parserFactory),
+            )
             .setLoadControl(loadControl)
             .build()
-        return PooledPlayer(player, loadControl)
+        subtitles.attach(player)
+        SubtitleOverlays.register(player, subtitles)
+        return PooledPlayer(player, loadControl, trackSelector, subtitles)
     }
 
     private companion object {

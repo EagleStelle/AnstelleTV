@@ -43,6 +43,10 @@ import kotlinx.serialization.Serializable
 @Serializable data class ChannelLineupRoute(val channelId: Long = 0)
 @Serializable data object ChannelTemplatesRoute
 @Serializable data object ChannelGroupsRoute
+@Serializable data object PlaybackLanguagesRoute
+
+/** Adds a language to the subtitle list when [subtitles], else to the audio list. */
+@Serializable data class LanguagePickerRoute(val subtitles: Boolean)
 
 /** Destinations reachable from the TV navigation drawer and the phone navigation bar. */
 enum class TopLevelDestination(val label: String, val icon: ImageVector, val route: Any) {

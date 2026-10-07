@@ -37,9 +37,12 @@ import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.jellyfin.auth.TokenStore
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.SlotKind
+import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.player.CapabilityProbe
+import tv.anstelle.core.player.FontCache
 import tv.anstelle.core.player.JellyfinStreams
 import tv.anstelle.core.player.PlayerPool
+import tv.anstelle.core.player.PooledPlayer
 import tv.anstelle.core.player.ProgramStream
 import tv.anstelle.core.player.StreamDecision
 import tv.anstelle.core.player.StreamInfo
@@ -80,11 +83,7 @@ private class Program(
     val token: String,
     val stream: ProgramStream,
 ) {
-    val mediaItem: MediaItem = MediaItem.Builder()
-        .setUri(stream.url)
-        .setMimeType(stream.mimeType)
-        .setMediaId("${slot.channelId}@${slot.startUtcMs}")
-        .build()
+    val mediaItem: MediaItem = stream.mediaItem("${slot.channelId}@${slot.startUtcMs}")
 
     val info: ProgramInfo = programInfo(item, slot.startUtcMs, slot.endUtcMs)
 }
@@ -96,7 +95,9 @@ private class Program(
  * - **Back to back:** the player's playlist holds the program on now and the next one, so
  *   one runs into the other without a gap. At each transition the following program is
  *   queued, and when the new program is more than [MAX_DRIFT_MS] behind the wall clock (after
- *   buffering, say) it seeks ahead.
+ *   buffering, say) it seeks ahead. A program with ASS subtitles isn't queued that way
+ *   ([ProgramStream.chainsWith]): it starts on its own when the one before it ends.
+ * - **Tracks:** each program starts on the profile's audio and subtitle defaults.
  * - **Pool:** the channel in the surfing direction (or the one focused in the guide) is
  *   pre-warmed on the standby player, and tuning to it swaps the players.
  * - **Off air** shows until the off-air stretch ends, then the channel tunes itself again.
@@ -121,6 +122,7 @@ class ChannelPlayer @Inject constructor(
     private val updater: ScheduleUpdater,
     private val reporter: PlaybackReporter,
     private val tracks: TrackChoices,
+    private val fonts: FontCache,
     private val settings: SettingsRepository,
     private val time: TimeSource,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
@@ -150,6 +152,9 @@ class ChannelPlayer @Inject constructor(
     private var session: ReportSession? = null
     private var trace: TuneTrace? = null
     private var retriedSlot = Long.MIN_VALUE
+
+    /** The tuned profile's audio and subtitle defaults. */
+    private var prefs = TrackPrefs()
 
     private var tuneJob: Job? = null
     private var waitJob: Job? = null
@@ -214,9 +219,7 @@ class ChannelPlayer @Inject constructor(
     fun trackOptions(type: Int): List<TrackOption> = _player.value?.let { tracks.options(it, type) }.orEmpty()
 
     fun selectTrack(type: Int, option: TrackOption) {
-        val player = _player.value ?: return
-        val profileId = current?.profileId ?: return
-        scope.launch { tracks.select(player, profileId, type, option) }
+        _player.value?.let { tracks.select(it, type, option) }
     }
 
     /** Stops playback, e.g. when the player screen closes or the app goes to the background. */
@@ -243,14 +246,21 @@ class ChannelPlayer @Inject constructor(
         tuneJob = scope.launch { tuneNow(channel) }
     }
 
-    private suspend fun tuneNow(channel: Channel) {
+    /**
+     * Tunes to what [channel] airs now or, when [after] is set because the program that ended
+     * then had nothing queued behind it, to the program that follows it.
+     */
+    private suspend fun tuneNow(channel: Channel, after: Long? = null) {
         endSession(atEnd = false)
         trace = TuneTrace.begin()
-        _state.update { PlaybackState(channel = channel, status = TuneStatus.TUNING, tuneCount = it.tuneCount + 1) }
+        _state.update {
+            PlaybackState(channel = channel, status = TuneStatus.TUNING, tuneCount = it.tuneCount + if (after == null) 1 else 0)
+        }
         settings.set(Settings.lastChannel(channel.profileId), channel.id)
+        prefs = tracks.prefs(channel.profileId)
 
         val now = time.nowUtcMs()
-        val slot = slotAt(channel.id, now, scheduleIfMissing = true)
+        val slot = slotAt(channel.id, maxOf(now, after ?: now), scheduleIfMissing = true)
         if (slot == null) {
             stopActive()
             _state.update { it.copy(status = TuneStatus.NO_SCHEDULE, message = "Nothing is scheduled. Check the channel's lineup.") }
@@ -265,7 +275,7 @@ class ChannelPlayer @Inject constructor(
             failAndRetry("This program can't be played. Is the server signed in?")
             return
         }
-        val next = nextProgram(slot)
+        val next = nextProgram(slot)?.takeIf { program.stream.chainsWith(it.stream) }
 
         val standby = pool.standby
         val swapped = standby.channelId == channel.id && standbyQueue.firstOrNull()?.slot?.startUtcMs == slot.startUtcMs
@@ -277,18 +287,17 @@ class ChannelPlayer @Inject constructor(
             }
         } else {
             pool.active.also {
-                it.player.setMediaItems(listOfNotNull(program.mediaItem, next?.mediaItem), 0, now - slot.startUtcMs)
-                it.player.prepare()
+                val programs = listOfNotNull(program, next)
+                load(it, programs, slot)
                 queue.clear()
-                queue.add(program)
-                next?.let(queue::add)
+                queue.addAll(programs)
             }
         }
         pooled.channelId = channel.id
         val player = pooled.player
-        tracks.applyDefaults(player, channel.profileId)
+        tracks.applyDefaults(pooled, prefs)
         // The standby waited; catch up with the wall clock.
-        if (swapped) player.seekTo(0, time.nowUtcMs() - slot.startUtcMs)
+        if (swapped) player.seekTo(0, (time.nowUtcMs() - slot.startUtcMs).coerceAtLeast(0))
         attach(player)
         player.playWhenReady = true
         retriedSlot = Long.MIN_VALUE
@@ -303,6 +312,25 @@ class ChannelPlayer @Inject constructor(
         }
         startTicker()
         AppLog.d(TAG, "Tuned ${channel.number} ${if (swapped) "from the standby" else "cold"}")
+    }
+
+    /**
+     * Prepares [programs] on [pooled] from [slot]'s live position. Fonts for side-loaded ASS
+     * subtitles are fetched first and handed to libass once the playlist is set. Returns false,
+     * leaving the player alone, when [stillWanted] no longer holds after the fonts arrive.
+     */
+    private suspend fun load(
+        pooled: PooledPlayer,
+        programs: List<Program>,
+        slot: ScheduleSlotEntity,
+        stillWanted: () -> Boolean = { true },
+    ): Boolean {
+        val fontFiles = fonts.load(programs.first().stream)
+        if (!stillWanted()) return false
+        pooled.player.setMediaItems(programs.map { it.mediaItem }, 0, (time.nowUtcMs() - slot.startUtcMs).coerceAtLeast(0))
+        pooled.subtitles.addFonts(fontFiles)
+        pooled.player.prepare()
+        return true
     }
 
     /** The slot airing at [nowUtcMs]; a channel without a schedule gets one first when [scheduleIfMissing]. */
@@ -323,7 +351,10 @@ class ChannelPlayer @Inject constructor(
             StreamPlanner.decide(item.streamInfo(), withContext(io) { probe.capabilities })
         }
         if (decision is StreamDecision.Transcode) AppLog.i(TAG, "Transcoding item ${item.id}: ${decision.reasons.joinToString()}")
-        val stream = streams.stream(server.baseUrl, token, item.remoteId, item.mediaSourceId, transcode = decision is StreamDecision.Transcode)
+        val stream = streams.stream(
+            server.baseUrl, token, item.remoteId, item.mediaSourceId,
+            transcode = decision is StreamDecision.Transcode, tracks = item.tracks, prefs = prefs,
+        )
         return Program(slot, item, server, token, stream)
     }
 
@@ -371,12 +402,14 @@ class ChannelPlayer @Inject constructor(
     }
 
     private suspend fun retryAsHls(failed: Program) {
-        val player = _player.value ?: return
+        val pooled = pool.active
+        if (_player.value !== pooled.player) return
         val program = resolve(failed.slot, forceTranscode = true) ?: return failAndRetry("This program can't be played.")
-        queue[0] = program
-        player.setMediaItems(queue.map { it.mediaItem }, 0, time.nowUtcMs() - program.slot.startUtcMs)
-        player.prepare()
-        player.playWhenReady = true
+        val programs = listOfNotNull(program, queue.getOrNull(1)?.takeIf { program.stream.chainsWith(it.stream) })
+        if (!load(pooled, programs, program.slot) { pool.active === pooled && _player.value === pooled.player }) return
+        queue.clear()
+        queue.addAll(programs)
+        pooled.player.playWhenReady = true
         _state.update { it.copy(status = TuneStatus.PLAYING, transcoded = true, message = null) }
     }
 
@@ -420,12 +453,13 @@ class ChannelPlayer @Inject constructor(
             return
         }
         val program = resolve(slot, forceTranscode = false) ?: return
-        val next = nextProgram(slot)
+        val next = nextProgram(slot)?.takeIf { program.stream.chainsWith(it.stream) }
         pool.quiet(standby, withContext(io) { probe.capabilities }.concurrentVideoDecoders)
-        standby.player.setMediaItems(listOfNotNull(program.mediaItem, next?.mediaItem), 0, now - slot.startUtcMs)
-        standby.player.prepare()
+        val programs = listOfNotNull(program, next)
+        // A tune may swap the pool while fonts load; then this player is on screen.
+        if (!load(standby, programs, slot) { pool.standby === standby }) return
         standby.channelId = channel.id
-        standbyQueue = listOfNotNull(program, next)
+        standbyQueue = programs
         AppLog.d(TAG, "Standby ready on ${channel.number}")
     }
 
@@ -493,6 +527,7 @@ class ChannelPlayer @Inject constructor(
             AppLog.i(TAG, "Next program on ${current?.number}: ${drift} ms behind the schedule${if (corrected) ", caught up" else ""}")
 
             startSession(program, maxOf(expected, 0))
+            tracks.applyDefaults(pool.active, prefs)
             retriedSlot = Long.MIN_VALUE
             _state.update { it.copy(now = program.info, next = null, transcoded = program.stream.transcoded) }
             scope.launch { queueAfter(program) }
@@ -500,11 +535,13 @@ class ChannelPlayer @Inject constructor(
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
-                // Nothing more is queued: the channel goes off air, or the schedule ran out.
+                // Nothing more is queued: the next program wasn't chained, the channel goes off
+                // air, or the schedule ran out.
                 Player.STATE_ENDED -> current?.let { channel ->
+                    val ended = queue.firstOrNull()?.slot?.endUtcMs
                     endSession(atEnd = true)
                     tuneJob?.cancel()
-                    tuneJob = scope.launch { tuneNow(channel) }
+                    tuneJob = scope.launch { tuneNow(channel, after = ended) }
                 }
                 else -> {
                     val buffering = playbackState == Player.STATE_BUFFERING
@@ -540,12 +577,12 @@ class ChannelPlayer @Inject constructor(
         val next = nextProgram(program.slot)
         if (queue.lastOrNull() !== program) return
         val player = _player.value ?: return
-        if (next != null) {
+        if (next != null && program.stream.chainsWith(next.stream)) {
             player.addMediaItem(next.mediaItem)
             queue.add(next)
             _state.update { it.copy(next = next.info) }
         } else {
-            _state.update { it.copy(next = upcoming(program.slot)) }
+            _state.update { it.copy(next = next?.info ?: upcoming(program.slot)) }
         }
     }
 

@@ -45,11 +45,17 @@ object Settings {
     /** A [tv.anstelle.core.model.WatchReportMode] code: how channel playback is reported to Jellyfin. */
     val WatchReporting = SettingKey.IntKey("playback.report", tv.anstelle.core.model.WatchReportMode.REPORT_NO_MARK.code)
 
-    /** The profile's preferred audio language (ISO 639), or empty for the item's default. */
-    fun audioLanguage(profileId: Long) = SettingKey.StringKey("playback.audio.$profileId", "")
+    /**
+     * The profile's audio languages in order of preference, as ISO 639-2/T codes joined by
+     * commas ([tv.anstelle.core.model.Languages.encodeList]); empty plays the item's default track.
+     */
+    fun audioLanguages(profileId: Long) = SettingKey.StringKey("playback.audio.$profileId", "")
 
-    /** The profile's subtitle language (ISO 639), or empty for no subtitles. */
-    fun subtitleLanguage(profileId: Long) = SettingKey.StringKey("playback.subtitles.$profileId", "")
+    /** The profile's subtitle languages in order of preference, stored like [audioLanguages]. */
+    fun subtitleLanguages(profileId: Long) = SettingKey.StringKey("playback.subtitles.$profileId", "")
+
+    /** A [tv.anstelle.core.model.SubtitleMode] code: when the profile's subtitles show. */
+    fun subtitleMode(profileId: Long) = SettingKey.IntKey("playback.subtitles.mode.$profileId", tv.anstelle.core.model.SubtitleMode.OFF.code)
 
     /** The channel the profile watched last, for resuming; 0 when none. */
     fun lastChannel(profileId: Long) = SettingKey.LongKey("playback.channel.$profileId", 0L)

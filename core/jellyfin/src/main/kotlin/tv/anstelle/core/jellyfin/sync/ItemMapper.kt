@@ -2,6 +2,7 @@ package tv.anstelle.core.jellyfin.sync
 
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.ImageType
+import org.jellyfin.sdk.model.api.MediaAttachment
 import org.jellyfin.sdk.model.api.MediaStream
 import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.VideoRangeType
@@ -9,8 +10,12 @@ import tv.anstelle.core.database.dao.SeriesMetadataRow
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.jellyfin.toEpochMs
 import tv.anstelle.core.jellyfin.toJellyfinId
+import tv.anstelle.core.model.AudioStream
+import tv.anstelle.core.model.FontAttachment
 import tv.anstelle.core.model.HdrType
+import tv.anstelle.core.model.MediaTracks
 import tv.anstelle.core.model.MediaType
+import tv.anstelle.core.model.SubtitleStream
 
 /** Everything the mapper needs besides the item itself. */
 class SyncContext(
@@ -80,10 +85,28 @@ object ItemMapper {
             videoBitDepth = video?.bitDepth,
             audioChannels = audio?.channels,
             mediaSourceId = source?.id ?: remoteId.takeIf { type != MediaType.SERIES },
+            tracks = tracks(streams, source?.defaultAudioStreamIndex, source?.mediaAttachments.orEmpty()),
             primaryImageTag = item.imageTags?.get(ImageType.PRIMARY),
             playedOnServer = item.userData?.played ?: false,
             updatedAtUtcMs = context.nowUtcMs,
         )
+    }
+
+    /**
+     * The audio and subtitle streams and the fonts an ASS subtitle may need. The audio stream
+     * the server plays by default is flagged default.
+     */
+    fun tracks(streams: List<MediaStream>, defaultAudioIndex: Int?, attachments: List<MediaAttachment>): MediaTracks {
+        val audio = streams.filter { it.type == MediaStreamType.AUDIO }.map {
+            AudioStream(it.index, it.language, isDefault = if (defaultAudioIndex != null) it.index == defaultAudioIndex else it.isDefault)
+        }
+        val subtitles = streams.filter { it.type == MediaStreamType.SUBTITLE }.map {
+            SubtitleStream(it.index, it.language, it.title, it.codec, it.isDefault, it.isForced, it.isExternal)
+        }
+        val fonts = attachments
+            .filter { FontAttachment.isFont(it.fileName, it.mimeType) }
+            .mapNotNull { a -> a.fileName?.let { FontAttachment(a.index, it) } }
+        return MediaTracks(audio, subtitles, fonts)
     }
 
     fun hdrType(video: MediaStream?): HdrType = when (video?.videoRangeType) {

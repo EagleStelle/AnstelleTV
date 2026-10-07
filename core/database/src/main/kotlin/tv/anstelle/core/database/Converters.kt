@@ -4,6 +4,7 @@ import androidx.room.TypeConverter
 import tv.anstelle.core.model.ChannelKind
 import tv.anstelle.core.model.HdrType
 import tv.anstelle.core.model.LiveSourceType
+import tv.anstelle.core.model.MediaTracks
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.PlaybackOrder
 import tv.anstelle.core.model.RuleField
@@ -13,7 +14,7 @@ import tv.anstelle.core.model.SlotKind
 import tv.anstelle.core.model.WatchSource
 import tv.anstelle.core.model.codeOf
 
-/** Enums are stored as their stable integer codes. */
+/** Enums are stored as their stable integer codes; track lists as JSON. */
 internal class Converters {
     @TypeConverter fun fromMediaType(value: MediaType): Int = value.code
     @TypeConverter fun toMediaType(code: Int): MediaType = codeOf(code)
@@ -44,4 +45,7 @@ internal class Converters {
 
     @TypeConverter fun fromWatchSource(value: WatchSource): Int = value.code
     @TypeConverter fun toWatchSource(code: Int): WatchSource = codeOf(code)
+
+    @TypeConverter fun fromMediaTracks(value: MediaTracks): String = value.encode()
+    @TypeConverter fun toMediaTracks(raw: String): MediaTracks = MediaTracks.decode(raw)
 }

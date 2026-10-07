@@ -30,9 +30,12 @@ import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.jellyfin.auth.TokenStore
+import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.player.CapabilityProbe
+import tv.anstelle.core.player.FontCache
 import tv.anstelle.core.player.JellyfinStreams
 import tv.anstelle.core.player.PlayerFactory
+import tv.anstelle.core.player.PooledPlayer
 import tv.anstelle.core.player.ProgramStream
 import tv.anstelle.core.player.StreamDecision
 import tv.anstelle.core.player.StreamInfo
@@ -62,6 +65,10 @@ data class OnDemandState(
  * It has its own player, so the channel pool keeps its state. Many TV devices can run only
  * one video decoder, so the caller stops channel playback first. One instance per screen;
  * main thread only.
+ *
+ * Each episode starts on the profile's audio and subtitle defaults. An episode with ASS
+ * subtitles isn't queued behind the one before it ([ProgramStream.chainsWith]); it starts
+ * when that one ends.
  */
 @OptIn(UnstableApi::class)
 class OnDemandPlayer @Inject constructor(
@@ -74,6 +81,7 @@ class OnDemandPlayer @Inject constructor(
     private val tokens: TokenStore,
     private val reporter: PlaybackReporter,
     private val tracks: TrackChoices,
+    private val fonts: FontCache,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -81,21 +89,19 @@ class OnDemandPlayer @Inject constructor(
     private val _state = MutableStateFlow(OnDemandState())
     val state: StateFlow<OnDemandState> = _state.asStateFlow()
 
-    private var exo: Player? = null
+    private var pooled: PooledPlayer? = null
+    private val exo: Player? get() = pooled?.player
 
     /** The player, created on first use. */
-    val player: Player
-        get() = exo ?: factory.create().player.also {
-            it.addListener(listener)
-            exo = it
-        }
+    val player: Player get() = pooledPlayer().player
+
+    private fun pooledPlayer(): PooledPlayer = pooled ?: factory.create().also {
+        it.player.addListener(listener)
+        pooled = it
+    }
 
     private class Entry(val item: MediaItemEntity, val server: MediaServerEntity, val token: String, val stream: ProgramStream) {
-        val mediaItem: MediaItem = MediaItem.Builder()
-            .setUri(stream.url)
-            .setMimeType(stream.mimeType)
-            .setMediaId("demand@${item.id}")
-            .build()
+        val mediaItem: MediaItem = stream.mediaItem("demand@${item.id}")
     }
 
     /** The player's playlist; the first entry is playing. */
@@ -103,7 +109,11 @@ class OnDemandPlayer @Inject constructor(
 
     /** Episodes still to come after the queue. */
     private val upcoming = ArrayDeque<MediaItemEntity>()
+
+    /** The next episode when it couldn't be queued; it starts when the queue ends. */
+    private var deferred: Entry? = null
     private var profileId = 0L
+    private var prefs = TrackPrefs()
     private var session: ReportSession? = null
     private var retried = false
     private var tickJob: Job? = null
@@ -112,6 +122,7 @@ class OnDemandPlayer @Inject constructor(
     fun play(itemId: Long, positionMs: Long, profileId: Long, maxRating: Int?) {
         this.profileId = profileId
         scope.launch {
+            prefs = tracks.prefs(profileId)
             val item = itemDao.byId(itemId)
             val entry = item?.let { resolve(it, forceTranscode = false) }
             if (entry == null) {
@@ -120,18 +131,31 @@ class OnDemandPlayer @Inject constructor(
             }
             upcoming.clear()
             upcoming.addAll(repository.episodesAfter(entry.item, maxRating))
-            queue.clear()
-            queue.add(entry)
-            val player = player
-            tracks.applyDefaults(player, profileId)
-            player.setMediaItems(listOf(entry.mediaItem), 0, positionMs.coerceAtLeast(0))
-            player.prepare()
-            player.playWhenReady = true
-            retried = false
-            show(entry)
-            queueNext()
+            start(entry, positionMs)
             startTicker()
         }
+    }
+
+    /** Plays [entry] on its own from [positionMs], then queues what follows it. */
+    private suspend fun start(entry: Entry, positionMs: Long) {
+        deferred = null
+        queue.clear()
+        queue.add(entry)
+        val pooled = pooledPlayer()
+        load(pooled, positionMs)
+        tracks.applyDefaults(pooled, prefs)
+        pooled.player.playWhenReady = true
+        retried = false
+        show(entry)
+        queueNext()
+    }
+
+    /** Prepares the queue from [positionMs], handing libass the fonts of a side-loaded ASS subtitle. */
+    private suspend fun load(pooled: PooledPlayer, positionMs: Long) {
+        val fontFiles = fonts.load(queue.first().stream)
+        pooled.player.setMediaItems(queue.map { it.mediaItem }, 0, positionMs.coerceAtLeast(0))
+        pooled.subtitles.addFonts(fontFiles)
+        pooled.player.prepare()
     }
 
     fun togglePlay() {
@@ -157,7 +181,13 @@ class OnDemandPlayer @Inject constructor(
     /** Jumps to the next episode, when there is one. */
     fun skipToNext() {
         val player = exo ?: return
-        if (player.hasNextMediaItem()) player.seekToNextMediaItem()
+        if (player.hasNextMediaItem()) {
+            player.seekToNextMediaItem()
+        } else {
+            val next = deferred ?: return
+            endSession(atEnd = false)
+            scope.launch { start(next, 0) }
+        }
     }
 
     val positionMs: Long get() = exo?.currentPosition ?: 0
@@ -166,21 +196,21 @@ class OnDemandPlayer @Inject constructor(
     fun trackOptions(type: Int): List<TrackOption> = exo?.let { tracks.options(it, type) }.orEmpty()
 
     fun selectTrack(type: Int, option: TrackOption) {
-        val player = exo ?: return
-        scope.launch { tracks.select(player, profileId, type, option) }
+        exo?.let { tracks.select(it, type, option) }
     }
 
     /** Stops playback for good, reporting where it stopped. */
     fun release() {
         endSession(atEnd = false)
         tickJob?.cancel()
-        exo?.let {
-            it.removeListener(listener)
+        pooled?.let {
+            it.player.removeListener(listener)
             it.release()
         }
-        exo = null
+        pooled = null
         queue.clear()
         upcoming.clear()
+        deferred = null
         scope.cancel()
     }
 
@@ -193,19 +223,27 @@ class OnDemandPlayer @Inject constructor(
             StreamPlanner.decide(StreamInfo(item.container, item.videoCodec, item.audioCodec, item.width, item.height, item.videoBitDepth), withContext(io) { probe.capabilities })
         }
         if (decision is StreamDecision.Transcode) AppLog.i(TAG, "Transcoding item ${item.id}: ${decision.reasons.joinToString()}")
-        val stream = streams.stream(server.baseUrl, token, item.remoteId, item.mediaSourceId, transcode = decision is StreamDecision.Transcode)
+        val stream = streams.stream(
+            server.baseUrl, token, item.remoteId, item.mediaSourceId,
+            transcode = decision is StreamDecision.Transcode, tracks = item.tracks, prefs = prefs,
+        )
         return Entry(item, server, token, stream)
     }
 
-    /** Adds the next episode to the playlist, so it follows without a gap. */
+    /**
+     * Adds the next episode to the playlist, so it follows without a gap, or keeps it for when
+     * this one ends when the two can't be chained.
+     */
     private suspend fun queueNext() {
         val last = queue.lastOrNull() ?: return
         val following = upcoming.removeFirstOrNull()
         val entry = following?.let { resolve(it, forceTranscode = false) }
         if (queue.lastOrNull() !== last || exo == null) return
-        if (entry != null) {
+        if (entry != null && last.stream.chainsWith(entry.stream)) {
             player.addMediaItem(entry.mediaItem)
             queue.add(entry)
+        } else {
+            deferred = entry
         }
         _state.update { it.copy(next = entry?.item?.let(::nextLabel)) }
     }
@@ -218,7 +256,7 @@ class OnDemandPlayer @Inject constructor(
                 title = programTitle(item.title, item.showTitle),
                 detail = programDetail(item.title, item.showTitle, item.season, item.episode, item.year),
                 transcoded = entry.stream.transcoded,
-                next = queue.getOrNull(1)?.item?.let(::nextLabel),
+                next = (queue.getOrNull(1) ?: deferred)?.item?.let(::nextLabel),
                 message = null,
             )
         }
@@ -258,13 +296,13 @@ class OnDemandPlayer @Inject constructor(
     }
 
     private suspend fun retryAsHls(failed: Entry) {
-        val player = exo ?: return
-        val position = player.currentPosition
+        val pooled = pooled ?: return
+        val position = pooled.player.currentPosition
         val entry = resolve(failed.item, forceTranscode = true) ?: return fail("This can't be played.")
         queue[0] = entry
-        player.setMediaItems(queue.map { it.mediaItem }, 0, position)
-        player.prepare()
-        player.playWhenReady = true
+        if (queue.size > 1 && !entry.stream.chainsWith(queue[1].stream)) deferred = queue.removeLast()
+        load(pooled, position)
+        pooled.player.playWhenReady = true
         show(entry)
     }
 
@@ -283,6 +321,7 @@ class OnDemandPlayer @Inject constructor(
             player.removeMediaItems(0, player.currentMediaItemIndex)
             val entry = queue.firstOrNull() ?: return
             retried = false
+            pooled?.let { tracks.applyDefaults(it, prefs) }
             startSession(entry, 0)
             show(entry)
             scope.launch { queueNext() }
@@ -291,7 +330,12 @@ class OnDemandPlayer @Inject constructor(
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_ENDED) {
                 endSession(atEnd = true)
-                _state.update { it.copy(status = OnDemandStatus.ENDED, playing = false, buffering = false) }
+                val next = deferred
+                if (next != null) {
+                    scope.launch { start(next, 0) }
+                } else {
+                    _state.update { it.copy(status = OnDemandStatus.ENDED, playing = false, buffering = false) }
+                }
             } else {
                 val buffering = playbackState == Player.STATE_BUFFERING
                 if (buffering != _state.value.buffering) _state.update { it.copy(buffering = buffering) }

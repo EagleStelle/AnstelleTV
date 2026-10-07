@@ -8,10 +8,23 @@ import androidx.media3.exoplayer.ExoPlayer
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** A player of the pool and the channel it is prepared for. */
-class PooledPlayer(val player: ExoPlayer, internal val loadControl: PoolLoadControl) {
+/** A player of the pool (or of on-demand playback) and the channel it is prepared for. */
+@OptIn(UnstableApi::class)
+class PooledPlayer(
+    val player: ExoPlayer,
+    internal val loadControl: PoolLoadControl,
+    val trackSelector: LanguageTrackSelector,
+    val subtitles: PlayerSubtitles,
+) {
     /** Channel this player is prepared for, or null. */
     var channelId: Long? = null
+
+    @MainThread
+    fun release() {
+        SubtitleOverlays.unregister(player)
+        player.release()
+        subtitles.release()
+    }
 }
 
 /**
@@ -78,7 +91,7 @@ class PlayerPool @Inject constructor(
 
     @MainThread
     fun release() {
-        players?.forEach { it.player.release() }
+        players?.forEach(PooledPlayer::release)
         players = null
     }
 }

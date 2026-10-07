@@ -66,6 +66,7 @@ import tv.anstelle.core.data.guide.ProgramDetails
 import tv.anstelle.core.data.guide.ProgramStrip
 import tv.anstelle.core.data.playback.PlaybackState
 import tv.anstelle.core.data.playback.TuneStatus
+import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusTile
@@ -307,8 +308,15 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
                     isFocusable = false
                 }
             },
-            update = { view -> view.player = player },
-            onRelease = { view -> view.player = null },
+            update = { view ->
+                view.player = player
+                // libass draws ASS subtitles in a layer of its own over the video.
+                view.subtitleView?.let { SubtitleOverlays.attach(it, player) }
+            },
+            onRelease = { view ->
+                view.subtitleView?.let(SubtitleOverlays::detach)
+                view.player = null
+            },
             modifier = Modifier.fillMaxSize(),
         )
         val status = when (playback.status) {

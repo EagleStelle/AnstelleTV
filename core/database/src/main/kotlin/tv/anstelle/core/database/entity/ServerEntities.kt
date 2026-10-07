@@ -6,6 +6,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import tv.anstelle.core.model.HdrType
+import tv.anstelle.core.model.MediaTracks
 import tv.anstelle.core.model.MediaType
 
 /**
@@ -124,6 +125,8 @@ data class MediaItemEntity(
     val videoBitDepth: Int?,
     val audioChannels: Int?,
     val mediaSourceId: String?,
+    /** Audio and subtitle streams and font attachments, for picking tracks without a server call. */
+    val tracks: MediaTracks,
     val primaryImageTag: String?,
     /** Played state on the server at last sync, used by the REPORT_NO_MARK report mode. */
     val playedOnServer: Boolean,
