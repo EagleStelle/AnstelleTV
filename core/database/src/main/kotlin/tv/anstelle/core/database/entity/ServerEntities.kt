@@ -130,6 +130,10 @@ data class MediaItemEntity(
     /** Audio languages as `|jpn|eng|` (ISO 639-2/T), the default track's first; `""` when none is known. */
     val audioLanguages: String,
     val primaryImageTag: String?,
+    /** The first backdrop's tag; null when the item has none (episodes usually use their series'). */
+    val backdropImageTag: String?,
+    /** The title logo's tag (a transparent image of the title); null when there is none. */
+    val logoImageTag: String?,
     /** Played state on the server at last sync, used by the REPORT_NO_MARK report mode. */
     val playedOnServer: Boolean,
     /** Device time of the sync that last wrote this row. */

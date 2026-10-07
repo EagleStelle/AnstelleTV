@@ -98,6 +98,9 @@ class ItemMapperTest {
         assertEquals(2, episode.audioChannels)
         assertEquals("fa110000000000000000000000000026", episode.mediaSourceId)
         assertEquals("fa110000000000000000000000000029", episode.primaryImageTag)
+        // The episode has no backdrop or logo of its own; pages use its series'.
+        assertNull(episode.backdropImageTag)
+        assertNull(episode.logoImageTag)
         assertTrue(episode.playedOnServer)
         assertEquals(1_000L, episode.updatedAtUtcMs)
     }
@@ -119,6 +122,8 @@ class ItemMapperTest {
         assertEquals("PG-13", movie.officialRating)
         assertEquals(13, movie.ratingScore)
         assertEquals("|Example Pictures|", movie.studios)
+        assertEquals("fa11000000000000000000000000002a", movie.backdropImageTag)
+        assertEquals("fa11000000000000000000000000002b", movie.logoImageTag)
     }
 
     @Test

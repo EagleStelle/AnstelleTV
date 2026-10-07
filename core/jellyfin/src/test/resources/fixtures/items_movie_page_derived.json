@@ -170,8 +170,12 @@
       ],
       "VideoType": "VideoFile",
       "ImageTags": {
-        "Primary": "fa110000000000000000000000000029"
+        "Primary": "fa110000000000000000000000000029",
+        "Logo": "fa11000000000000000000000000002b"
       },
+      "BackdropImageTags": [
+        "fa11000000000000000000000000002a"
+      ],
       "Chapters": [
         {
           "StartPositionTicks": 0,

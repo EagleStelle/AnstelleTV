@@ -128,8 +128,9 @@ internal class JellyfinLibrarySource(
                 fields = ItemDetailFields,
                 enableUserData = true,
                 enableImages = true,
+                // One of each: the poster, the first backdrop and the title logo.
                 imageTypeLimit = 1,
-                enableImageTypes = listOf(ImageType.PRIMARY),
+                enableImageTypes = listOf(ImageType.PRIMARY, ImageType.BACKDROP, ImageType.LOGO),
                 // A stable order keeps paging consistent while the library changes.
                 sortBy = listOf(ItemSortBy.SORT_NAME),
                 startIndex = startIndex,
