@@ -2,10 +2,10 @@
 <resources>
     <!-- Dark window background matches the first Compose frame, so launch shows no white flash. -->
     <style name="Theme.Anstelle" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/ic_launcher_background</item>
-        <item name="android:colorBackground">@color/ic_launcher_background</item>
-        <item name="android:statusBarColor">@color/ic_launcher_background</item>
-        <item name="android:navigationBarColor">@color/ic_launcher_background</item>
+        <item name="android:windowBackground">@color/anstelle_ink</item>
+        <item name="android:colorBackground">@color/anstelle_ink</item>
+        <item name="android:statusBarColor">@color/anstelle_ink</item>
+        <item name="android:navigationBarColor">@color/anstelle_ink</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>
