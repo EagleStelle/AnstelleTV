@@ -159,6 +159,37 @@ class ServerRoutesTest {
     }
 
     @Test
+    fun themesListDownloadAndImport() = serverTest { server ->
+        val auth = "Bearer ${pair(server)}"
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/themes").status)
+        assertTrue(client.get("/api/themes") { header(HttpHeaders.Authorization, auth) }.bodyAsText().contains("Rose"))
+
+        val file = client.get("/api/themes/1") { header(HttpHeaders.Authorization, auth) }
+        assertEquals(HttpStatusCode.OK, file.status)
+        assertEquals(ContentType.Application.Json, file.contentType()?.withoutParameters())
+        assertTrue(file.headers[HttpHeaders.ContentDisposition]!!.contains("rose.json"))
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/themes/9") { header(HttpHeaders.Authorization, auth) }.status)
+
+        val imported = client.post("/api/themes") {
+            header(HttpHeaders.Authorization, auth)
+            setBody("""{"key":"x","name":"Mine","colors":{}}""")
+        }
+        assertEquals(HttpStatusCode.Created, imported.status)
+        assertTrue(imported.bodyAsText().contains("Imported"))
+        val notTheme = client.post("/api/themes") {
+            header(HttpHeaders.Authorization, auth)
+            setBody("hello")
+        }
+        assertEquals(HttpStatusCode.BadRequest, notTheme.status)
+        assertTrue(notTheme.bodyAsText().contains("not_a_theme"))
+        val tooLarge = client.post("/api/themes") {
+            header(HttpHeaders.Authorization, auth)
+            setBody(ByteArray(64 * 1024 + 1))
+        }
+        assertEquals(HttpStatusCode.PayloadTooLarge, tooLarge.status)
+    }
+
+    @Test
     fun spaRoutesFallBackToIndex() = serverTest {
         val index = client.get("/configure/channels")
         assertEquals(HttpStatusCode.OK, index.status)

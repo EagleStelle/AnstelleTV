@@ -7,7 +7,6 @@ import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ScheduleRepository
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.MediaItemDao
-import tv.anstelle.core.database.dao.ProfileDao
 import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.model.SlotKind
@@ -48,7 +47,6 @@ class ScheduleUpdater @Inject constructor(
     private val channelDao: ChannelDao,
     private val scheduleDao: ScheduleDao,
     private val itemDao: MediaItemDao,
-    private val profileDao: ProfileDao,
     private val schedules: ScheduleRepository,
     private val words: ChannelWordsSource,
     private val time: TimeSource,
@@ -61,8 +59,7 @@ class ScheduleUpdater @Inject constructor(
         val channels = channelDao.all()
         if (channels.isEmpty()) return@withLock emptyMap()
         val catalog = Catalog(itemDao.catalog(), words.words().types)
-        val limits = profileDao.all().associate { it.id to it.maxRatingScore }
-        val outcomes = channels.map { channel -> updateLocked(channel, catalog, limits[channel.profileId], zone) }
+        val outcomes = channels.map { channel -> updateLocked(channel, catalog, zone) }
         val summary = outcomes.groupingBy { it }.eachCount()
         AppLog.i(TAG, "${channels.size} channels in ${time.nowUtcMs() - started} ms: $summary")
         summary
@@ -71,14 +68,13 @@ class ScheduleUpdater @Inject constructor(
     /** Updates one channel, e.g. right after its rules changed. */
     suspend fun update(channelId: Long, zone: ZoneId = ZoneId.systemDefault()): ScheduleOutcome? = mutex.withLock {
         val channel = channelDao.byId(channelId) ?: return@withLock null
-        val limit = profileDao.byId(channel.profileId)?.maxRatingScore
-        updateLocked(channel, Catalog(itemDao.catalog(), words.words().types), limit, zone)
+        updateLocked(channel, Catalog(itemDao.catalog(), words.words().types), zone)
     }
 
-    private suspend fun updateLocked(channel: ChannelEntity, catalog: Catalog, maxRatingScore: Int?, zone: ZoneId): ScheduleOutcome {
+    private suspend fun updateLocked(channel: ChannelEntity, catalog: Catalog, zone: ZoneId): ScheduleOutcome {
         if (channel.isHidden) return ScheduleOutcome.HIDDEN
         val setup = ChannelSetup(channel, channelDao.rules(channel.id), channelDao.seasons(channel.id), channelDao.dayparts(channel.id))
-        val inputs = ChannelInputs.build(setup, catalog, maxRatingScore, zone)
+        val inputs = ChannelInputs.build(setup, catalog, zone)
         val hash = inputs.fingerprint()
         val now = time.nowUtcMs()
         val horizon = now + HORIZON_MS

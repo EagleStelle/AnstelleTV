@@ -1,0 +1,36 @@
+{
+    "key": "frost",
+    "name": "Frost",
+    "version": 1,
+    "colors": {
+        "background": "#F1F8FE",
+        "surface": "#DEECF8",
+        "surfaceHigh": "#D1E2F1",
+        "line": "#BDD1E2",
+        "text": "#091724",
+        "textMuted": "#3A5973",
+        "accent": "#0568A4",
+        "onAccent": "#F7FBFE",
+        "accentContainer": "#BDDEFA",
+        "onAccentContainer": "#05304F",
+        "guideCell": "#DEECF8",
+        "guideCellPast": "#E8F2FA",
+        "guideRuns": ["#EADDBD", "#EED4EF", "#CBE7CE", "#FAD4CB"],
+        "nowLine": "#0568A4",
+        "banner": "#DEECF8",
+        "bannerText": "#091724"
+    },
+    "typography": {
+        "display": "CONDENSED",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": false,
+        "scanlineAlpha": 0.14
+    }
+}

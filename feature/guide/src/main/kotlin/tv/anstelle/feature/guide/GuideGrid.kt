@@ -1,5 +1,8 @@
 package tv.anstelle.feature.guide
 
+import tv.anstelle.core.theme.components.obscured
+import tv.anstelle.core.data.ondemand.WatchChoices
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDecay
@@ -108,6 +111,8 @@ internal class GridMetrics(
 internal fun GuideGrid(
     channels: List<GuideChannel>,
     strips: State<Map<Long, ProgramStrip>>,
+    /** The profile's maturity rating limit: programs over it are blacked out. */
+    ratingLimit: Int?,
     grid: GuideGridState,
     listState: LazyListState,
     now: State<Long>,
@@ -229,6 +234,7 @@ internal fun GuideGrid(
                     GuideRow(
                         channel = channel,
                         strip = strips.value[channel.id] ?: ProgramStrip.EMPTY,
+                        ratingLimit = ratingLimit,
                         grid = grid,
                         now = now,
                         metrics = metrics,
@@ -299,6 +305,7 @@ private fun TimeHeader(grid: GuideGridState, metrics: GridMetrics, now: State<Lo
 private fun GuideRow(
     channel: GuideChannel,
     strip: ProgramStrip,
+    ratingLimit: Int?,
     grid: GuideGridState,
     now: State<Long>,
     metrics: GridMetrics,
@@ -311,6 +318,7 @@ private fun GuideRow(
         ProgramCells(
             channelId = channel.id,
             strip = strip,
+            ratingLimit = ratingLimit,
             grid = grid,
             now = now,
             showDetail = metrics.showDetailLine,
@@ -416,6 +424,7 @@ private fun ChannelCell(channel: GuideChannel, stacked: Boolean, modifier: Modif
 private fun ProgramCells(
     channelId: Long,
     strip: ProgramStrip,
+    ratingLimit: Int?,
     grid: GuideGridState,
     now: State<Long>,
     showDetail: Boolean,
@@ -446,10 +455,13 @@ private fun ProgramCells(
             val showOnAir = if (onAir >= 0 && !strip.isOffAir(onAir)) strip.shows[onAir] else -1L
             for (i in first until last) {
                 androidx.compose.runtime.key(strip.starts[i]) {
+                    val restricted = strip.isRestricted(i, ratingLimit)
                     ProgramCell(
                         title = strip.titles[i],
-                        detail = if (showDetail) strip.details[i] else null,
+                        // The episode's own title is blacked out; a restricted stretch says when it ends.
+                        detail = if (!showDetail) null else if (restricted) "$RESTRICTED_DETAIL · until ${WatchChoices.clockTime(strip.ends[i])}" else strip.details[i],
                         offAir = strip.isOffAir(i),
+                        restricted = restricted,
                         // Ended programs recede; the one on air and its show's later airings keep
                         // the plain cell; every other show takes its run's color.
                         tone = when {
@@ -503,6 +515,7 @@ private fun ProgramCell(
     title: String,
     detail: String?,
     offAir: Boolean,
+    restricted: Boolean,
     tone: Int,
     selected: Boolean,
     focused: Boolean,
@@ -514,7 +527,9 @@ private fun ProgramCell(
     // drawer or tabs have it) the selection keeps a hairline so it isn't lost.
     val highlighted = selected && focused
     val past = tone == TONE_PAST
-    val run = !offAir && tone >= 0
+    // Off air and age restricted both drop to the ground: nothing to see there.
+    val dark = offAir || restricted
+    val run = !dark && tone >= 0
     // A shaped background, not a clip: clipping every cell to a rounded path costs the GPU more.
     // A cell too narrow for a word shows its bare fill rather than a stack of ellipses.
     NarrowGate(
@@ -522,7 +537,7 @@ private fun ProgramCell(
             .background(
                 when {
                     highlighted -> theme.accent
-                    offAir -> theme.background
+                    dark -> theme.background
                     past -> theme.guideCellPast
                     run -> theme.guideRuns[tone]
                     else -> theme.guideCell
@@ -532,7 +547,7 @@ private fun ProgramCell(
             .then(
                 when {
                     selected && !focused -> Modifier.border(1.dp, theme.textMuted, shape)
-                    offAir -> Modifier.border(1.dp, theme.line, shape)
+                    dark -> Modifier.border(1.dp, theme.line, shape)
                     else -> Modifier
                 },
             ),
@@ -541,19 +556,25 @@ private fun ProgramCell(
         modifier = Modifier.padding(horizontal = 8.dp, vertical = if (tv) 3.dp else 4.dp),
         verticalArrangement = Arrangement.Center,
     ) {
-        androidx.compose.material3.Text(
-            title,
-            color = when {
-                highlighted -> theme.onAccent
-                offAir || past -> theme.textMuted
-                else -> theme.text
-            },
-            fontSize = if (tv) 14.sp else 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = theme.bodyFont,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        val titleColor = when {
+            highlighted -> theme.onAccent
+            dark || past -> theme.textMuted
+            else -> theme.text
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            // The lock carries the restriction, so it never rests on color alone.
+            if (restricted) androidx.compose.material3.Icon(Icons.Filled.Lock, contentDescription = "Age restricted", tint = titleColor, modifier = Modifier.size(if (tv) 12.dp else 13.dp))
+            androidx.compose.material3.Text(
+                title,
+                color = titleColor,
+                fontSize = if (tv) 14.sp else 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = theme.bodyFont,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.obscured(restricted, titleColor, radius = 5.dp),
+            )
+        }
         if (detail != null) {
             androidx.compose.material3.Text(
                 detail,
@@ -591,6 +612,8 @@ private fun NarrowGate(modifier: Modifier, content: @Composable () -> Unit) {
 }
 
 private val MIN_TEXT_CELL = 44.dp
+
+private const val RESTRICTED_DETAIL = "Age restricted"
 
 /** A cell's tone: ended, plain (on air and its show's later airings), or a run color's index from 0. */
 private const val TONE_PAST = -2

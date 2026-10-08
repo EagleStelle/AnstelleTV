@@ -35,15 +35,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
-import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelSummary
 import tv.anstelle.core.theme.LocalIsTv
@@ -63,44 +58,32 @@ data class ChannelsUiState(
     val loaded: Boolean = false,
 )
 
-/** The active profile's id, read once. */
-internal fun ProfileRepository.activeProfileId(): Flow<Long> = flow { emit(ensureActiveProfile().id) }
-
-@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ChannelsViewModel @Inject constructor(
-    profiles: ProfileRepository,
     channels: ChannelRepository,
     private val settings: SettingsRepository,
 ) : ViewModel() {
-    private var profileId = 0L
-
-    val state: StateFlow<ChannelsUiState> = profiles.activeProfileId()
-        .flatMapLatest { profileId ->
-            this.profileId = profileId
-            combine(
-                channels.observeChannels(profileId),
-                channels.observeRemovedCount(profileId),
-                settings.observe(Settings.onDemandBanner(profileId)),
-            ) { list, removed, banner ->
-                ChannelsUiState(list, removed, banner, loaded = true)
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChannelsUiState())
+    val state: StateFlow<ChannelsUiState> = combine(
+        channels.observeChannels(),
+        channels.observeRemovedCount(),
+        settings.observe(Settings.OnDemandBanner),
+    ) { list, removed, banner ->
+        ChannelsUiState(list, removed, banner, loaded = true)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChannelsUiState())
 
     fun setBannerSize(size: Int) {
-        viewModelScope.launch { settings.set(Settings.onDemandBanner(profileId), size) }
+        viewModelScope.launch { settings.set(Settings.OnDemandBanner, size) }
     }
 
     /** Steps the banner's size through its choices, wrapping at either end. */
     fun stepBannerSize(by: Int) {
         val sizes = Settings.OnDemandBannerSizes
-        val current = sizes.indexOf(state.value.bannerSize).takeIf { it >= 0 } ?: sizes.indexOf(Settings.onDemandBanner(profileId).default)
+        val current = sizes.indexOf(state.value.bannerSize).takeIf { it >= 0 } ?: sizes.indexOf(Settings.OnDemandBanner.default)
         setBannerSize(sizes[(current + by).mod(sizes.size)])
     }
 }
 
-/** Every channel of the active profile, with the ways to add more. */
+/** Every channel, the same for every profile, with the ways to add more. */
 @Composable
 fun ChannelsScreen(
     onOpenChannel: (Long) -> Unit,

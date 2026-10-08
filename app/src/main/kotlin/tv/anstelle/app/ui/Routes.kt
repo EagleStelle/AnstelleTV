@@ -14,10 +14,11 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 import kotlinx.serialization.Serializable
 
-@Serializable data object ProfilesRoute
+/** Who's watching. [atLaunch] is the full-screen picker the app opens with, where every PIN is asked. */
+@Serializable data class ProfilesRoute(val atLaunch: Boolean = false)
+@Serializable data class ProfileEditRoute(val profileId: Long)
 @Serializable data object GuideRoute
 @Serializable data object DashboardRoute
-/** [channelNumber] 0 resumes the channel watched last. */
 /** No channel asked for: the player resumes the last one. 0 is a channel number like any other. */
 const val PlayerRouteNoChannel = -1
 
@@ -41,8 +42,12 @@ const val PlayerRouteNoChannel = -1
 @Serializable data object ServersRoute
 @Serializable data class ServerDetailRoute(val serverId: Long)
 
-/** [serverId] 0 adds a new server; otherwise signs in to that server again. */
-@Serializable data class AddServerRoute(val serverId: Long = 0)
+/**
+ * [serverId] 0 adds a new server; otherwise signs in to that server again. With
+ * [linkProfileId], that profile signs in as its own Jellyfin user instead; with
+ * [newProfile], signing in makes a profile from the user.
+ */
+@Serializable data class AddServerRoute(val serverId: Long = 0, val linkProfileId: Long = 0, val newProfile: Boolean = false)
 
 @Serializable data object ChannelsRoute
 @Serializable data class ChannelDetailRoute(val channelId: Long)
@@ -54,6 +59,10 @@ const val PlayerRouteNoChannel = -1
 @Serializable data object ChannelGroupsRoute
 @Serializable data object PlaybackLanguagesRoute
 @Serializable data object WatchHistoryRoute
+
+/** The themes [profileId] can wear; 0 for the profile watching. */
+@Serializable data class ThemesRoute(val profileId: Long = 0)
+@Serializable data class ThemeEditorRoute(val themeId: Long)
 
 /** Adds a language to the subtitle list when [subtitles], else to the audio list. */
 @Serializable data class LanguagePickerRoute(val subtitles: Boolean)
@@ -67,5 +76,5 @@ enum class TopLevelDestination(val label: String, val icon: ImageVector, val out
     OnDemand("On demand", Icons.Filled.Movie, Icons.Outlined.Movie, OnDemandGraph),
     Dashboard("Dashboard", Icons.Filled.Dashboard, Icons.Outlined.Dashboard, DashboardRoute),
     Settings("Settings", Icons.Filled.Settings, Icons.Outlined.Settings, SettingsGraph),
-    Profiles("Profiles", Icons.Filled.People, Icons.Outlined.People, ProfilesRoute),
+    Profiles("Profiles", Icons.Filled.People, Icons.Outlined.People, ProfilesRoute()),
 }

@@ -1,5 +1,8 @@
 package tv.anstelle.feature.ondemand
 
+import tv.anstelle.core.theme.components.obscured
+import tv.anstelle.core.theme.components.AgeRestrictedMark
+import tv.anstelle.core.theme.components.RestrictedSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -137,14 +140,14 @@ class OnDemandViewModel @Inject constructor(
         viewModelScope.launch {
             val profile = profiles.ensureActiveProfile()
             combine(
-                channels.observeChannels(profile.id),
-                channels.observeGroups(profile.id),
-                settings.observe(Settings.onDemandBanner(profile.id)),
+                channels.observeChannels(),
+                channels.observeGroups(),
+                settings.observe(Settings.OnDemandBanner),
                 tick,
             ) { list, groups, bannerSize, _ -> Triple(list, groups, bannerSize) }
                 .collect { (list, groups, bannerSize) ->
                     val tunable = list.filter { !it.channel.isHidden && it.inSeason }.map { it.channel }
-                    val now = repository.nowOn(tunable, time.nowUtcMs())
+                    val now = repository.nowOn(tunable, time.nowUtcMs(), profile.maxRatingScore)
                     val tiles = tunable.map { ChannelTile(it, now[it.id]) }
                     val rows = buildList {
                         tiles.filter { it.channel.isFavorite }.takeIf { it.isNotEmpty() }?.let { add(row("favorites", "Favorites", it)) }
@@ -154,7 +157,8 @@ class OnDemandViewModel @Inject constructor(
                         val grouped = groups.mapTo(HashSet()) { it.id }
                         tiles.filter { it.channel.groupId !in grouped }.takeIf { it.isNotEmpty() }?.let { add(row("other", "Other channels", it)) }
                     }
-                    val onAir = tiles.mapNotNull { tile -> tile.now?.takeIf { !it.offAir } }
+                    // The banner deals programs the profile may watch.
+                    val onAir = tiles.mapNotNull { tile -> tile.now?.takeIf { !it.offAir && it.restriction == null } }
                     val banner = onAir.shuffled(Random(seed)).take(bannerSize).sortedBy { it.channel.number }
                     _state.value = OnDemandUiState(loaded = true, banner = banner, rows = rows)
                     scheduleRefresh(now.values)
@@ -203,7 +207,8 @@ class OnDemandViewModel @Inject constructor(
 @Composable
 fun OnDemandScreen(
     onOpenChannel: (channelId: Long) -> Unit,
-    onOpenSettings: () -> Unit,
+    /** Null for a member, who has no channels or servers to set up. */
+    onOpenSettings: (() -> Unit)?,
     modifier: Modifier = Modifier,
     viewModel: OnDemandViewModel = hiltViewModel(),
 ) {
@@ -213,7 +218,7 @@ fun OnDemandScreen(
     if (!state.loaded) return
     if (state.rows.isEmpty()) {
         val actions = remember(onOpenSettings) {
-            listOf(PlaceholderAction("Settings", "Connect a Jellyfin server, then add channels", Icons.Filled.Settings, onOpenSettings))
+            listOfNotNull(onOpenSettings?.let { PlaceholderAction("Settings", "Connect a Jellyfin server, then add channels", Icons.Filled.Settings, it) })
         }
         PlaceholderScreen(
             title = "On demand",
@@ -448,8 +453,34 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
     FocusSurface(onClick = onClick, modifier = modifier.width(if (isTv) 214.dp else 172.dp), color = Color.Transparent) { focused ->
         Column(Modifier.padding(TILE_FRAME)) {
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(ControlShape).background(theme.surfaceHigh)) {
+                val restriction = now?.restriction
                 if (now == null || now.offAir) {
                     OffAir(now, Modifier.align(Alignment.Center))
+                } else if (restriction != null) {
+                    // Over the profile's maturity rating: the picture is blacked out, the logo or title
+                    // blurred, and the ladder runs over the whole restricted stretch.
+                    Box(Modifier.fillMaxSize().background(theme.background)) {
+                        AgeRestrictedMark(
+                            detail = restriction.rating?.let { "Rated $it" } ?: "Not rated",
+                            size = RestrictedSize.TILE,
+                            modifier = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 8.dp),
+                            alignStart = true,
+                        )
+                        TitleLogo(
+                            logoUrl = now.artwork.logoUrl,
+                            title = now.title,
+                            height = if (isTv) 40.dp else 32.dp,
+                            maxLogoWidth = if (isTv) 170.dp else 136.dp,
+                            style = typography.titleMedium.merge(TextStyle(fontFamily = theme.displayFont)),
+                            maxLines = 2,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 16.dp).obscured(true, theme.textMuted),
+                        )
+                        SegmentLadder(
+                            progress(now.startUtcMs, now.endUtcMs, nowMs),
+                            Modifier.align(Alignment.BottomStart).padding(horizontal = 10.dp, vertical = 7.dp),
+                            segments = 16,
+                        )
+                    }
                 } else {
                     Backdrop(now.artwork.backdropUrl, Modifier.fillMaxSize(), alignment = Alignment.Center) {
                         TitleLogo(
@@ -482,6 +513,7 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                 val line = when {
                     now == null -> "Nothing scheduled"
                     now.offAir -> "Back at ${WatchChoices.clockTime(now.endUtcMs)}"
+                    now.restriction != null -> "Age restricted until ${WatchChoices.clockTime(now.endUtcMs)}"
                     // Time left first: a long episode title is what gets cut.
                     else -> listOfNotNull("${WatchChoices.span(now.endUtcMs - nowMs, roundUp = true)} left", now.detail.takeIf { now.isEpisode }).joinToString(" · ")
                 }

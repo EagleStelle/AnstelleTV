@@ -111,7 +111,7 @@ class FakeScheduleDao : ScheduleDao {
         slots.values
             .filter { it.channelId in channelIds && it.startUtcMs > fromUtcMs - maxSlotMs && it.startUtcMs < toUtcMs && it.endUtcMs > fromUtcMs }
             .map {
-                GuideAiring(it.channelId, it.kind, it.mediaItemId, it.mediaItemId, it.startUtcMs, it.endUtcMs, it.mediaItemId?.let { id -> "Item $id" }, null, null, null, null)
+                GuideAiring(it.channelId, it.kind, it.mediaItemId, it.mediaItemId, it.startUtcMs, it.endUtcMs, it.mediaItemId?.let { id -> "Item $id" }, null, null, null, null, null)
             }
 
     /** Like [guideWindow], items are "Item <id>" with no artwork. */
@@ -122,9 +122,16 @@ class FakeScheduleDao : ScheduleDao {
                 val item = it.mediaItemId
                 ChannelAiring(
                     it.channelId, item, it.startUtcMs, it.endUtcMs, item?.let { 1L }, item?.let { id -> "item-$id" },
-                    item?.let { id -> "Item $id" }, null, null, null, null, null, null, null, null, null, null,
+                    item?.let { id -> "Item $id" }, null, null, null, null, null, null, null, null, null, null, null, null,
                 )
             }
+
+    /** Items are unrated here, so every program is restricted under any limit: the stretch runs to the next off-air slot. */
+    override suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, maxRating: Int): Long? {
+        val rows = slots.values.filter { it.channelId == channelId }
+        if (rows.isEmpty()) return null
+        return rows.filter { it.startUtcMs >= fromUtcMs && it.mediaItemId == null }.minOfOrNull { it.startUtcMs } ?: rows.maxOf { it.endUtcMs }
+    }
 
     override suspend fun maxSlotMs(): Long = slots.values.maxOfOrNull { it.endUtcMs - it.startUtcMs } ?: 0
 

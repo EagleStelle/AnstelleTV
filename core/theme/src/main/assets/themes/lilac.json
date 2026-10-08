@@ -1,0 +1,36 @@
+{
+    "key": "lilac",
+    "name": "Lilac",
+    "version": 1,
+    "colors": {
+        "background": "#F8F5FD",
+        "surface": "#EDE6F5",
+        "surfaceHigh": "#E3DCEE",
+        "line": "#D2C9DE",
+        "text": "#191221",
+        "textMuted": "#5C4E6D",
+        "accent": "#7945AB",
+        "onAccent": "#FBF9FE",
+        "accentContainer": "#E2D0F8",
+        "onAccentContainer": "#37224C",
+        "guideCell": "#EDE6F5",
+        "guideCellPast": "#F2EEF8",
+        "guideRuns": ["#CBE7CE", "#FBD3D0", "#BCE7EE", "#E8DEBD"],
+        "nowLine": "#7945AB",
+        "banner": "#EDE6F5",
+        "bannerText": "#191221"
+    },
+    "typography": {
+        "display": "CONDENSED",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": false,
+        "scanlineAlpha": 0.14
+    }
+}

@@ -1,5 +1,9 @@
 package tv.anstelle.app.ui
 
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import tv.anstelle.core.data.ProfileRepository
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -40,17 +44,25 @@ import javax.inject.Inject
 @HiltViewModel
 class PairingViewModel @Inject constructor(
     private val pairing: PairingManager,
+    profiles: ProfileRepository,
 ) : ViewModel() {
     val request: StateFlow<PairingRequest?> = pairing.activeRequest
+
+    /** A paired browser manages the whole app, so only the owner and admins see the PIN. */
+    val canManage: StateFlow<Boolean> = profiles.observeCanManageApp().stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun dismiss() = pairing.cancel()
 }
 
-/** Shows the 6-digit PIN on the TV while a browser is pairing. */
+/**
+ * Shows the 6-digit PIN on the TV while a browser is pairing. A paired browser manages the
+ * whole app, so a member's profile shows nothing.
+ */
 @Composable
 fun PairingOverlay(viewModel: PairingViewModel = hiltViewModel()) {
     val request by viewModel.request.collectAsStateWithLifecycle()
-    val current = request ?: return
+    val canManage by viewModel.canManage.collectAsStateWithLifecycle()
+    val current = request?.takeIf { canManage } ?: return
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     var secondsLeft by remember(current.id) { mutableLongStateOf(secondsUntil(current.expiresAtUtcMs)) }

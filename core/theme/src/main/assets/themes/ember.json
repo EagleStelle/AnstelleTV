@@ -1,0 +1,36 @@
+{
+    "key": "ember",
+    "name": "Ember",
+    "version": 1,
+    "colors": {
+        "background": "#140C09",
+        "surface": "#211612",
+        "surfaceHigh": "#2A1F19",
+        "line": "#352822",
+        "text": "#FAF2EE",
+        "textMuted": "#C2ACA3",
+        "accent": "#FF8950",
+        "onAccent": "#140C09",
+        "accentContainer": "#502006",
+        "onAccentContainer": "#FED3C0",
+        "guideCell": "#211612",
+        "guideCellPast": "#191210",
+        "guideRuns": ["#1B3248", "#2B3417", "#372943", "#073837"],
+        "nowLine": "#FF8950",
+        "banner": "#211612",
+        "bannerText": "#FAF2EE"
+    },
+    "typography": {
+        "display": "CONDENSED",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": false,
+        "scanlineAlpha": 0.14
+    }
+}

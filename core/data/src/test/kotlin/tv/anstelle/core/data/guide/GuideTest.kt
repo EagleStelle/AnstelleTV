@@ -32,6 +32,7 @@ class GuideTest {
         season: Int? = null,
         episode: Int? = null,
         showId: Long? = item,
+        score: Int? = null,
     ) =
         GuideAiring(
             channelId = channel,
@@ -45,7 +46,48 @@ class GuideTest {
             season = season,
             episode = episode,
             year = null,
+            ratingScore = score,
         )
+
+    @Test
+    fun `back-to-back restricted programs become one cell, apart from what may be watched`() {
+        val strip = ProgramStrip.fromRows(
+            listOf(
+                airing(1, 0, hour, 10, score = 16),
+                airing(1, hour, 2 * hour, 11, score = 18),
+                airing(1, 2 * hour, 3 * hour, 12),
+                airing(1, 3 * hour, 4 * hour, 13, score = 7),
+                airing(1, 4 * hour, 5 * hour, 14, score = 16),
+                airing(1, 5 * hour, 6 * hour, null),
+                airing(1, 6 * hour, 7 * hour, 15, score = 16),
+            ),
+            offAirTitle = "Off air",
+        ).getValue(1)
+        val merged = strip.mergeRestricted(13)
+        assertContentEquals(longArrayOf(0, 3 * hour, 4 * hour, 5 * hour, 6 * hour), merged.starts)
+        assertContentEquals(longArrayOf(3 * hour, 4 * hour, 5 * hour, 6 * hour, 7 * hour), merged.ends)
+        assertContentEquals(longArrayOf(10, 13, 14, 0, 15), merged.items)
+        assertEquals(listOf(true, false, true, false, true), (0 until merged.size).map { merged.isRestricted(it, 13) })
+        assertSame(strip, strip.mergeRestricted(null))
+        assertSame(strip, strip.mergeRestricted(18))
+    }
+
+    @Test
+    fun `a rating limit restricts programs over it and unrated ones, never off air`() {
+        val strip = ProgramStrip.fromRows(
+            listOf(
+                airing(1, 0, hour, 10, score = 7),
+                airing(1, hour, 2 * hour, 11, score = 16),
+                airing(1, 2 * hour, 3 * hour, 12),
+                airing(1, 3 * hour, 4 * hour, null),
+            ),
+            offAirTitle = "Off air",
+        ).getValue(1)
+        assertEquals(listOf(false, true, true, false), (0 until strip.size).map { strip.isRestricted(it, 13) })
+        assertEquals(listOf(false, false, false, false), (0 until strip.size).map { strip.isRestricted(it, null) })
+        val merged = ProgramStrip.merge(listOf(strip, ProgramStrip.fromRows(listOf(airing(1, 4 * hour, 5 * hour, 13, score = 18)), "Off air").getValue(1)))
+        assertEquals(listOf(false, true, true, false, true), (0 until merged.size).map { merged.isRestricted(it, 13) })
+    }
 
     @Test
     fun `rows become one strip per channel with show titles and off-air cells`() {

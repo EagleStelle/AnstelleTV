@@ -7,7 +7,8 @@ import tv.anstelle.core.database.dao.GuideAiring
 /**
  * One channel's guide cells over the loaded hours, as parallel arrays sorted by start time.
  * There is no object per cell, so a guide row lays out and scrolls without allocating.
- * [items] and [shows] are 0 for an off-air stretch. Immutable once built.
+ * [items] and [shows] are 0 for an off-air stretch. Immutable once built, and the same for
+ * every profile: [isRestricted] applies a profile's maturity rating.
  */
 class ProgramStrip(
     val starts: LongArray,
@@ -18,10 +19,19 @@ class ProgramStrip(
     val titles: Array<String>,
     /** "S1E4 - Pilot", a movie's year, or null. */
     val details: Array<String?>,
+    /** Each program's rating score; [UNRATED] for none and off air. */
+    val scores: IntArray,
 ) {
     val size: Int get() = starts.size
 
     fun isOffAir(index: Int): Boolean = items[index] == 0L
+
+    /** True when a profile limited to [limit] (null: no limit) may not watch the program. Unrated programs never pass a limit. */
+    fun isRestricted(index: Int, limit: Int?): Boolean {
+        if (limit == null || isOffAir(index)) return false
+        val score = scores[index]
+        return score == UNRATED || score > limit
+    }
 
     /** The cell airing at [timeMs], or -1. */
     fun indexAt(timeMs: Long): Int {
@@ -61,6 +71,51 @@ class ProgramStrip(
         return slots
     }
 
+    /**
+     * This strip for a profile limited to [limit]: back-to-back programs the profile may not
+     * watch become one cell spanning them all, taking the first one's item, title and rating,
+     * so the guide shows one blacked-out stretch and when it ends. The same strip without a
+     * limit, or with nothing restricted next to each other.
+     */
+    fun mergeRestricted(limit: Int?): ProgramStrip {
+        if (limit == null || size < 2) return this
+        var merges = false
+        for (i in 1 until size) {
+            if (joins(i, limit)) {
+                merges = true
+                break
+            }
+        }
+        if (!merges) return this
+        val keep = BooleanArray(size) { i -> i == 0 || !joins(i, limit) }
+        val count = keep.count { it }
+        val newStarts = LongArray(count)
+        val newEnds = LongArray(count)
+        val newItems = LongArray(count)
+        val newShows = LongArray(count)
+        val newTitles = arrayOfNulls<String>(count)
+        val newDetails = arrayOfNulls<String>(count)
+        val newScores = IntArray(count)
+        var n = -1
+        for (i in 0 until size) {
+            if (keep[i]) {
+                n++
+                newStarts[n] = starts[i]
+                newItems[n] = items[i]
+                newShows[n] = shows[i]
+                newTitles[n] = titles[i]
+                newDetails[n] = details[i]
+                newScores[n] = scores[i]
+            }
+            newEnds[n] = ends[i]
+        }
+        @Suppress("UNCHECKED_CAST")
+        return ProgramStrip(newStarts, newEnds, newItems, newShows, newTitles as Array<String>, newDetails, newScores)
+    }
+
+    /** Cell [i] carries on the restricted stretch the cell before it is part of. */
+    private fun joins(i: Int, limit: Int): Boolean = isRestricted(i, limit) && isRestricted(i - 1, limit) && starts[i] == ends[i - 1]
+
     /** One past the last cell that starts before [timeMs]. */
     fun endOfStartsBefore(timeMs: Long): Int {
         var low = 0
@@ -73,7 +128,9 @@ class ProgramStrip(
     }
 
     companion object {
-        val EMPTY = ProgramStrip(LongArray(0), LongArray(0), LongArray(0), LongArray(0), emptyArray(), emptyArray())
+        val EMPTY = ProgramStrip(LongArray(0), LongArray(0), LongArray(0), LongArray(0), emptyArray(), emptyArray(), IntArray(0))
+
+        const val UNRATED = -1
 
         /** Spreads consecutive ids over the colors (the golden-ratio multiplier). */
         private const val SPREAD = -7046029254386353131L
@@ -93,6 +150,7 @@ class ProgramStrip(
                 val shows = LongArray(count)
                 val titles = arrayOfNulls<String>(count)
                 val details = arrayOfNulls<String>(count)
+                val scores = IntArray(count) { UNRATED }
                 for (i in 0 until count) {
                     val row = rows[from + i]
                     starts[i] = row.startUtcMs
@@ -106,10 +164,11 @@ class ProgramStrip(
                         shows[i] = row.showId ?: item
                         titles[i] = programTitle(title, row.showTitle)
                         details[i] = programDetail(title, row.showTitle, row.season, row.episode, row.year)
+                        scores[i] = row.ratingScore ?: UNRATED
                     }
                 }
                 @Suppress("UNCHECKED_CAST")
-                strips[channelId] = ProgramStrip(starts, ends, items, shows, titles as Array<String>, details)
+                strips[channelId] = ProgramStrip(starts, ends, items, shows, titles as Array<String>, details, scores)
                 from = to
             }
             return strips
@@ -131,6 +190,7 @@ class ProgramStrip(
             val shows = LongArray(capacity)
             val titles = arrayOfNulls<String>(capacity)
             val details = arrayOfNulls<String>(capacity)
+            val scores = IntArray(capacity)
             var n = 0
             for (part in ordered) {
                 for (i in 0 until part.size) {
@@ -142,6 +202,7 @@ class ProgramStrip(
                     shows[n] = part.shows[i]
                     titles[n] = part.titles[i]
                     details[n] = part.details[i]
+                    scores[n] = part.scores[i]
                     n++
                 }
             }
@@ -153,6 +214,7 @@ class ProgramStrip(
                 shows.copyOf(n),
                 titles.copyOf(n) as Array<String>,
                 details.copyOf(n),
+                scores.copyOf(n),
             )
         }
     }

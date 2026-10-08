@@ -1,5 +1,6 @@
 package tv.anstelle.webserver
 
+import io.ktor.http.ContentDisposition
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.HttpHeaders
@@ -22,6 +23,7 @@ import io.ktor.server.request.receiveChannel
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondText
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -41,6 +43,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.io.readByteArray
 import tv.anstelle.core.common.AppInfo
+import tv.anstelle.core.data.ThemeImportException
 import tv.anstelle.core.data.channels.ChannelLogos
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.webserver.api.ApiDataSource
@@ -73,6 +76,7 @@ class ServerDependencies(
 
 const val TOKEN_COOKIE = "anstelle_token"
 private const val TOKEN_MAX_AGE_SECONDS = 365 * 24 * 60 * 60
+private const val MAX_THEME_BYTES = 64 * 1024
 
 /**
  * The AnstelleTV web server:
@@ -223,6 +227,42 @@ fun Application.anstelleModule(deps: ServerDependencies) {
                     call.requireClient(deps) ?: return@delete
                     val id = call.channelIdOrNotFound() ?: return@delete
                     if (deps.api.clearChannelLogo(id)) call.respond(HttpStatusCode.NoContent) else call.respondNoChannel()
+                }
+            }
+
+            get("/themes") {
+                call.requireClient(deps) ?: return@get
+                call.respond(deps.api.themes())
+            }
+
+            // A theme as a file to save, and a theme file to add: how a TV without a file picker trades themes.
+            get("/themes/{id}") {
+                call.requireClient(deps) ?: return@get
+                val file = call.parameters["id"]?.toLongOrNull()?.let { deps.api.themeFile(it) }
+                    ?: return@get call.respond(HttpStatusCode.NotFound, ErrorDto("no_theme", "There is no such theme."))
+                call.response.header(
+                    HttpHeaders.ContentDisposition,
+                    ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, file.first).toString(),
+                )
+                call.respondText(file.second, ContentType.Application.Json)
+            }
+
+            post("/themes") {
+                call.requireClient(deps) ?: return@post
+                val declared = call.request.contentLength()
+                val bytes = if (declared != null && declared > MAX_THEME_BYTES) {
+                    null
+                } else {
+                    call.receiveChannel().readRemaining(MAX_THEME_BYTES + 1L).readByteArray()
+                }
+                if (bytes == null || bytes.size > MAX_THEME_BYTES) {
+                    call.respond(HttpStatusCode.PayloadTooLarge, ErrorDto("too_large", "A theme file is at most ${MAX_THEME_BYTES / 1024} KB."))
+                    return@post
+                }
+                try {
+                    call.respond(HttpStatusCode.Created, deps.api.importTheme(bytes.decodeToString()))
+                } catch (e: ThemeImportException) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("not_a_theme", e.message ?: "That file isn't an AnstelleTV theme."))
                 }
             }
 

@@ -1,0 +1,36 @@
+{
+    "key": "phosphor",
+    "name": "Phosphor",
+    "version": 1,
+    "colors": {
+        "background": "#09100A",
+        "surface": "#121C13",
+        "surfaceHigh": "#1A251B",
+        "line": "#222F24",
+        "text": "#EEF6EF",
+        "textMuted": "#A4B8A6",
+        "accent": "#4BF677",
+        "onAccent": "#09100A",
+        "accentContainer": "#013C13",
+        "onAccentContainer": "#BEECC3",
+        "guideCell": "#121C13",
+        "guideCellPast": "#101610",
+        "guideRuns": ["#432533", "#0F3543", "#442818", "#322B46"],
+        "nowLine": "#4BF677",
+        "banner": "#121C13",
+        "bannerText": "#EEF6EF"
+    },
+    "typography": {
+        "display": "MONO",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": true,
+        "scanlineAlpha": 0.14
+    }
+}

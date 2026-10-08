@@ -32,7 +32,7 @@ class GuideGridStateTest {
     ).getValue(1)
 
     private fun cell(start: Long, end: Long, item: Long) =
-        GuideAiring(1, SlotKind.PROGRAM, item, item, start, end, "Item $item", null, null, null, null)
+        GuideAiring(1, SlotKind.PROGRAM, item, item, start, end, "Item $item", null, null, null, null, null)
 
     private val channels = listOf(1L, 2L, 3L).map { GuideChannel(it, it.toInt(), "Channel $it", null, isFavorite = false) }
 

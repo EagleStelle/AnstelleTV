@@ -11,8 +11,11 @@ import org.jellyfin.sdk.model.api.ParentalRating
  * from elsewhere ("12", "NC16", "M18", "PG13", "6+"). Those fall back to a
  * punctuation-insensitive match, then to the age written in the rating.
  */
-class RatingScores(scoresByName: Map<String, Int>) {
-    private val byKey: Map<String, Int> = scoresByName.mapKeys { key(it.key) }
+class RatingScores(
+    /** The server's table as it lists it, rating name to score; the parental rating choices are made from it. */
+    val table: Map<String, Int>,
+) {
+    private val byKey: Map<String, Int> = table.mapKeys { key(it.key) }
 
     fun score(rating: String?): Int? {
         if (rating.isNullOrBlank()) return null

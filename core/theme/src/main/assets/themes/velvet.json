@@ -1,0 +1,36 @@
+{
+    "key": "velvet",
+    "name": "Velvet",
+    "version": 1,
+    "colors": {
+        "background": "#150C0B",
+        "surface": "#221515",
+        "surfaceHigh": "#2C1D1D",
+        "line": "#372626",
+        "text": "#FBF1F0",
+        "textMuted": "#C5AAA8",
+        "accent": "#FF6367",
+        "onAccent": "#150C0B",
+        "accentContainer": "#571519",
+        "onAccentContainer": "#FFD1CE",
+        "guideCell": "#221515",
+        "guideCellPast": "#1A1211",
+        "guideRuns": ["#0E3543", "#353111", "#2D2C48", "#11382C"],
+        "nowLine": "#FF6367",
+        "banner": "#221515",
+        "bannerText": "#FBF1F0"
+    },
+    "typography": {
+        "display": "CONDENSED",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": false,
+        "scanlineAlpha": 0.14
+    }
+}

@@ -28,6 +28,7 @@ import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.jellyfin.ServerProbe
 import tv.anstelle.core.jellyfin.auth.AuthSession
 import tv.anstelle.core.jellyfin.auth.JellyfinAuth
+import tv.anstelle.core.jellyfin.auth.JellyfinUser
 import tv.anstelle.core.jellyfin.auth.TokenStore
 import tv.anstelle.core.jellyfin.sync.LibraryRules
 import tv.anstelle.core.model.MediaServer
@@ -48,7 +49,20 @@ sealed interface QuickConnectState {
     /** Show [code]; the user approves it in another Jellyfin client. */
     data class WaitingForApproval(val code: String) : QuickConnectState
 
-    data class SignedIn(val serverId: Long) : QuickConnectState
+    /** [profileId] is the profile the user now belongs to, when the sign-in was for one. */
+    data class SignedIn(val serverId: Long, val profileId: Long? = null) : QuickConnectState
+}
+
+/** Who a sign-in is for. */
+sealed interface SignInFor {
+    /** The server's own sign-in: it syncs the library. */
+    data object Server : SignInFor
+
+    /** A profile's own Jellyfin user, for its watch history, name and picture. */
+    data class Profile(val profileId: Long) : SignInFor
+
+    /** A new profile made from the user. */
+    data object NewProfile : SignInFor
 }
 
 /** Jellyfin servers: setup, sign-in, libraries and sync. */
@@ -63,6 +77,7 @@ class ServerRepository @Inject constructor(
     private val auth: JellyfinAuth,
     private val syncer: LibrarySyncer,
     private val syncStatus: SyncStatusTracker,
+    private val profiles: ProfileRepository,
     private val time: TimeSource,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
@@ -96,20 +111,39 @@ class ServerRepository @Inject constructor(
         return ServerCandidate(info, quickConnect)
     }
 
-    suspend fun signInWithPassword(candidate: ServerCandidate, username: String, password: String): Long {
-        val session = auth.signInWithPassword(candidate.info.url, username.trim(), password)
-        return save(candidate, session)
+    /** The known server [serverId] at its saved address, for signing in to it again. */
+    suspend fun candidateFor(serverId: Long): ServerCandidate {
+        val server = serverDao.byId(serverId) ?: throw ServerConnectException(ServerProblem.INVALID_URL, "That server is gone")
+        return findServer(server.baseUrl)
     }
 
-    /** Starts Quick Connect, waits for approval, then signs in. Cancel the flow to give up. */
-    fun quickConnect(candidate: ServerCandidate): Flow<QuickConnectState> = flow {
-        val url = candidate.info.url
-        val code = auth.startQuickConnect(url)
-        emit(QuickConnectState.WaitingForApproval(code.code))
-        while (!auth.isQuickConnectApproved(url, code.secret)) delay(QUICK_CONNECT_POLL_MS)
-        val session = auth.finishQuickConnect(url, code.secret)
-        emit(QuickConnectState.SignedIn(save(candidate, session)))
+    /**
+     * Signs in with a password. For a profile, the user is that profile's own instead of the
+     * server's, signed in as a device of its own: only the profile's watch history goes to it.
+     */
+    suspend fun signInWithPassword(
+        candidate: ServerCandidate,
+        username: String,
+        password: String,
+        target: SignInFor = SignInFor.Server,
+    ): QuickConnectState.SignedIn {
+        val device = deviceFor(target)
+        val session = auth.signInWithPassword(candidate.info.url, username.trim(), password, device)
+        return save(candidate, session, target, device)
     }
+
+    /** Starts Quick Connect, waits for approval, then signs in like [signInWithPassword]. Cancel the flow to give up. */
+    fun quickConnect(candidate: ServerCandidate, target: SignInFor = SignInFor.Server): Flow<QuickConnectState> = flow {
+        val url = candidate.info.url
+        val device = deviceFor(target)
+        val code = auth.startQuickConnect(url, device)
+        emit(QuickConnectState.WaitingForApproval(code.code))
+        while (!auth.isQuickConnectApproved(url, code.secret, device)) delay(QUICK_CONNECT_POLL_MS)
+        val session = auth.finishQuickConnect(url, code.secret, device)
+        emit(save(candidate, session, target, device))
+    }
+
+    private fun deviceFor(target: SignInFor): String? = if (target == SignInFor.Server) null else ProfileRepository.newDevice()
 
     /** Signs out on the server, forgets the token and deletes everything synced from it. */
     suspend fun remove(serverId: Long) {
@@ -119,6 +153,7 @@ class ServerRepository @Inject constructor(
             withTimeoutOrNull(SIGN_OUT_TIMEOUT_MS) { auth.signOut(server.baseUrl, token) }
         }
         tokens.remove(server.jellyfinServerId)
+        profiles.forgetAccountsOn(serverId)
         syncer.removeItems(itemDao.allIds(serverId).map { it.id })
         serverDao.delete(serverId)
         AppLog.i(TAG, "Removed server ${server.name}")
@@ -144,12 +179,20 @@ class ServerRepository @Inject constructor(
      * Stores the server and its token. The same server added again (by any address) updates
      * the existing entry, so its libraries and channels stay.
      */
-    private suspend fun save(candidate: ServerCandidate, session: AuthSession): Long = withContext(io) {
+    private suspend fun save(candidate: ServerCandidate, session: AuthSession, target: SignInFor, device: String?): QuickConnectState.SignedIn = withContext(io) {
         val info = candidate.info
         if (session.serverId != null && session.serverId != info.id) {
             throw ServerConnectException(ServerProblem.ID_MISMATCH, "Signed in to a different server than expected")
         }
         val existing = serverDao.byJellyfinId(info.id)
+        if (target != SignInFor.Server) {
+            val server = existing ?: throw ServerConnectException(ServerProblem.ID_MISMATCH, "That server isn't connected")
+            val profileId = when (target) {
+                is SignInFor.Profile -> target.profileId.also { profiles.linkAccount(it, server.id, session, requireNotNull(device)) }
+                else -> profiles.createLinked(server.id, session, requireNotNull(device))
+            }
+            return@withContext QuickConnectState.SignedIn(server.id, profileId)
+        }
         val userChanged = existing != null && existing.userId != session.userId
         val id = serverDao.upsert(
             MediaServerEntity(
@@ -170,9 +213,11 @@ class ServerRepository @Inject constructor(
         val serverId = existing?.id ?: id
         tokens.put(info.id, session.accessToken)
         AppLog.i(TAG, "Signed in to ${info.name} ${info.version} as ${session.userName}")
+        // The first profile is this user: it takes their name and picture.
+        profiles.adoptServerUser(serverId, JellyfinUser(session.userId, session.userName, session.imageTag))
         // Another user sees other libraries and items: fetch everything again.
         syncNow(serverId, fullRefresh = userChanged, forceReconcile = true)
-        serverId
+        QuickConnectState.SignedIn(serverId)
     }
 
     private fun MediaServerEntity.toModel() = MediaServer(

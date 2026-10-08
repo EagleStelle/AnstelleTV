@@ -35,7 +35,7 @@ import tv.anstelle.core.model.Languages
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AnstelleTextField
 import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.feature.settings.channels.activeProfileId
+import tv.anstelle.feature.settings.activeProfileId
 import tv.anstelle.feature.settings.servers.SettingsPage
 import javax.inject.Inject
 

@@ -48,8 +48,9 @@ interface Playstate {
 class PlaystateFactory @Inject constructor(
     private val clients: JellyfinClients,
 ) {
-    fun create(baseUrl: String, accessToken: String, userId: String): Playstate =
-        JellyfinPlaystate(clients.api(baseUrl, accessToken), userId)
+    /** [device] is the profile's own device when it signed in as a user of its own (see [JellyfinClients.api]). */
+    fun create(baseUrl: String, accessToken: String, userId: String, device: String? = null): Playstate =
+        JellyfinPlaystate(clients.api(baseUrl, accessToken, device), userId)
 }
 
 private class JellyfinPlaystate(

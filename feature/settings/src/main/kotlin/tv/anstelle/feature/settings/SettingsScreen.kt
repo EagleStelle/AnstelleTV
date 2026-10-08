@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
@@ -54,12 +55,14 @@ import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ServerRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
+import tv.anstelle.core.data.ThemeRepository
 import tv.anstelle.core.data.WebServerController
 import tv.anstelle.core.data.WebServerStatus
 import tv.anstelle.core.data.playback.TrackChoices
 import tv.anstelle.core.database.dao.PairedClientDao
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.core.model.MediaServer
+import tv.anstelle.core.model.ThemeSpec
 import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.model.WatchSync
 import tv.anstelle.core.model.codeOf
@@ -76,7 +79,6 @@ import tv.anstelle.feature.settings.playback.syncDescription
 import tv.anstelle.feature.settings.playback.syncName
 import tv.anstelle.feature.settings.playback.watchHistorySummary
 
-import tv.anstelle.feature.settings.channels.activeProfileId
 import tv.anstelle.feature.settings.playback.summary as playbackSummary
 import javax.inject.Inject
 
@@ -86,9 +88,14 @@ data class SettingsUiState(
     val webServer: WebServerStatus = WebServerStatus.Stopped,
     val pairedClients: List<PairedClientEntity> = emptyList(),
     val servers: List<MediaServer> = emptyList(),
-    val liveTvSync: WatchSync = codeOf(Settings.LiveTvSync.default),
-    val onDemandSync: WatchSync = codeOf(Settings.OnDemandSync.default),
+    val liveTvSync: WatchSync = codeOf(Settings.liveTvSync(0).default),
+    val onDemandSync: WatchSync = codeOf(Settings.onDemandSync(0).default),
     val tracks: TrackPrefs = TrackPrefs(),
+    /** The theme the profile wears; null while the default is on. */
+    val theme: ThemeSpec? = null,
+    /** The owner and admins see the app-wide rows (media servers, channels, web control); members don't. */
+    val canManageApp: Boolean = false,
+    val loaded: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -100,9 +107,12 @@ class SettingsViewModel @Inject constructor(
     servers: ServerRepository,
     profiles: ProfileRepository,
     tracks: TrackChoices,
+    themes: ThemeRepository,
 ) : ViewModel() {
-    private val sync = combine(settings.observe(Settings.LiveTvSync), settings.observe(Settings.OnDemandSync)) { live, onDemand ->
-        codeOf<WatchSync>(live) to codeOf<WatchSync>(onDemand)
+    private val sync = profiles.activeProfileId().flatMapLatest { profileId ->
+        combine(settings.observe(Settings.liveTvSync(profileId)), settings.observe(Settings.onDemandSync(profileId))) { live, onDemand ->
+            codeOf<WatchSync>(live) to codeOf<WatchSync>(onDemand)
+        }
     }
 
     val state: StateFlow<SettingsUiState> = combine(
@@ -115,6 +125,10 @@ class SettingsViewModel @Inject constructor(
         SettingsUiState(enabled, status, clients, serverList, live, onDemand)
     }.combine(profiles.activeProfileId().flatMapLatest { tracks.observePrefs(it) }) { state, prefs ->
         state.copy(tracks = prefs)
+    }.combine(themes.observeActiveTheme()) { state, theme ->
+        state.copy(theme = theme)
+    }.combine(profiles.observeCanManageApp()) { state, manages ->
+        state.copy(canManageApp = manages, loaded = true)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     fun setWebServerEnabled(enabled: Boolean) {
@@ -126,13 +140,16 @@ class SettingsViewModel @Inject constructor(
 }
 
 /** The rows of the settings menu, in order. */
-private enum class SettingsItem { SERVERS, CHANNELS, LANGUAGES, HISTORY, WEB }
+private enum class SettingsItem { SERVERS, CHANNELS, LANGUAGES, HISTORY, THEME, WEB }
 
 /**
  * On-device settings, laid out like a TV's own setup menu: each row names a setting and shows
  * its value on the right. Choices step with left and right on the D-pad (OK steps forward,
  * and so does a tap). On TV and tablets a panel beside the menu explains the focused row;
  * phones show the explanation under each row instead.
+ *
+ * The library and network rows are app-wide: only the owner and admins see them. Playback and
+ * appearance belong to the profile watching.
  */
 @Composable
 fun SettingsScreen(
@@ -140,15 +157,21 @@ fun SettingsScreen(
     onOpenChannels: () -> Unit,
     onOpenLanguages: () -> Unit,
     onOpenWatchHistory: () -> Unit,
+    onOpenThemes: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val theme = LocalAnstelleTheme.current
+    if (!state.loaded) {
+        Box(modifier.fillMaxSize().background(theme.background))
+        return
+    }
+    val manages = state.canManageApp
     val isTv = LocalIsTv.current
     val wide = isTv || LocalConfiguration.current.screenWidthDp >= WIDE_DP
     val firstFocus = remember { FocusRequester() }
-    var current by remember { mutableStateOf(SettingsItem.SERVERS) }
+    var current by remember { mutableStateOf(if (manages) SettingsItem.SERVERS else SettingsItem.LANGUAGES) }
     if (isTv) LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
 
     fun Modifier.tracks(item: SettingsItem) = onFocusChanged { if (it.isFocused) current = item }
@@ -166,27 +189,30 @@ fun SettingsScreen(
             contentPadding = PaddingValues(start = pagePadding, end = if (wide) 24.dp else pagePadding, top = 4.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            item(key = "library") { SectionLabel("Library") }
-            item(key = "servers") {
-                FocusTile(
-                    title = "Media servers",
-                    subtitle = about(SettingsItem.SERVERS),
-                    icon = Icons.Filled.Dns,
-                    value = serversValue(state.servers),
-                    trailing = TileTrailing.Chevron,
-                    onClick = onOpenServers,
-                    modifier = Modifier.fillMaxWidth().focusRequester(firstFocus).tracks(SettingsItem.SERVERS),
-                )
-            }
-            item(key = "channels") {
-                FocusTile(
-                    title = "Channels",
-                    subtitle = about(SettingsItem.CHANNELS),
-                    icon = Icons.Filled.LiveTv,
-                    trailing = TileTrailing.Chevron,
-                    onClick = onOpenChannels,
-                    modifier = Modifier.fillMaxWidth().tracks(SettingsItem.CHANNELS),
-                )
+            // App-wide: only the owner and admins see these.
+            if (manages) {
+                item(key = "library") { SectionLabel("Library") }
+                item(key = "servers") {
+                    FocusTile(
+                        title = "Media servers",
+                        subtitle = about(SettingsItem.SERVERS),
+                        icon = Icons.Filled.Dns,
+                        value = serversValue(state.servers),
+                        trailing = TileTrailing.Chevron,
+                        onClick = onOpenServers,
+                        modifier = Modifier.fillMaxWidth().focusRequester(firstFocus).tracks(SettingsItem.SERVERS),
+                    )
+                }
+                item(key = "channels") {
+                    FocusTile(
+                        title = "Channels",
+                        subtitle = about(SettingsItem.CHANNELS),
+                        icon = Icons.Filled.LiveTv,
+                        trailing = TileTrailing.Chevron,
+                        onClick = onOpenChannels,
+                        modifier = Modifier.fillMaxWidth().tracks(SettingsItem.CHANNELS),
+                    )
+                }
             }
             item(key = "playback") { SectionLabel("Playback") }
             item(key = "languages") {
@@ -197,7 +223,7 @@ fun SettingsScreen(
                     value = state.tracks.audioLanguages.firstOrNull()?.let(::languageName),
                     trailing = TileTrailing.Chevron,
                     onClick = onOpenLanguages,
-                    modifier = Modifier.fillMaxWidth().tracks(SettingsItem.LANGUAGES),
+                    modifier = Modifier.fillMaxWidth().let { if (manages) it else it.focusRequester(firstFocus) }.tracks(SettingsItem.LANGUAGES),
                 )
             }
             item(key = "history") {
@@ -210,24 +236,38 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth().tracks(SettingsItem.HISTORY),
                 )
             }
-            item(key = "network") { SectionLabel("Network") }
-            item(key = "web") {
-                val toggle = { viewModel.setWebServerEnabled(!state.webServerEnabled) }
+            item(key = "appearance") { SectionLabel("Appearance") }
+            item(key = "theme") {
                 FocusTile(
-                    title = "Web control",
-                    subtitle = about(SettingsItem.WEB),
-                    icon = if (state.webServerEnabled) Icons.Filled.Wifi else Icons.Filled.WifiOff,
-                    value = if (state.webServerEnabled) "On" else "Off",
-                    toggle = state.webServerEnabled,
-                    onClick = toggle,
-                    onPrevious = toggle,
-                    onNext = toggle,
-                    modifier = Modifier.fillMaxWidth().tracks(SettingsItem.WEB),
+                    title = "Themes",
+                    subtitle = about(SettingsItem.THEME),
+                    icon = Icons.Filled.Palette,
+                    value = state.theme?.name ?: DEFAULT_THEME_NAME,
+                    trailing = TileTrailing.Chevron,
+                    onClick = onOpenThemes,
+                    modifier = Modifier.fillMaxWidth().tracks(SettingsItem.THEME),
                 )
             }
-            if (!wide) {
-                item(key = "paired") { SectionLabel("Paired browsers") }
-                pairedBrowsers(state.pairedClients)
+            if (manages) {
+                item(key = "network") { SectionLabel("Network") }
+                item(key = "web") {
+                    val toggle = { viewModel.setWebServerEnabled(!state.webServerEnabled) }
+                    FocusTile(
+                        title = "Web control",
+                        subtitle = about(SettingsItem.WEB),
+                        icon = if (state.webServerEnabled) Icons.Filled.Wifi else Icons.Filled.WifiOff,
+                        value = if (state.webServerEnabled) "On" else "Off",
+                        toggle = state.webServerEnabled,
+                        onClick = toggle,
+                        onPrevious = toggle,
+                        onNext = toggle,
+                        modifier = Modifier.fillMaxWidth().tracks(SettingsItem.WEB),
+                    )
+                }
+                if (!wide) {
+                    item(key = "paired") { SectionLabel("Paired browsers") }
+                    pairedBrowsers(state.pairedClients)
+                }
             }
         }
         }
@@ -283,6 +323,9 @@ private fun InfoPanel(item: SettingsItem, state: SettingsUiState, modifier: Modi
                 items(state.pairedClients, key = { "client-${it.id}" }) { client ->
                     Fact(client.name, listOfNotNull(client.lastAddress, client.userAgent?.take(60)).joinToString(" · "), false)
                 }
+            }
+            SettingsItem.THEME -> item(key = "preview") {
+                tv.anstelle.feature.settings.appearance.ThemePreview(state.theme ?: tv.anstelle.core.theme.DefaultTheme.spec, Modifier.fillMaxWidth().padding(top = 8.dp))
             }
             SettingsItem.HISTORY -> {
                 item(key = "in-use") { SectionLabel("In use") }
@@ -341,6 +384,7 @@ private fun title(item: SettingsItem) = when (item) {
     SettingsItem.CHANNELS -> "Channels"
     SettingsItem.LANGUAGES -> "Audio and subtitles"
     SettingsItem.HISTORY -> "Watch history"
+    SettingsItem.THEME -> "Themes"
     SettingsItem.WEB -> "Web control"
 }
 
@@ -349,9 +393,10 @@ private fun description(item: SettingsItem, state: SettingsUiState): String = wh
         state.servers.isEmpty() -> "Connect a Jellyfin server to start building channels."
         else -> "AnstelleTV builds its channels from the Jellyfin libraries you connect here."
     }
-    SettingsItem.CHANNELS -> "Lineups, numbers, groups, logos and favorites. Channels are made from your library; any of them can be edited."
+    SettingsItem.CHANNELS -> "Lineups, numbers, groups, logos and favorites, the same for every profile. Channels are made from your library; any of them can be edited."
     SettingsItem.LANGUAGES -> playbackSummary(state.tracks)
     SettingsItem.HISTORY -> watchHistorySummary(state.liveTvSync, state.onDemandSync)
+    SettingsItem.THEME -> "Change the colors, fonts and guide rows of every screen. Each profile has a separate theme. Start from one of $BUILT_IN_THEMES built-in themes, or design your own."
     SettingsItem.WEB -> {
         val server = state.webServer
         when {
@@ -370,6 +415,9 @@ private fun serversValue(servers: List<MediaServer>): String = when {
     else -> "${servers.size} connected"
 }
 
-private const val HISTORY_INTRO = "What Live TV and On demand save to your server."
+private const val HISTORY_INTRO = "What Live TV and On demand save to this profile's Jellyfin user."
 
 private const val WIDE_DP = 600
+
+private const val DEFAULT_THEME_NAME = "Rose"
+private const val BUILT_IN_THEMES = 16

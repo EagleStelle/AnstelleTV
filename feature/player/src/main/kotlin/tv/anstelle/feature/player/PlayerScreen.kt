@@ -1,5 +1,6 @@
 package tv.anstelle.feature.player
 
+import tv.anstelle.core.theme.components.obscured
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -84,6 +85,8 @@ import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.PanelShape
+import tv.anstelle.core.theme.components.AgeRestrictedMark
+import tv.anstelle.core.theme.components.RestrictedSize
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.NumberBlock
 import tv.anstelle.core.theme.components.SegmentLadder
@@ -201,6 +204,7 @@ fun PlayerScreen(
 
         when (state.status) {
             TuneStatus.OFF_AIR -> OffAir(state)
+            TuneStatus.RESTRICTED -> Restricted(state)
             TuneStatus.NO_SCHEDULE, TuneStatus.ERROR -> Message(state.message ?: "Nothing to play.")
             else -> if (state.buffering || player == null) Message("Tuning…", subtle = true)
         }
@@ -371,7 +375,8 @@ private fun InfoBanner(
                     height = if (isTv) 56.dp else 28.dp,
                     maxLogoWidth = if (isTv) 360.dp else 220.dp,
                     style = if (isTv) typography.headlineMedium else typography.headlineSmall,
-                    modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp),
+                    // An age-restricted program's title and logo are blurred.
+                    modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp).obscured(program?.restricted == true, theme.textMuted, radius = 10.dp),
                 )
                 program?.let { lineUnderLogo(it.detail, it.title, it.isEpisode, it.logoUrl != null) }?.let {
                     androidx.compose.material3.Text(
@@ -380,6 +385,7 @@ private fun InfoBanner(
                         color = theme.textMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.obscured(program.restricted, theme.textMuted, radius = 5.dp),
                     )
                 }
                 if (program != null) {
@@ -415,6 +421,7 @@ private fun InfoBanner(
                                 maxLogoWidth = 260.dp,
                                 style = typography.titleMedium,
                                 maxLines = 2,
+                                modifier = Modifier.obscured(next.restricted, theme.textMuted),
                             )
                             nextLine(next)?.let {
                                 androidx.compose.material3.Text(
@@ -423,6 +430,7 @@ private fun InfoBanner(
                                     color = theme.textMuted,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.obscured(next.restricted, theme.textMuted, radius = 5.dp),
                                 )
                             }
                         }
@@ -522,6 +530,19 @@ private fun OffAir(state: PlaybackState) {
             androidx.compose.material3.Text("Back on the air at ${time(it.endUtcMs)}", style = typography.titleLarge, color = theme.textMuted)
         }
         state.channel?.let { androidx.compose.material3.Text(it.name, style = typography.labelMedium, color = theme.textMuted) }
+    }
+}
+
+/** A program over the profile's maturity rating: the picture stays dark until the next one. */
+@Composable
+private fun Restricted(state: PlaybackState) {
+    val theme = LocalAnstelleTheme.current
+    Box(Modifier.fillMaxSize().background(theme.background), contentAlignment = Alignment.Center) {
+        AgeRestrictedMark(
+            detail = state.restriction?.detail,
+            size = RestrictedSize.SCREEN,
+            extra = state.now?.let { "UNTIL ${time(it.endUtcMs)}" },
+        )
     }
 }
 

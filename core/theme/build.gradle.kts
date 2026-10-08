@@ -13,4 +13,6 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     // Backdrops and title logos from the server.
     implementation(libs.coil.compose)
+    // Notices and the PIN pad's keys.
+    implementation(libs.androidx.compose.material.icons.extended)
 }

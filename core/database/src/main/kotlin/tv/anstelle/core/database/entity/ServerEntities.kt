@@ -8,6 +8,7 @@ import androidx.room.PrimaryKey
 import tv.anstelle.core.model.HdrType
 import tv.anstelle.core.model.MediaTracks
 import tv.anstelle.core.model.MediaType
+import tv.anstelle.core.model.ProfileRole
 
 /**
  * A Jellyfin server, identified by [jellyfinServerId]: adding the same server again under
@@ -152,14 +153,25 @@ data class MediaItemEntity(
 )
 data class ProfileEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** The Jellyfin user's name, read again at every library sync. */
     val name: String,
-    val avatar: String?,
-    val isKid: Boolean,
+    val role: ProfileRole,
+    /** The highest rating score (about an age) the profile may watch; null for no limit. */
     @ColumnInfo(name = "maxRating") val maxRatingScore: Int?,
     /** `pbkdf2$iterations$salt$hash`, or null when the profile has no PIN. */
     val pinHash: String?,
+    /**
+     * The Jellyfin user this profile's watch history goes to on server [serverId], signed in
+     * for the profile alone; null leaves it to the server's own sign-in. The token is in the
+     * token store, never here.
+     */
     val serverId: Long?,
     val jellyfinUserId: String?,
+    val jellyfinUserName: String?,
+    /** The device that sign-in speaks as, so it never replaces the server's own session. */
+    val jellyfinDevice: String?,
+    /** The Jellyfin user's picture, read again at every library sync. */
+    val pictureUrl: String?,
     val themeId: Long?,
     val sortOrder: Int,
     val createdAtUtcMs: Long,

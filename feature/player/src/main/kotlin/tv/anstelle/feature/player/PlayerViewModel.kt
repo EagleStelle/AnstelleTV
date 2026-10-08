@@ -58,7 +58,7 @@ class PlayerViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val profile = profiles.ensureActiveProfile()
-            channels.observeChannels(profile.id).collect { list ->
+            channels.observeChannels().collect { list ->
                 val tunable = list.filter { !it.channel.isHidden && it.inSeason }.map { it.channel }
                 playback.setLineup(tunable)
                 if (lineup == null) {

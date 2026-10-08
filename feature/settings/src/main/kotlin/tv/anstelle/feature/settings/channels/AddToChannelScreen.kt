@@ -25,7 +25,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.channels.ChannelPick
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelSummary
@@ -52,7 +51,6 @@ data class AddToChannelUiState(
 @HiltViewModel
 class AddToChannelViewModel @Inject constructor(
     savedState: SavedStateHandle,
-    private val profiles: ProfileRepository,
     private val repository: ChannelRepository,
 ) : ViewModel() {
     /** Matches the `itemId` argument of the navigation route. */
@@ -61,14 +59,11 @@ class AddToChannelViewModel @Inject constructor(
     private val _state = MutableStateFlow(AddToChannelUiState())
     val state: StateFlow<AddToChannelUiState> = _state.asStateFlow()
 
-    private var profileId = 0L
-
     init {
         viewModelScope.launch {
-            profileId = profiles.ensureActiveProfile().id
             val pick = repository.pickFor(itemId)
-            val channels = repository.observeChannels(profileId).first()
-            val including = pick?.let { repository.channelsIncluding(profileId, it.pick.remoteId) }.orEmpty()
+            val channels = repository.observeChannels().first()
+            val including = pick?.let { repository.channelsIncluding(it.pick.remoteId) }.orEmpty()
             _state.value = AddToChannelUiState(pick, channels, including, loaded = true)
         }
     }
@@ -84,8 +79,8 @@ class AddToChannelViewModel @Inject constructor(
     }
 
     fun newChannel() = act { pick ->
-        val id = repository.create(profileId, pick.title, Lineup(emptyList(), includes = listOf(pick.pick)), PlaybackOrder.EPISODE_ORDER, 1)
-        val channels = repository.observeChannels(profileId).first()
+        val id = repository.create(pick.title, Lineup(emptyList(), includes = listOf(pick.pick)), PlaybackOrder.EPISODE_ORDER, 1)
+        val channels = repository.observeChannels().first()
         val number = channels.firstOrNull { it.channel.id == id }?.channel?.number
         _state.update {
             it.copy(

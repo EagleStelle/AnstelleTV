@@ -1,0 +1,36 @@
+{
+    "key": "mono",
+    "name": "Mono",
+    "version": 1,
+    "colors": {
+        "background": "#0E0E0E",
+        "surface": "#191919",
+        "surfaceHigh": "#222222",
+        "line": "#2B2B2B",
+        "text": "#F3F3F3",
+        "textMuted": "#B1B1B1",
+        "accent": "#F5F5F5",
+        "onAccent": "#0E0E0E",
+        "accentContainer": "#303030",
+        "onAccentContainer": "#DDDDDD",
+        "guideCell": "#191919",
+        "guideCellPast": "#141414",
+        "guideRuns": ["#1D3537", "#382E1F", "#283040", "#263428"],
+        "nowLine": "#F5F5F5",
+        "banner": "#191919",
+        "bannerText": "#F3F3F3"
+    },
+    "typography": {
+        "display": "CONDENSED",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": false,
+        "scanlineAlpha": 0.14
+    }
+}

@@ -10,12 +10,10 @@ import tv.anstelle.core.data.stub
 import tv.anstelle.core.database.dao.CatalogRow
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.MediaItemDao
-import tv.anstelle.core.database.dao.ProfileDao
 import tv.anstelle.core.database.entity.ChannelDaypartEntity
 import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelRuleEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
-import tv.anstelle.core.database.entity.ProfileEntity
 import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.model.ChannelKind
 import tv.anstelle.core.model.MediaType
@@ -37,7 +35,7 @@ private const val HOUR = 60 * MINUTE
 private const val DAY = 24 * HOUR
 
 private fun channel(id: Long = 1, order: PlaybackOrder = PlaybackOrder.EPISODE_ORDER, hidden: Boolean = false) = ChannelEntity(
-    id = id, profileId = 1, number = id.toInt(), name = "Channel $id", logoUri = null, kind = ChannelKind.GENERATED,
+    id = id, number = id.toInt(), name = "Channel $id", logoUri = null, kind = ChannelKind.GENERATED,
     seed = 42, playbackOrder = order, blockSize = 1, isHidden = hidden, isFavorite = false, groupId = null,
     autoKey = null, isManaged = false, createdAtUtcMs = 0, updatedAtUtcMs = 0,
 )
@@ -58,10 +56,9 @@ class ChannelInputsTest {
     private fun ids(pool: tv.anstelle.core.scheduler.CandidatePool) = List(pool.size) { pool.id(it) }.toSet()
 
     @Test
-    fun `the base lineup becomes the pool, within the profile's rating limit`() {
+    fun `the base lineup becomes the pool, whatever it is rated`() {
         val setup = ChannelSetup(channel(), genres(1, "Comedy", "Drama"), emptyList(), emptyList())
-        assertEquals((1L..40L).toSet() + (101L..140L), ids(ChannelInputs.build(setup, catalog, null, ZoneOffset.UTC).pool))
-        assertEquals((1L..40L).toSet(), ids(ChannelInputs.build(setup, catalog, 10, ZoneOffset.UTC).pool))
+        assertEquals((1L..40L).toSet() + (101L..140L), ids(ChannelInputs.build(setup, catalog, ZoneOffset.UTC).pool))
     }
 
     @Test
@@ -69,7 +66,7 @@ class ChannelInputsTest {
         val override = ChannelSeasonEntity(id = 3, channelId = 1, name = "Holidays", mode = SeasonMode.OVERRIDE_RULES, startMonth = 12, startDay = 1, endMonth = 12, endDay = 26)
         val visible = override.copy(id = 4, mode = SeasonMode.VISIBLE_IN_RANGE)
         val rules = genres(1, "Comedy") + LineupRows.encode(1, 3, Lineup(listOf(RuleGroup(listOf(Rule(RuleField.KEYWORD, RuleOp.ANY_OF, "christmas"))))))
-        val inputs = ChannelInputs.build(ChannelSetup(channel(), rules, listOf(override, visible), emptyList()), catalog, null, ZoneOffset.UTC)
+        val inputs = ChannelInputs.build(ChannelSetup(channel(), rules, listOf(override, visible), emptyList()), catalog, ZoneOffset.UTC)
         assertEquals((1L..40L).toSet(), ids(inputs.pool))
         assertEquals(listOf(3L), inputs.seasons.map { it.key })
         assertEquals(setOf(301L), ids(inputs.seasons.single().pool))
@@ -80,7 +77,7 @@ class ChannelInputsTest {
         val rules = genres(1, "Comedy", "Kids") + genres(1, "Kids", group = 7)
         // 06:00–09:00: kids shows only.
         val daypart = ChannelDaypartEntity(channelId = 1, name = "Morning", startMinuteOfDay = 360, endMinuteOfDay = 540, maxRatingScore = null, minRatingScore = null, ruleLogicGroup = 7)
-        val inputs = ChannelInputs.build(ChannelSetup(channel(), rules, emptyList(), listOf(daypart)), catalog, null, ZoneOffset.UTC)
+        val inputs = ChannelInputs.build(ChannelSetup(channel(), rules, emptyList(), listOf(daypart)), catalog, ZoneOffset.UTC)
         assertEquals((1L..40L).toSet() + (201L..210L), ids(inputs.pool))
 
         val start = Instant.parse("2026-10-06T00:00:00Z").toEpochMilli()
@@ -95,7 +92,7 @@ class ChannelInputsTest {
     @Test
     fun `the fingerprint follows rules and settings`() {
         fun hash(rules: List<ChannelRuleEntity>, entity: ChannelEntity = channel()) =
-            ChannelInputs.build(ChannelSetup(entity, rules, emptyList(), emptyList()), catalog, null, ZoneOffset.UTC).fingerprint()
+            ChannelInputs.build(ChannelSetup(entity, rules, emptyList(), emptyList()), catalog, ZoneOffset.UTC).fingerprint()
         val comedy = hash(genres(1, "Comedy"))
         assertEquals(comedy, hash(genres(1, "comedy")))
         assertNotEquals(comedy, hash(genres(1, "Drama")))
@@ -118,15 +115,10 @@ class ScheduleUpdaterTest {
         override suspend fun seasons(channelId: Long) = emptyList<ChannelSeasonEntity>()
         override suspend fun dayparts(channelId: Long) = emptyList<ChannelDaypartEntity>()
     }
-    private val profileDao = object : ProfileDao by stub() {
-        private val profile = ProfileEntity(1, "Home", null, false, null, null, null, null, null, 0, 0)
-        override suspend fun all() = listOf(profile)
-        override suspend fun byId(id: Long) = profile.takeIf { id == 1L }
-    }
     private val itemDao = object : MediaItemDao by stub() {
         override suspend fun catalog() = rows
     }
-    private val updater = ScheduleUpdater(channelDao, scheduleDao, itemDao, profileDao, ScheduleRepository(scheduleDao, time), { ChannelWords.EMPTY }, time)
+    private val updater = ScheduleUpdater(channelDao, scheduleDao, itemDao, ScheduleRepository(scheduleDao, time), { ChannelWords.EMPTY }, time)
 
     private fun slots(channelId: Long = 1) = scheduleDao.slotsOf(channelId)
 

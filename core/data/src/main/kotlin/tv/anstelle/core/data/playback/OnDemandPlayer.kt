@@ -31,6 +31,7 @@ import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.jellyfin.auth.TokenStore
+import tv.anstelle.core.model.RatingLimits
 import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.player.CapabilityProbe
 import tv.anstelle.core.player.FontCache
@@ -137,6 +138,10 @@ class OnDemandPlayer @Inject constructor(
         scope.launch {
             prefs = tracks.prefs(profileId)
             val item = itemDao.byId(itemId)
+            if (item != null && !RatingLimits.allows(maxRating, item.ratingScore)) {
+                _state.update { it.copy(status = OnDemandStatus.ERROR, message = "Age restricted. This is over the profile's maturity rating.") }
+                return@launch
+            }
             val entry = item?.let { resolve(it, forceTranscode = false) }
             if (entry == null) {
                 _state.update { it.copy(status = OnDemandStatus.ERROR, message = "This can't be played. Is the server signed in?") }

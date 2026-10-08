@@ -280,7 +280,7 @@ A channel's page, on the same margins and gaps, opens on a hero: the backdrop ed
 
 ## Elevation & Depth
 
-The system is flat. There are no shadows, gradients, glows or blurs anywhere, and Material's tonal surface tint is switched off. Depth is conveyed only by stepping up the neutral ladder (ink, coal, coal high) and by a 1 px line edge on panels that sit over video. There are two translucent layers: the guide's past shade, a 20% dark wash over the hours that have already aired, and the backdrop wash, the ground at 80% over a show's or movie's backdrop.
+The system is flat. There are no shadows, gradients or glows anywhere, and no blur apart from an age-restricted program's title and logo (user decision); Material's tonal surface tint is switched off. Depth is conveyed only by stepping up the neutral ladder (ink, coal, coal high) and by a 1 px line edge on panels that sit over video. There are two translucent layers: the guide's past shade, a 20% dark wash over the hours that have already aired, and the backdrop wash, the ground at 80% over a show's or movie's backdrop.
 
 ### Named Rules
 **The Wash Not Fade Rule.** Artwork under text takes one flat wash of the ground, never a gradient, scrim fade or blur. 80% keeps bone text at 9:1 and muted text above 4.5:1 even over a white sky, and tints the art toward ink instead of grey.
@@ -351,6 +351,18 @@ A fact such as 4K, HDR10 or 5.1: condensed label-small in bone, inside a 1 px mu
 ### Title Logo
 A show's or movie's logo from the server stands in for its title in the guide's details, page heroes and both players' banners, fitted into a fixed-height slot aligned bottom-start, the title kept for screen readers. The slot holds its height while the logo loads, and the title returns as text if it fails, so nothing under it moves.
 
+### Age Restricted
+What stands in for a program over the profile's maturity rating, wherever its picture would be: the ground (ink in Rose, so the picture reads as blacked out) with a lock, AGE RESTRICTED in the condensed voice and the rating against the limit ("Rated R-16 · Limit PG-13") in muted type (`AgeRestrictedMark`, three sizes). Full screen it sets display-medium with UNTIL and the stretch's end under it; in the guide's preview headline-small; in a channel tile label-medium at the top start, the blurred logo or title at the foot as usual and the stretch's ladder under it. The program's title, logo and episode line are blurred wherever they appear (banner NOW and NEXT, guide cells, details and actions, tiles, channel page hero), keeping their size so nothing moves; devices without blur (before API 31) show a muted bar in their place. Back-to-back restricted programs are one stretch: one guide cell, one UNTIL. Guide cells drop to the ground with a line edge, like off air, and carry a 12 px lock before the blurred title, *Age restricted · until …* in place of the episode. Details panels and channel pages drop the backdrop and overview and put the lock and AGE RESTRICTED · RATED … · LIMIT … in the overview's place. The lock carries the state; the fill alone never does.
+
+### Profile Tile
+A profile on Who's watching: the Jellyfin user's picture on a square (the name's initial in display type when there is none), the name under it, a small lock chip top-right when a PIN is set and OWNER or ADMIN as a deep-rose chip bottom-left. Focus fills the whole tile rose. In *Manage profiles* an edit glyph sits on the picture, and only the profiles the viewer may edit are shown.
+
+### What a profile can't change isn't there
+A member's Settings has no Library or Network section, the rail and bar have no Dashboard tab, and no screen offers *Add to a channel*. The profile page shows its Permissions group (Set Admin, Parental Rating, Transfer ownership), and each row in it, only to whoever may change them. Nothing is shown locked or dimmed in their place (user decision).
+
+### Profile Page
+A menu page titled with the profile's name, in two groups the way account pages group settings: *Profile* (Theme, Authentication, Set or Change PIN, Remove PIN), the same for everyone who may edit it, then *Permissions* (Set Admin, Parental Rating, Transfer ownership). Row titles are two words at most and never repeat the profile's name; the title carries it. *Delete profile* sits apart at the foot, 24 px further down and under no heading. Transfer ownership and Delete profile take a second select, the title turning to *Select again to …* until focus leaves.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -363,9 +375,10 @@ A show's or movie's logo from the server stands in for its title in the guide's 
 - **Do** put artwork under one flat 80% wash of the ground when text sits on it.
 - **Do** keep transitions short and hard (about 140 to 180 ms), with no overshoot.
 - **Do** use the one navigation component on phone, tablet and TV, with Live TV as the first destination.
+- **Do** show an age-restricted program as blacked out with its lock, never by hiding the channel or the cell.
 
 ### Don't:
-- **Don't** use shadows, gradients, glow or blur, or Material's surface tint; not even a fade under a backdrop.
+- **Don't** use shadows, gradients, glow or blur, or Material's surface tint; not even a fade under a backdrop. The one exception is an age-restricted program's title and logo, which are blurred (user decision).
 - **Don't** float player controls in a panel of their own; they belong in the banner's program column.
 - **Don't** add yellow, grey, blue, violet, orange or red, stock Tailwind or shadcn values, or a terracotta-and-cream scheme.
 - **Don't** zoom, scale, glow or ring a focused control; fill it. The text field is the one exception: as a platform field its outline turns rose.

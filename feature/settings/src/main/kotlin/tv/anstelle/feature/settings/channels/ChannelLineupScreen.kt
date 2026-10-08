@@ -39,7 +39,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.channels.Catalog
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.Lineup
@@ -108,7 +107,6 @@ data class LineupUiState(
 @HiltViewModel
 class ChannelLineupViewModel @Inject constructor(
     savedState: SavedStateHandle,
-    private val profiles: ProfileRepository,
     private val repository: ChannelRepository,
 ) : ViewModel() {
     /** Matches the `channelId` argument of the navigation route; 0 builds a new channel. */
@@ -264,8 +262,7 @@ class ChannelLineupViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val id = if (channelId == 0L) {
-                    val profileId = profiles.ensureActiveProfile().id
-                    repository.create(profileId, current.name.ifBlank { "New channel" }, lineup, PlaybackOrder.EPISODE_ORDER, 1)
+                    repository.create(current.name.ifBlank { "New channel" }, lineup, PlaybackOrder.EPISODE_ORDER, 1)
                 } else {
                     repository.setLineup(channelId, lineup)
                     channelId

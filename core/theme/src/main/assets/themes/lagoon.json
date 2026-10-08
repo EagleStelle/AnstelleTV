@@ -1,0 +1,36 @@
+{
+    "key": "lagoon",
+    "name": "Lagoon",
+    "version": 1,
+    "colors": {
+        "background": "#061011",
+        "surface": "#0C1C1D",
+        "surfaceHigh": "#142526",
+        "line": "#1C2F30",
+        "text": "#ECF6F6",
+        "textMuted": "#9BB8B9",
+        "accent": "#4CDBE3",
+        "onAccent": "#061011",
+        "accentContainer": "#03383A",
+        "onAccentContainer": "#BDE7E9",
+        "guideCell": "#0C1C1D",
+        "guideCellPast": "#0D1616",
+        "guideRuns": ["#45271B", "#2B2D49", "#353111", "#422534"],
+        "nowLine": "#4CDBE3",
+        "banner": "#0C1C1D",
+        "bannerText": "#ECF6F6"
+    },
+    "typography": {
+        "display": "CONDENSED",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": false,
+        "scanlineAlpha": 0.14
+    }
+}

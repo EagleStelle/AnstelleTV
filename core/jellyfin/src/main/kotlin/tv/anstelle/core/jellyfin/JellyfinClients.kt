@@ -7,6 +7,7 @@ import org.jellyfin.sdk.api.client.HttpClientOptions
 import org.jellyfin.sdk.api.client.exception.ApiClientException
 import org.jellyfin.sdk.api.client.exception.InvalidContentException
 import org.jellyfin.sdk.api.client.exception.InvalidStatusException
+import org.jellyfin.sdk.model.DeviceInfo
 import tv.anstelle.core.model.ServerConnectException
 import tv.anstelle.core.model.ServerProblem
 import java.io.IOException
@@ -21,8 +22,16 @@ import kotlin.time.Duration.Companion.seconds
 class JellyfinClients @Inject constructor(
     private val jellyfin: Jellyfin,
 ) {
-    fun api(baseUrl: String, accessToken: String? = null): ApiClient =
-        jellyfin.createApi(baseUrl = baseUrl, accessToken = accessToken)
+    /**
+     * A client for [baseUrl]. With a [device], it speaks as a device of its own (this device's
+     * id plus [device]): a profile signed in as another Jellyfin user gets a session apart
+     * from the server's own sign-in, so neither one's sign-in or playback replaces the other's.
+     */
+    fun api(baseUrl: String, accessToken: String? = null, device: String? = null): ApiClient {
+        val base = jellyfin.options.deviceInfo
+        val deviceInfo = if (device == null || base == null) base else DeviceInfo(id = "${base.id}-$device", name = base.name)
+        return jellyfin.createApi(baseUrl = baseUrl, accessToken = accessToken, deviceInfo = deviceInfo)
+    }
 
     /** A client with short timeouts, for checking whether a URL answers at all. */
     fun probeApi(baseUrl: String): ApiClient =

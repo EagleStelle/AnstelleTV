@@ -43,13 +43,14 @@ object Settings {
     val ActiveProfileId = SettingKey.LongKey("profile.active", 0L)
 
     /**
-     * A [tv.anstelle.core.model.WatchSync] code: what channel airings leave in Jellyfin. By
-     * default a program watched through is marked watched, and progress is left to On demand.
+     * A [tv.anstelle.core.model.WatchSync] code: what the profile's channel airings leave in
+     * Jellyfin. By default a program watched through is marked watched, and progress is left
+     * to On demand.
      */
-    val LiveTvSync = SettingKey.IntKey("sync.live", tv.anstelle.core.model.WatchSync.STATUS.code)
+    fun liveTvSync(profileId: Long) = SettingKey.IntKey("sync.live.$profileId", tv.anstelle.core.model.WatchSync.STATUS.code)
 
-    /** A [tv.anstelle.core.model.WatchSync] code: what on-demand playback leaves in Jellyfin, by default what its own apps do. */
-    val OnDemandSync = SettingKey.IntKey("sync.ondemand", tv.anstelle.core.model.WatchSync.BOTH.code)
+    /** A [tv.anstelle.core.model.WatchSync] code: what the profile's on-demand playback leaves in Jellyfin, by default what its own apps do. */
+    fun onDemandSync(profileId: Long) = SettingKey.IntKey("sync.ondemand.$profileId", tv.anstelle.core.model.WatchSync.BOTH.code)
 
     /**
      * The profile's audio languages in order of preference, as ISO 639-2/T codes joined by
@@ -69,15 +70,21 @@ object Settings {
     /** The guide tab the profile had open: "all", "favorites" or "group:<id>". */
     fun guideTab(profileId: Long) = SettingKey.StringKey("guide.tab.$profileId", "all")
 
-    /** How many channels, picked at random, the On demand banner cycles through. */
-    fun onDemandBanner(profileId: Long) = SettingKey.IntKey("ondemand.banner.$profileId", 10)
+    /** How many channels, picked at random, the On demand banner cycles through. Shared, like the channels. */
+    val OnDemandBanner = SettingKey.IntKey("ondemand.banner", 10)
 
-    /** The choices for [onDemandBanner]. */
+    /** The choices for [OnDemandBanner]. */
     val OnDemandBannerSizes = listOf(5, 10, 15, 20, 25, 30)
 
-    /** The number the profile's library channels of [segment] count up from. */
-    fun channelNumberStart(profileId: Long, segment: tv.anstelle.core.data.channels.ChannelSegment) =
-        SettingKey.IntKey("channels.start.${segment.name.lowercase()}.$profileId", segment.defaultStart)
+    /**
+     * The server's parental rating table (`/Localization/ParentalRatings`), one "score<TAB>name"
+     * per line, kept at every sync for the parental rating choices.
+     */
+    fun ratingTable(serverId: Long) = SettingKey.StringKey("ratings.table.$serverId", "")
+
+    /** The number the library channels of [segment] count up from. */
+    fun channelNumberStart(segment: tv.anstelle.core.data.channels.ChannelSegment) =
+        SettingKey.IntKey("channels.start.${segment.name.lowercase()}", segment.defaultStart)
 }
 
 @Singleton

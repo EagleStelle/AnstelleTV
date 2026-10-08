@@ -20,7 +20,6 @@ import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.database.AnstelleDatabase
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.MediaItemDao
-import tv.anstelle.core.database.dao.ProfileDao
 import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelGroupEntity
@@ -67,7 +66,6 @@ class ChannelRepository @Inject constructor(
     private val channelDao: ChannelDao,
     private val scheduleDao: ScheduleDao,
     private val itemDao: MediaItemDao,
-    private val profileDao: ProfileDao,
     private val settings: SettingsRepository,
     private val words: ChannelWordsSource,
     private val logos: ChannelLogos,
@@ -79,8 +77,8 @@ class ChannelRepository @Inject constructor(
     /** One library sync at a time: the worker and "Bring back" both run one. */
     private val syncLock = Mutex()
 
-    fun observeChannels(profileId: Long): Flow<List<ChannelSummary>> =
-        combine(channelDao.observeAll(profileId), channelDao.observeGroups(profileId)) { channels, groupList ->
+    fun observeChannels(): Flow<List<ChannelSummary>> =
+        combine(channelDao.observeAll(), channelDao.observeGroups()) { channels, groupList ->
             val groups = groupList.associate { it.id to it.name }
             val visible = channelDao.seasonsFor(channels.map { it.id })
                 .filter { it.mode == SeasonMode.VISIBLE_IN_RANGE }
@@ -99,8 +97,8 @@ class ChannelRepository @Inject constructor(
 
     fun observeChannel(channelId: Long): Flow<Channel?> = channelDao.observe(channelId).map { it?.toModel() }
 
-    fun observeGroups(profileId: Long): Flow<List<ChannelGroup>> =
-        channelDao.observeGroups(profileId).map { list -> list.map { ChannelGroup(it.id, it.profileId, it.name, it.sortOrder, it.numberStart) } }
+    fun observeGroups(): Flow<List<ChannelGroup>> =
+        channelDao.observeGroups().map { list -> list.map { ChannelGroup(it.id, it.name, it.sortOrder, it.numberStart) } }
 
     /** The whole library as channel rules see it. */
     suspend fun catalog(): Catalog = withContext(io) { Catalog(itemDao.catalog(), words.words().types) }
@@ -154,9 +152,9 @@ class ChannelRepository @Inject constructor(
         }
     }
 
-    /** Channels of [profileId] that always include [remoteId]. */
-    suspend fun channelsIncluding(profileId: Long, remoteId: String): Set<Long> =
-        withContext(io) { channelDao.channelsIncluding(profileId, remoteId, RuleOp.INCLUDE).toSet() }
+    /** Channels that always include [remoteId]. */
+    suspend fun channelsIncluding(remoteId: String): Set<Long> =
+        withContext(io) { channelDao.channelsIncluding(remoteId, RuleOp.INCLUDE).toSet() }
 
     /**
      * Makes [channelId] always air [pick] (and no longer exclude it). The schedule changes
@@ -173,13 +171,13 @@ class ChannelRepository @Inject constructor(
      * Creates a custom channel. It takes the first free number from the next thousand after every
      * segment's start (5000 with the defaults), so it never lands inside a segment. Returns its id.
      */
-    suspend fun create(profileId: Long, name: String, lineup: Lineup, order: PlaybackOrder, blockSize: Int): Long {
+    suspend fun create(name: String, lineup: Lineup, order: PlaybackOrder, blockSize: Int): Long {
         lineup.problem()?.let { throw IllegalArgumentException(it) }
-        val start = nextThousand(segmentStarts(profileId))
+        val start = nextThousand(segmentStarts())
         val id = withContext(io) {
             database.withTransaction {
-                val number = firstFree(start, channelDao.forProfile(profileId).mapTo(HashSet()) { it.number })
-                val id = channelDao.insert(newChannel(profileId, number, name, order, groupId = null, autoKey = null, blockSize = blockSize))
+                val number = firstFree(start, channelDao.all().mapTo(HashSet()) { it.number })
+                val id = channelDao.insert(newChannel(number, name, order, groupId = null, autoKey = null, blockSize = blockSize))
                 channelDao.insertRules(LineupRows.encode(id, null, lineup))
                 id
             }
@@ -211,7 +209,7 @@ class ChannelRepository @Inject constructor(
             val start = groupId?.let { channelDao.groupById(it) }?.numberStart
             val channel = channelDao.byId(channelId)
             if (start != null && channel != null) {
-                val taken = channelDao.forProfile(channel.profileId).filter { it.id != channelId }.mapTo(HashSet()) { it.number }
+                val taken = channelDao.all().filter { it.id != channelId }.mapTo(HashSet()) { it.number }
                 channelDao.setNumber(channelId, firstFree(start, taken), time.nowUtcMs())
             }
         }
@@ -232,8 +230,8 @@ class ChannelRepository @Inject constructor(
         val channel = channelDao.byId(channelId) ?: return@withContext
         database.withTransaction {
             channelDao.delete(channel)
-            channel.autoKey?.let { channelDao.dismiss(DismissedChannelEntity(channel.profileId, it)) }
-            if (channel.isManaged) renumber(channel.profileId)
+            channel.autoKey?.let { channelDao.dismiss(DismissedChannelEntity(it)) }
+            if (channel.isManaged) renumber()
         }
         logos.delete(channel.logoUri)
         AppLog.i(TAG, "Deleted channel ${channel.number} ${channel.name}")
@@ -257,9 +255,9 @@ class ChannelRepository @Inject constructor(
     /** The channel's stored logo file, or null. */
     suspend fun logoFile(channelId: Long) = withContext(io) { logos.file(channelDao.byId(channelId)?.logoUri) }
 
-    suspend fun createGroup(profileId: Long, name: String): Long = withContext(io) {
-        val order = (channelDao.groups(profileId).maxOfOrNull { it.sortOrder } ?: -1) + 1
-        channelDao.insertGroup(ChannelGroupEntity(profileId = profileId, name = name.trim(), sortOrder = order))
+    suspend fun createGroup(name: String): Long = withContext(io) {
+        val order = (channelDao.groups().maxOfOrNull { it.sortOrder } ?: -1) + 1
+        channelDao.insertGroup(ChannelGroupEntity(name = name.trim(), sortOrder = order))
     }
 
     suspend fun renameGroup(groupId: Long, name: String) = withContext(io) {
@@ -271,12 +269,12 @@ class ChannelRepository @Inject constructor(
      * Creates a segment: a group whose channels count up from [start] (by default the next
      * thousand after every start and channel number, 5000 with the defaults). Returns its id.
      */
-    suspend fun createSegment(profileId: Long, name: String, start: Int? = null): Long {
-        val first = start ?: nextThousand(segmentStarts(profileId) + withContext(io) { channelDao.forProfile(profileId).map { it.number } })
+    suspend fun createSegment(name: String, start: Int? = null): Long {
+        val first = start ?: nextThousand(segmentStarts() + withContext(io) { channelDao.all().map { it.number } })
         require(first in MIN_NUMBER..MAX_NUMBER) { "Channel numbers are $MIN_NUMBER–$MAX_NUMBER" }
         return withContext(io) {
-            val order = (channelDao.groups(profileId).maxOfOrNull { it.sortOrder } ?: -1) + 1
-            channelDao.insertGroup(ChannelGroupEntity(profileId = profileId, name = name.trim(), sortOrder = order, numberStart = first))
+            val order = (channelDao.groups().maxOfOrNull { it.sortOrder } ?: -1) + 1
+            channelDao.insertGroup(ChannelGroupEntity(name = name.trim(), sortOrder = order, numberStart = first))
         }
     }
 
@@ -286,7 +284,7 @@ class ChannelRepository @Inject constructor(
         val group = channelDao.groupById(groupId) ?: return@withContext
         database.withTransaction {
             channelDao.upsertGroup(group.copy(numberStart = start))
-            val (members, others) = channelDao.forProfile(group.profileId).partition { it.groupId == groupId }
+            val (members, others) = channelDao.all().partition { it.groupId == groupId }
             val taken = others.mapTo(HashSet()) { it.number }
             val now = time.nowUtcMs()
             for (channel in members.sortedBy { it.number }) {
@@ -297,10 +295,10 @@ class ChannelRepository @Inject constructor(
         }
     }
 
-    /** The starts of the library's segments and of the profile's own. */
-    private suspend fun segmentStarts(profileId: Long): List<Int> =
-        ChannelSegment.entries.map { settings.get(Settings.channelNumberStart(profileId, it)) } +
-            withContext(io) { channelDao.groups(profileId).mapNotNull { it.numberStart } }
+    /** The starts of the library's segments and of the ones someone made. */
+    private suspend fun segmentStarts(): List<Int> =
+        ChannelSegment.entries.map { settings.get(Settings.channelNumberStart(it)) } +
+            withContext(io) { channelDao.groups().mapNotNull { it.numberStart } }
 
     /** The thousand after the highest of [numbers]: 5000 after 4000 or 4036. */
     private fun nextThousand(numbers: List<Int>): Int = (((numbers.maxOrNull() ?: 0) / 1000 + 1) * 1000).coerceAtMost(MAX_NUMBER)
@@ -315,7 +313,7 @@ class ChannelRepository @Inject constructor(
     /** Moves a group one place up ([delta] -1) or down (+1) in the guide. */
     suspend fun moveGroup(groupId: Long, delta: Int) = withContext(io) {
         val group = channelDao.groupById(groupId) ?: return@withContext
-        val groups = channelDao.groups(group.profileId).toMutableList()
+        val groups = channelDao.groups().toMutableList()
         val from = groups.indexOfFirst { it.id == groupId }
         val to = (from + delta).coerceIn(0, groups.lastIndex)
         if (from == to) return@withContext
@@ -323,32 +321,31 @@ class ChannelRepository @Inject constructor(
         channelDao.updateGroups(groups.mapIndexed { i, g -> g.copy(sortOrder = i) })
     }
 
-    /** Where each segment's channel numbers start for the profile. */
-    fun observeNumberStarts(profileId: Long): Flow<Map<ChannelSegment, Int>> =
-        combine(ChannelSegment.entries.map { segment -> settings.observe(Settings.channelNumberStart(profileId, segment)).map { segment to it } }) { it.toMap() }
+    /** Where each segment's channel numbers start. */
+    fun observeNumberStarts(): Flow<Map<ChannelSegment, Int>> =
+        combine(ChannelSegment.entries.map { segment -> settings.observe(Settings.channelNumberStart(segment)).map { segment to it } }) { it.toMap() }
 
-    /** Numbers the segment's channels from [start] and renumbers the profile's library channels. */
-    suspend fun setNumberStart(profileId: Long, segment: ChannelSegment, start: Int) {
+    /** Numbers the segment's channels from [start] and renumbers the library channels. */
+    suspend fun setNumberStart(segment: ChannelSegment, start: Int) {
         require(start in MIN_NUMBER..MAX_NUMBER) { "Channel numbers are $MIN_NUMBER–$MAX_NUMBER" }
-        settings.set(Settings.channelNumberStart(profileId, segment), start)
-        withContext(io) { database.withTransaction { renumber(profileId) } }
+        settings.set(Settings.channelNumberStart(segment), start)
+        withContext(io) { database.withTransaction { renumber() } }
     }
 
-    /** How many library channels the profile deleted (some may no longer fit the library). */
-    fun observeRemovedCount(profileId: Long): Flow<Int> = channelDao.observeDismissedCount(profileId)
+    /** How many library channels were deleted (some may no longer fit the library). */
+    fun observeRemovedCount(): Flow<Int> = channelDao.observeDismissedCount()
 
     /** Deleted library channels the library still has content for, in guide order. */
-    suspend fun removedChannels(profileId: Long): List<GeneratedChannel> = withContext(io) {
-        val dismissed = channelDao.dismissedKeys(profileId).toSet()
+    suspend fun removedChannels(): List<GeneratedChannel> = withContext(io) {
+        val dismissed = channelDao.dismissedKeys().toSet()
         if (dismissed.isEmpty()) return@withContext emptyList()
-        val limit = profileDao.byId(profileId)?.maxRatingScore
-        ChannelGenerator(words.words()).generate(Catalog(itemDao.catalog(), words.words().types), limit).filter { it.key in dismissed }
+        ChannelGenerator(words.words()).generate(Catalog(itemDao.catalog(), words.words().types)).filter { it.key in dismissed }
     }
 
     /** Restores deleted library channels and schedules them. */
-    suspend fun bringBack(profileId: Long, keys: Collection<String>) {
-        withContext(io) { keys.forEach { channelDao.undismiss(profileId, it) } }
-        if (syncGenerated(onlyProfile = profileId) > 0) {
+    suspend fun bringBack(keys: Collection<String>) {
+        withContext(io) { keys.forEach { channelDao.undismiss(it) } }
+        if (syncGenerated() > 0) {
             scope.launch(io) {
                 try {
                     updater.updateAll()
@@ -361,50 +358,43 @@ class ChannelRepository @Inject constructor(
     }
 
     /**
-     * Brings the library channels of every profile (or [onlyProfile]) in line with the library:
+     * Brings the library channels in line with the whole library (they are every profile's):
      * adds the channels it newly has content for, updates the managed ones, removes the managed
      * ones that lost their content and renumbers them in guide order. Edited and deleted channels
      * are left alone. Returns how many channels were added, updated or removed; the caller
      * schedules them.
      */
-    suspend fun syncGenerated(onlyProfile: Long? = null): Int = syncLock.withLock {
+    suspend fun syncGenerated(): Int = syncLock.withLock {
         withContext(io) {
             val catalog = Catalog(itemDao.catalog(), words.words().types)
             val generator = ChannelGenerator(words.words())
-            val lenient = ChannelGenerator(words.words(), scale = ChannelGenerator.KEEP_SCALE)
-            // Profiles with the same rating limit get the same channels.
-            val generated = HashMap<Int?, Pair<List<GeneratedChannel>, Set<String>>>()
-            profileDao.all().filter { onlyProfile == null || it.id == onlyProfile }.sumOf { profile ->
-                val (channels, keepable) = generated.getOrPut(profile.maxRatingScore) {
-                    generator.generate(catalog, profile.maxRatingScore) to lenient.generate(catalog, profile.maxRatingScore).mapTo(HashSet()) { it.key }
-                }
-                sync(profile.id, channels, keepable, generator)
-            }
+            val keepable = ChannelGenerator(words.words(), scale = ChannelGenerator.KEEP_SCALE).generate(catalog).mapTo(HashSet()) { it.key }
+            sync(generator.generate(catalog), keepable, generator)
         }
     }
 
     /** [keepable] are the keys made at [ChannelGenerator.KEEP_SCALE] of the thresholds: a managed channel among them stays. */
-    private suspend fun sync(profileId: Long, generated: List<GeneratedChannel>, keepable: Set<String>, generator: ChannelGenerator): Int {
-        val existing = channelDao.forProfile(profileId)
+    private suspend fun sync(generated: List<GeneratedChannel>, keepable: Set<String>, generator: ChannelGenerator): Int {
+        val existing = channelDao.all()
         val keep = existing.filter { it.isManaged && it.autoKey in keepable }.mapTo(HashSet()) { it.id }
-        val actions = GeneratedChannelSync.plan(existing.map { it.synced() }, generated, channelDao.dismissedKeys(profileId).toSet(), keep)
+        val actions = GeneratedChannelSync.plan(existing.map { it.synced() }, generated, channelDao.dismissedKeys().toSet(), keep)
         val byId = existing.associateBy { it.id }
         val removed = actions.remove.mapNotNull(byId::get)
 
         val changed = database.withTransaction {
-            val groups = segmentGroups(profileId, (actions.add + actions.refresh.values).mapTo(HashSet()) { it.segment })
+            val groups = segmentGroups((actions.add + actions.refresh.values).mapTo(HashSet()) { it.segment })
             removed.forEach { channelDao.delete(it) }
             val updated = actions.refresh.count { (id, channel) -> refresh(byId.getValue(id), channel, groups[channel.segment]) }
-            var number = nextNumber(profileId)
+            var number = channelDao.maxNumber() + 1
             for (channel in actions.add) {
-                val id = channelDao.insert(newChannel(profileId, number++, channel.name, channel.order, groups[channel.segment], channel.key))
+                val id = channelDao.insert(newChannel(number++, channel.name, channel.order, groups[channel.segment], channel.key))
                 channelDao.insertRules(LineupRows.encode(id, null, channel.lineup))
             }
-            renumber(profileId, generator)
+            renumber(generator)
             actions.add.size + updated + removed.size
         }
         removed.forEach { logos.delete(it.logoUri) }
-        if (changed > 0) AppLog.i(TAG, "Profile $profileId: ${actions.add.size} channels added, ${changed - actions.add.size - removed.size} updated, ${removed.size} removed")
+        if (changed > 0) AppLog.i(TAG, "${actions.add.size} channels added, ${changed - actions.add.size - removed.size} updated, ${removed.size} removed")
         return changed
     }
 
@@ -423,20 +413,20 @@ class ChannelRepository @Inject constructor(
     }
 
     /** The guide group of each segment in [needed], created in guide order when missing. */
-    private suspend fun segmentGroups(profileId: Long, needed: Set<ChannelSegment>): Map<ChannelSegment, Long> {
-        val groups = channelDao.groups(profileId).associateTo(HashMap()) { it.name.lowercase(Locale.ROOT) to it.id }
+    private suspend fun segmentGroups(needed: Set<ChannelSegment>): Map<ChannelSegment, Long> {
+        val groups = channelDao.groups().associateTo(HashMap()) { it.name.lowercase(Locale.ROOT) to it.id }
         return ChannelSegment.entries.filter { it in needed }.associateWith { segment ->
             groups.getOrPut(segment.groupName.lowercase(Locale.ROOT)) {
-                channelDao.insertGroup(ChannelGroupEntity(profileId = profileId, name = segment.groupName, sortOrder = groups.size))
+                channelDao.insertGroup(ChannelGroupEntity(name = segment.groupName, sortOrder = groups.size))
             }
         }
     }
 
-    /** Numbers the profile's managed channels from each segment's start in guide order, around the numbers other channels hold. */
-    private suspend fun renumber(profileId: Long, generator: ChannelGenerator = ChannelGenerator(words.words())) {
+    /** Numbers the managed channels from each segment's start in guide order, around the numbers other channels hold. */
+    private suspend fun renumber(generator: ChannelGenerator = ChannelGenerator(words.words())) {
         val now = time.nowUtcMs()
-        val starts = ChannelSegment.entries.associateWith { settings.get(Settings.channelNumberStart(profileId, it)) }
-        val changes = GeneratedChannelSync.numbers(channelDao.forProfile(profileId).map { it.synced() }, generator.order) { starts.getValue(it) }
+        val starts = ChannelSegment.entries.associateWith { settings.get(Settings.channelNumberStart(it)) }
+        val changes = GeneratedChannelSync.numbers(channelDao.all().map { it.synced() }, generator.order) { starts.getValue(it) }
         for ((id, number) in changes) channelDao.setNumber(id, number, now)
     }
 
@@ -467,11 +457,9 @@ class ChannelRepository @Inject constructor(
         }
     }
 
-    private suspend fun nextNumber(profileId: Long) = channelDao.maxNumber(profileId) + 1
 
     /** A channel made from the library ([autoKey] set, managed) or built by hand. */
     private fun newChannel(
-        profileId: Long,
         number: Int,
         name: String,
         order: PlaybackOrder,
@@ -481,7 +469,6 @@ class ChannelRepository @Inject constructor(
     ): ChannelEntity {
         val now = time.nowUtcMs()
         return ChannelEntity(
-            profileId = profileId,
             number = number,
             name = name.trim(),
             logoUri = null,
@@ -516,7 +503,6 @@ class ChannelRepository @Inject constructor(
 
 internal fun ChannelEntity.toModel() = Channel(
     id = id,
-    profileId = profileId,
     number = number,
     name = name,
     logoUri = logoUri,

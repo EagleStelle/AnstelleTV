@@ -1,0 +1,36 @@
+{
+    "key": "plum",
+    "name": "Plum",
+    "version": 1,
+    "colors": {
+        "background": "#110C14",
+        "surface": "#1D1621",
+        "surfaceHigh": "#261E2A",
+        "line": "#302735",
+        "text": "#F6F1F9",
+        "textMuted": "#B9ACC1",
+        "accent": "#D59CF8",
+        "onAccent": "#110C14",
+        "accentContainer": "#3C254A",
+        "onAccentContainer": "#E9D5F6",
+        "guideCell": "#1D1621",
+        "guideCellPast": "#161219",
+        "guideRuns": ["#1A3725", "#462621", "#09363F", "#363111"],
+        "nowLine": "#D59CF8",
+        "banner": "#1D1621",
+        "bannerText": "#F6F1F9"
+    },
+    "typography": {
+        "display": "CONDENSED",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": false,
+        "scanlineAlpha": 0.14
+    }
+}

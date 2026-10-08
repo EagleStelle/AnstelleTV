@@ -249,16 +249,6 @@ class ChannelGeneratorTest {
     }
 
     @Test
-    fun `a rating limit counts only what the profile may watch`() {
-        val rows = (1..3).flatMap { show("k$it", listOf("Family"), score = 7) } + (1..3).flatMap { show("u$it", listOf("Family"), score = null) }
-        val all = generator.generate(catalog(rows)).single { it.name == "Family" }
-        val kids = generator.generate(catalog(rows), maxRatingScore = 10).single { it.name == "Family" }
-        assertEquals(6, all.match.showCount)
-        assertEquals(3, kids.match.showCount)
-        assertEquals(emptyList(), generator.generate(catalog(rows), maxRatingScore = 5))
-    }
-
-    @Test
     fun `series and movies never share a channel`() {
         val channels = generate(shows(3, "c", listOf("Comedy")) + (1..6).flatMap { movie(listOf("Comedy")) })
         assertEquals(setOf(MediaType.EPISODE), channels.single { it.name == "Comedy" }.match.matches.mapTo(HashSet()) { it.item.row.type })

@@ -7,6 +7,7 @@ import kotlinx.coroutines.launch
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.ApplicationScope
 import tv.anstelle.core.common.TimeSource
+import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.database.dao.WatchEventDao
@@ -45,7 +46,8 @@ class ReportSession internal constructor(
 
 /**
  * Tells Jellyfin about playback after the first frame, in the background, so tuning never
- * waits for the server. Live TV and On demand each have their own [WatchSync] setting: only
+ * waits for the server, to the user the profile watches as ([ProfileRepository.watchAccount]).
+ * Live TV and On demand each have their own [WatchSync] setting: only
  * a setting that saves progress reports playback (start, progress every 10 s, stop);
  * watched marks are set or put back after it stops. Calls run one at a time in order, and a
  * failed one is logged and dropped. Every view of 30 seconds or more is also kept as a local
@@ -55,6 +57,7 @@ class ReportSession internal constructor(
 class PlaybackReporter @Inject constructor(
     @ApplicationScope scope: CoroutineScope,
     private val settings: SettingsRepository,
+    private val profiles: ProfileRepository,
     private val playstates: PlaystateFactory,
     private val watchEventDao: WatchEventDao,
     private val time: TimeSource,
@@ -95,11 +98,11 @@ class PlaybackReporter @Inject constructor(
             startedUtcMs = time.nowUtcMs(),
         )
         calls.trySend {
-            val sync = codeOf<WatchSync>(settings.get(if (session.onDemand) Settings.OnDemandSync else Settings.LiveTvSync))
+            val sync = codeOf<WatchSync>(settings.get(if (session.onDemand) Settings.onDemandSync(profileId) else Settings.liveTvSync(profileId)))
             session.sync = sync
-            val userId = server.userId
-            if (sync == WatchSync.OFF || userId == null) return@trySend
-            val playstate = playstates.create(server.baseUrl, accessToken, userId).also { session.playstate = it }
+            if (sync == WatchSync.OFF) return@trySend
+            val account = profiles.watchAccount(profileId, server, accessToken) ?: return@trySend
+            val playstate = playstates.create(server.baseUrl, account.accessToken, account.userId, account.device).also { session.playstate = it }
             // Read before the start report, which can change it.
             if (WatchRules.needsPlayedBefore(sync, session.onDemand)) session.playedBefore = playstate.isPlayed(item.remoteId)
             if (sync.savesProgress) playstate.started(session.playstateItem, positionMs)

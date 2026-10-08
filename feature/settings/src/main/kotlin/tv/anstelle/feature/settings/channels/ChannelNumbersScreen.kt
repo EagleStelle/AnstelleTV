@@ -20,16 +20,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelSegment
 import tv.anstelle.core.model.ChannelGroup
@@ -47,43 +43,35 @@ data class NumberStarts(
     val own: List<ChannelGroup> = emptyList(),
 )
 
-@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ChannelNumbersViewModel @Inject constructor(
-    profiles: ProfileRepository,
     private val repository: ChannelRepository,
 ) : ViewModel() {
-    private val profileId = profiles.activeProfileId()
-
-    val state: StateFlow<NumberStarts> = profileId
-        .flatMapLatest { id ->
-            combine(repository.observeNumberStarts(id), repository.observeGroups(id)) { segments, groups ->
-                NumberStarts(segments, groups.filter { it.numberStart != null })
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NumberStarts())
+    val state: StateFlow<NumberStarts> = combine(repository.observeNumberStarts(), repository.observeGroups()) { segments, groups ->
+        NumberStarts(segments, groups.filter { it.numberStart != null })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NumberStarts())
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
 
-    fun setStart(segment: ChannelSegment, text: String) = save(text, state.value.segments[segment]) { id, start -> repository.setNumberStart(id, segment, start) }
+    fun setStart(segment: ChannelSegment, text: String) = save(text, state.value.segments[segment]) { start -> repository.setNumberStart(segment, start) }
 
-    fun setSegmentStart(group: ChannelGroup, text: String) = save(text, group.numberStart) { _, start -> repository.setSegmentStart(group.id, start) }
+    fun setSegmentStart(group: ChannelGroup, text: String) = save(text, group.numberStart) { start -> repository.setSegmentStart(group.id, start) }
 
     fun rename(group: ChannelGroup, name: String) = act { if (name.isNotBlank() && name.trim() != group.name) repository.renameGroup(group.id, name) }
 
-    fun addSegment() = act { repository.createSegment(profileId.first(), "New segment") }
+    fun addSegment() = act { repository.createSegment("New segment") }
 
     fun delete(group: ChannelGroup) = act { repository.deleteGroup(group.id) }
 
-    private fun save(text: String, current: Int?, action: suspend (Long, Int) -> Unit) {
+    private fun save(text: String, current: Int?, action: suspend (Int) -> Unit) {
         val start = text.trim().toIntOrNull()
         if (start == current) return
         if (start == null || start !in ChannelRepository.MIN_NUMBER..ChannelRepository.MAX_NUMBER) {
             _message.value = "Channel numbers are ${ChannelRepository.MIN_NUMBER} to ${ChannelRepository.MAX_NUMBER}."
             return
         }
-        act { action(profileId.first(), start) }
+        act { action(start) }
     }
 
     private fun act(action: suspend () -> Unit) {

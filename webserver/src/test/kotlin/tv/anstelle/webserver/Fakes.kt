@@ -3,10 +3,12 @@ package tv.anstelle.webserver
 import kotlinx.coroutines.flow.MutableSharedFlow
 import tv.anstelle.core.common.AppInfo
 import tv.anstelle.core.common.TimeSource
+import tv.anstelle.core.data.ThemeImportException
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.webserver.api.ApiDataSource
 import tv.anstelle.webserver.api.ChannelDto
 import tv.anstelle.webserver.api.ProfileDto
+import tv.anstelle.webserver.api.ThemeDto
 import tv.anstelle.webserver.http.AssetSource
 import tv.anstelle.webserver.http.StaticFiles
 import tv.anstelle.webserver.pairing.PairedClientStore
@@ -59,7 +61,7 @@ class FakeApi : ApiDataSource {
     /** Logos by channel id; only channel 1 exists. */
     val logos = mutableMapOf<Long, ByteArray>()
 
-    override suspend fun profiles() = listOf(ProfileDto(1, "Home", isKid = false, hasPin = false))
+    override suspend fun profiles() = listOf(ProfileDto(1, "Home", role = "owner", hasPin = false))
     override suspend fun channels() = listOf(ChannelDto(1, 2, "Sitcoms", null, isHidden = false, isFavorite = true, groupId = null))
 
     override suspend fun channelLogo(channelId: Long): ByteArray? = logos[channelId]
@@ -76,6 +78,16 @@ class FakeApi : ApiDataSource {
         if (channelId != 1L) return false
         logos.remove(channelId)
         return true
+    }
+
+    override suspend fun themes() = listOf(ThemeDto(1, "Rose", isBuiltIn = true))
+
+    override suspend fun themeFile(themeId: Long) = if (themeId == 1L) "rose.json" to """{"key":"rose"}""" else null
+
+    /** Stands in for parsing: anything with colors is a theme. */
+    override suspend fun importTheme(json: String): ThemeDto {
+        if ("\"colors\"" !in json) throw ThemeImportException("That file isn't an AnstelleTV theme")
+        return ThemeDto(2, "Imported", isBuiltIn = false)
     }
 }
 

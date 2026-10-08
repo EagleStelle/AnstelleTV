@@ -25,6 +25,8 @@ data class GuideAiring(
     val season: Int?,
     val episode: Int?,
     val year: Int?,
+    /** The item's rating score, which a profile's maturity rating limits; null when unrated. */
+    val ratingScore: Int?,
 )
 
 /**
@@ -44,6 +46,8 @@ data class ChannelAiring(
     val episode: Int?,
     val year: Int?,
     val overview: String?,
+    val officialRating: String?,
+    val ratingScore: Int?,
     val backdropImageTag: String?,
     val logoImageTag: String?,
     val seriesRemoteId: String?,
@@ -96,7 +100,7 @@ interface ScheduleDao {
     @Query(
         """
         SELECT s.channelId, s.kind, s.mediaItemId, COALESCE(series.id, m.id) AS showId,
-               s.startUtcMs, s.endUtcMs, m.title, m.showTitle, m.season, m.episode, m.year
+               s.startUtcMs, s.endUtcMs, m.title, m.showTitle, m.season, m.episode, m.year, m.ratingScore
         FROM schedule_slot s LEFT JOIN media_item m ON m.id = s.mediaItemId
         LEFT JOIN media_item series ON series.serverId = m.serverId AND series.remoteId = m.seriesRemoteId
         WHERE s.channelId IN (:channelIds)
@@ -119,7 +123,7 @@ interface ScheduleDao {
     @Query(
         """
         SELECT s.channelId, s.mediaItemId, s.startUtcMs, s.endUtcMs, m.serverId, m.remoteId,
-               m.title, m.showTitle, m.season, m.episode, m.year, m.overview,
+               m.title, m.showTitle, m.season, m.episode, m.year, m.overview, m.officialRating, m.ratingScore,
                m.backdropImageTag, m.logoImageTag, series.remoteId AS seriesRemoteId,
                series.backdropImageTag AS seriesBackdropImageTag, series.logoImageTag AS seriesLogoImageTag
         FROM schedule_slot s LEFT JOIN media_item m ON m.id = s.mediaItemId
@@ -130,6 +134,23 @@ interface ScheduleDao {
         """,
     )
     suspend fun airingsAt(channelIds: List<Long>, atUtcMs: Long, maxSlotMs: Long): List<ChannelAiring>
+
+    /**
+     * Where a run of programs a profile limited to [maxRating] may not watch ends on [channelId],
+     * from [fromUtcMs] (the end of the restricted program on now): the start of the first slot
+     * from there that is off air or rated at or under the limit, else the end of the schedule.
+     * Unrated programs never pass a limit. Null when the channel has no schedule.
+     */
+    @Query(
+        """
+        SELECT COALESCE(
+            (SELECT MIN(s.startUtcMs) FROM schedule_slot s LEFT JOIN media_item m ON m.id = s.mediaItemId
+             WHERE s.channelId = :channelId AND s.startUtcMs >= :fromUtcMs
+               AND (s.mediaItemId IS NULL OR (m.ratingScore IS NOT NULL AND m.ratingScore <= :maxRating))),
+            (SELECT MAX(endUtcMs) FROM schedule_slot WHERE channelId = :channelId))
+        """,
+    )
+    suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, maxRating: Int): Long?
 
     /** The longest slot, which bounds [guideWindow]'s range scan. */
     @Query("SELECT COALESCE(MAX(endUtcMs - startUtcMs), 0) FROM schedule_slot")

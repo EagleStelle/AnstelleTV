@@ -3,6 +3,8 @@ package tv.anstelle.core.theme
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import tv.anstelle.core.model.FontChoice
+import tv.anstelle.core.model.ThemeSpec
 
 /** A [ThemeSpec] with colors parsed once, ready for drawing. */
 @Immutable

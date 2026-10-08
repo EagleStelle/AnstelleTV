@@ -147,7 +147,7 @@ private fun Modifier.bleed(horizontal: Dp, top: Dp) = layout { measurable, const
  * sits on the backdrop the way the server's art was drawn to be shown.
  */
 @Composable
-internal fun HeroTitle(logoUrl: String?, title: String) {
+internal fun HeroTitle(logoUrl: String?, title: String, modifier: Modifier = Modifier) {
     val isTv = LocalIsTv.current
     TitleLogo(
         logoUrl = logoUrl,
@@ -160,6 +160,7 @@ internal fun HeroTitle(logoUrl: String?, title: String) {
             androidx.compose.material3.MaterialTheme.typography.headlineMedium
         },
         maxLines = 2,
+        modifier = modifier,
     )
 }
 

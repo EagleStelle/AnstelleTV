@@ -7,11 +7,13 @@ import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.data.Artwork
+import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.channels.toModel
 import tv.anstelle.core.data.guide.GuideRepository
 import tv.anstelle.core.data.guide.ProgramBadges
 import tv.anstelle.core.data.jellyfinImageUrl
 import tv.anstelle.core.data.programDetail
+import tv.anstelle.core.data.profiles.AgeRestriction
 import tv.anstelle.core.data.programTitle
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.MediaItemDao
@@ -23,6 +25,7 @@ import tv.anstelle.core.jellyfin.PlaystateFactory
 import tv.anstelle.core.jellyfin.auth.TokenStore
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.MediaType
+import tv.anstelle.core.model.RatingLimits
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -40,6 +43,12 @@ data class ChannelNow(
     val isEpisode: Boolean,
     val overview: String?,
     val artwork: Artwork,
+    /**
+     * Set when the program is over the profile's maturity rating: then [artwork] keeps only
+     * the logo (screens blur it with the title), [overview] is blacked out, and [endUtcMs] is
+     * the end of the whole run of restricted programs.
+     */
+    val restriction: AgeRestriction? = null,
 ) {
     val offAir: Boolean get() = mediaItemId == 0L
 }
@@ -92,12 +101,18 @@ data class ChannelPage(
     val episodes: List<EpisodeEntry>,
     /** The show's Jellyfin id, for its episodes' resume points; null for a movie. */
     val seriesRemoteId: String?,
+    /**
+     * Set when the program is over the profile's maturity rating: then its pictures and
+     * overview are blacked out and it can't be played on demand.
+     */
+    val restriction: AgeRestriction? = null,
 )
 
 /**
  * On demand from SQLite: what every channel airs, a channel's program and its show. Only
- * resume points ask the server. [maxRating] is the profile's rating limit (null for none);
- * unrated items never pass a limit.
+ * resume points ask the server. `maxRating` is the profile's maturity rating limit (null for
+ * none); unrated items never pass a limit. Channels are the same for every profile, so what a
+ * channel airs over the limit is still listed, blacked out.
  */
 @Singleton
 class OnDemandRepository @Inject constructor(
@@ -106,18 +121,20 @@ class OnDemandRepository @Inject constructor(
     private val itemDao: MediaItemDao,
     private val serverDao: MediaServerDao,
     private val tokens: TokenStore,
+    private val profiles: ProfileRepository,
     private val playstates: PlaystateFactory,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
     /** What each of [channels] airs at [atUtcMs], in one read; a channel with no schedule is left out. */
-    suspend fun nowOn(channels: List<Channel>, atUtcMs: Long): Map<Long, ChannelNow> = withContext(io) {
+    suspend fun nowOn(channels: List<Channel>, atUtcMs: Long, maxRating: Int?): Map<Long, ChannelNow> = withContext(io) {
         if (channels.isEmpty()) return@withContext emptyMap()
         val byId = channels.associateBy { it.id }
         val bases = baseUrls()
+        val limitName = limitName(maxRating)
         val maxSlot = scheduleDao.maxSlotMs()
         // SQLite on older Android allows 999 bound values per statement.
-        channels.map { it.id }.chunked(MAX_IDS_PER_QUERY)
-            .flatMap { scheduleDao.airingsAt(it, atUtcMs, maxSlot) }
+        val rows = channels.map { it.id }.chunked(MAX_IDS_PER_QUERY).flatMap { scheduleDao.airingsAt(it, atUtcMs, maxSlot) }
+        rows
             .mapNotNull { row ->
                 val channel = byId[row.channelId] ?: return@mapNotNull null
                 val item = row.mediaItemId
@@ -126,20 +143,23 @@ class OnDemandRepository @Inject constructor(
                 val now = if (item == null || title == null || remoteId == null) {
                     ChannelNow(channel, 0, row.startUtcMs, row.endUtcMs, GuideRepository.OFF_AIR_TITLE, null, false, null, Artwork.None)
                 } else {
+                    val restriction = AgeRestriction.of(row.officialRating, row.ratingScore, maxRating, limitName)
+                    val artwork = Artwork.of(
+                        row.serverId?.let(bases::get),
+                        remoteId, row.backdropImageTag, row.logoImageTag,
+                        row.seriesRemoteId, row.seriesBackdropImageTag, row.seriesLogoImageTag,
+                    )
                     ChannelNow(
                         channel = channel,
                         mediaItemId = item,
                         startUtcMs = row.startUtcMs,
-                        endUtcMs = row.endUtcMs,
+                        endUtcMs = if (restriction != null && maxRating != null) restrictedUntil(row.channelId, row.endUtcMs, maxRating) else row.endUtcMs,
                         title = programTitle(title, row.showTitle),
                         detail = programDetail(title, row.showTitle, row.season, row.episode, row.year),
                         isEpisode = row.showTitle != null,
-                        overview = row.overview?.takeIf { it.isNotBlank() },
-                        artwork = Artwork.of(
-                            row.serverId?.let(bases::get),
-                            remoteId, row.backdropImageTag, row.logoImageTag,
-                            row.seriesRemoteId, row.seriesBackdropImageTag, row.seriesLogoImageTag,
-                        ),
+                        overview = row.overview?.takeIf { it.isNotBlank() && restriction == null },
+                        artwork = if (restriction != null) artwork.copy(backdropUrl = null) else artwork,
+                        restriction = restriction,
                     )
                 }
                 row.channelId to now
@@ -164,12 +184,15 @@ class OnDemandRepository @Inject constructor(
         val base = serverDao.byId(entity.serverId)?.baseUrl
         val series = entity.seriesRemoteId?.let { itemDao.byRemoteId(entity.serverId, it) }
         val episodes = entity.seriesRemoteId?.let { itemDao.episodes(entity.serverId, it, MediaType.EPISODE, maxRating) }.orEmpty()
+        val restriction = AgeRestriction.of(entity.officialRating, entity.ratingScore, maxRating, limitName(maxRating))
         ChannelPage(
             channel = channel,
             startUtcMs = slot.startUtcMs,
-            endUtcMs = slot.endUtcMs,
+            endUtcMs = if (restriction != null && maxRating != null) restrictedUntil(channelId, slot.endUtcMs, maxRating) else slot.endUtcMs,
             onNow = onNow,
-            item = itemPage(entity, series, base),
+            item = itemPage(entity, series, base).let { page ->
+                if (restriction == null) page else page.copy(overview = null, imageUrl = null, artwork = page.artwork.copy(backdropUrl = null))
+            },
             episodes = episodes.map { episode ->
                 EpisodeEntry(
                     id = episode.id,
@@ -183,17 +206,26 @@ class OnDemandRepository @Inject constructor(
                 )
             },
             seriesRemoteId = entity.seriesRemoteId,
+            restriction = restriction,
         )
     }
 
+    /** Where the run of restricted programs ending one at [fromUtcMs] on [channelId] ends. */
+    private suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, maxRating: Int): Long =
+        scheduleDao.restrictedUntil(channelId, fromUtcMs, maxRating)?.coerceAtLeast(fromUtcMs) ?: fromUtcMs
+
+    /** [maxRating] named as the library names ratings; empty without a limit, which restricts nothing. */
+    private suspend fun limitName(maxRating: Int?): String =
+        if (maxRating == null) "" else RatingLimits.label(maxRating, profiles.ratingLevels())
+
     /**
-     * Where the signed-in user stopped in the page's program and, for a show, in each of its
-     * episodes, by local item id. Empty when the server can't be reached.
+     * Where [profileId]'s Jellyfin user stopped in the page's program and, for a show, in each
+     * of its episodes, by local item id. Empty when the server can't be reached.
      */
-    suspend fun resumePoints(page: ChannelPage): Map<Long, Long> = withContext(io) {
+    suspend fun resumePoints(page: ChannelPage, profileId: Long): Map<Long, Long> = withContext(io) {
         try {
             val item = itemDao.byId(page.item.id) ?: return@withContext emptyMap()
-            val playstate = playstate(item.serverId) ?: return@withContext emptyMap()
+            val playstate = playstate(item.serverId, profileId) ?: return@withContext emptyMap()
             val series = page.seriesRemoteId
             if (series == null) {
                 mapOf(item.id to playstate.resumePositionMs(item.remoteId)).filterValues { it > 0 }
@@ -209,11 +241,11 @@ class OnDemandRepository @Inject constructor(
         }
     }
 
-    /** Where the signed-in user stopped watching [itemId], or 0. */
-    suspend fun resumePositionMs(itemId: Long): Long = withContext(io) {
+    /** Where [profileId]'s Jellyfin user stopped watching [itemId], or 0. */
+    suspend fun resumePositionMs(itemId: Long, profileId: Long): Long = withContext(io) {
         try {
             val item = itemDao.byId(itemId) ?: return@withContext 0L
-            playstate(item.serverId)?.resumePositionMs(item.remoteId) ?: 0L
+            playstate(item.serverId, profileId)?.resumePositionMs(item.remoteId) ?: 0L
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -228,11 +260,11 @@ class OnDemandRepository @Inject constructor(
         itemDao.episodes(item.serverId, series, MediaType.EPISODE, maxRating)
     }
 
-    private suspend fun playstate(serverId: Long): Playstate? {
+    private suspend fun playstate(serverId: Long, profileId: Long): Playstate? {
         val server = serverDao.byId(serverId) ?: return null
-        val userId = server.userId ?: return null
         val token = tokens.get(server.jellyfinServerId) ?: return null
-        return playstates.create(server.baseUrl, token, userId)
+        val account = profiles.watchAccount(profileId, server, token) ?: return null
+        return playstates.create(server.baseUrl, account.accessToken, account.userId, account.device)
     }
 
     private fun itemPage(item: MediaItemEntity, series: MediaItemEntity?, base: String?): ItemPage {

@@ -1,5 +1,8 @@
 package tv.anstelle.feature.ondemand
 
+import tv.anstelle.core.theme.components.obscured
+import androidx.compose.material.icons.filled.Lock
+import tv.anstelle.core.data.profiles.AgeRestriction
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.indication
@@ -113,9 +116,13 @@ class ChannelViewModel @Inject constructor(
     private val _state = MutableStateFlow(ChannelUiState())
     val state: StateFlow<ChannelUiState> = _state.asStateFlow()
 
+    private var profileId = 0L
+
     init {
         viewModelScope.launch {
-            val limit = profiles.ensureActiveProfile().maxRatingScore
+            val profile = profiles.ensureActiveProfile()
+            profileId = profile.id
+            val limit = profile.maxRatingScore
             val now = time.nowUtcMs()
             _state.value = ChannelUiState(repository.channelPage(channelId, now, limit), loaded = true, openedAtMs = now)
             refreshResume()
@@ -126,7 +133,7 @@ class ChannelViewModel @Inject constructor(
     fun refreshResume() {
         val page = _state.value.page ?: return
         viewModelScope.launch {
-            val resume = repository.resumePoints(page)
+            val resume = repository.resumePoints(page, profileId)
             _state.update { it.copy(resume = resume) }
         }
     }
@@ -143,7 +150,8 @@ fun ChannelScreen(
     onWatchLive: (channelNumber: Int) -> Unit,
     onStartOver: (channelNumber: Int) -> Unit,
     onPlay: (itemId: Long, positionMs: Long) -> Unit,
-    onAddToChannel: (itemId: Long) -> Unit,
+    /** Null for a member: adding to a channel is the owner's and admins'. */
+    onAddToChannel: ((itemId: Long) -> Unit)?,
     onGone: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ChannelViewModel = hiltViewModel(),
@@ -201,7 +209,7 @@ fun ChannelScreen(
         return true
     }
     // The ways to watch, then adding the show to a channel, as one row of keys.
-    val keys = choices + WatchChoice(WatchKind.ADD_TO_CHANNEL, "Add to a channel", detail = "")
+    val keys = choices + listOfNotNull(WatchChoice(WatchKind.ADD_TO_CHANNEL, "Add to a channel", detail = "").takeIf { onAddToChannel != null })
 
     val hero: @Composable ColumnScope.() -> Unit = { Hero(page, clock.value) }
     Page(item.artwork.backdropUrl, hero, modifier, listState = listState) {
@@ -223,7 +231,7 @@ fun ChannelScreen(
                                     WatchKind.LIVE -> onWatchLive(page.channel.number)
                                     WatchKind.RESTART -> onStartOver(page.channel.number)
                                     WatchKind.PLAY -> onPlay(item.id, choice.positionMs)
-                                    WatchKind.ADD_TO_CHANNEL -> onAddToChannel(item.id)
+                                    WatchKind.ADD_TO_CHANNEL -> onAddToChannel?.invoke(item.id)
                                 }
                             },
                             // Touch has no focus to lead with: the first key is the primary instead.
@@ -268,12 +276,12 @@ fun ChannelScreen(
         val resume = state.resume[episode.id]?.takeIf { it < episode.durationMs * RESUME_LIMIT_PERCENT / 100 } ?: 0
         // The episode on the channel offers what the page's actions do, live included.
         val episodeChoices = if (episode.id == item.id) {
-            choices + WatchChoices.addToChannel(isMovie = false)
+            choices + listOfNotNull(WatchChoices.addToChannel(isMovie = false).takeIf { onAddToChannel != null })
         } else {
             listOfNotNull(
                 resume.takeIf { it > 0 }?.let(WatchChoices::resume),
                 WatchChoices.playFromStart,
-                WatchChoices.addToChannel(isMovie = false),
+                WatchChoices.addToChannel(isMovie = false).takeIf { onAddToChannel != null },
             )
         }
         val dismiss = {
@@ -289,7 +297,7 @@ fun ChannelScreen(
                         WatchKind.LIVE -> onWatchLive(page.channel.number)
                         WatchKind.RESTART -> onStartOver(page.channel.number)
                         WatchKind.PLAY -> onPlay(episode.id, choice.positionMs)
-                        WatchKind.ADD_TO_CHANNEL -> onAddToChannel(episode.id)
+                        WatchKind.ADD_TO_CHANNEL -> onAddToChannel?.invoke(episode.id)
                     }
                 }
             },
@@ -317,10 +325,14 @@ fun ChannelScreen(
 /**
  * The ways to watch the page's program, in the guide's own words: live on the channel, the
  * channel from the program's start, on demand from the start or from where the channel is.
+ * A program over the profile's maturity rating only offers the channel, which stays dark.
  */
 private fun topicChoices(page: ChannelPage, nowMs: Long): List<WatchChoice> {
     val item = page.item
     val tense = if (page.onNow) AiringTense.of(page.startUtcMs, page.endUtcMs, nowMs) else AiringTense.LATER
+    if (page.restriction != null) {
+        return listOfNotNull(WatchChoices.liveRestricted(page.endUtcMs).takeIf { tense == AiringTense.ON_NOW })
+    }
     return if (tense == AiringTense.ON_NOW) {
         WatchChoices.onNow(page.channel.number, page.channel.name, page.startUtcMs, page.endUtcMs, nowMs, item.isEpisode)
     } else {
@@ -419,15 +431,18 @@ private fun ColumnScope.Hero(page: ChannelPage, nowMs: Long) {
     // An episode shows its own still, wide; a movie its poster.
     val wide = item.isEpisode
     Row(horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else 16.dp), verticalAlignment = Alignment.Bottom) {
+        val restricted = page.restriction != null
         Poster(
             item.imageUrl,
-            item.title,
+            // An age-restricted program's placeholder shows no letter of its title.
+            item.title.takeUnless { restricted }.orEmpty(),
             Modifier.width(if (wide) (if (isTv) 240.dp else 160.dp) else (if (isTv) 120.dp else 104.dp)).aspectRatio(if (wide) 16f / 9f else 2f / 3f),
         )
         Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
-            HeroTitle(item.artwork.logoUrl, item.title)
+            // An age-restricted program's title, logo and episode are blurred.
+            HeroTitle(item.artwork.logoUrl, item.title, Modifier.obscured(restricted, theme.textMuted, radius = 12.dp))
             lineUnderLogo(item.detail, item.title, item.isEpisode, item.artwork.logoUrl != null)?.let {
-                androidx.compose.material3.Text(it, style = typography.titleLarge, color = theme.text)
+                androidx.compose.material3.Text(it, style = typography.titleLarge, color = theme.text, modifier = Modifier.obscured(restricted, theme.textMuted, radius = 6.dp))
             }
             if (isTv) Facts(item.facts, item.badges)
         }
@@ -439,6 +454,17 @@ private fun ColumnScope.Hero(page: ChannelPage, nowMs: Long) {
         // Phones keep the TV's segment pitch with half the segments.
         if (status.onAir == true) {
             SegmentLadder(progress(page.startUtcMs, page.endUtcMs, nowMs), Modifier.width(if (isTv) 240.dp else 120.dp), segments = if (isTv) 24 else 12)
+        }
+    }
+    // Over the profile's maturity rating the overview is blacked out with the pictures.
+    page.restriction?.let { restriction ->
+        Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.Icon(Icons.Filled.Lock, contentDescription = null, tint = theme.textMuted, modifier = Modifier.size(18.dp))
+            androidx.compose.material3.Text(
+                "${AgeRestriction.TITLE.uppercase()}  ·  ${restriction.detail.uppercase()}",
+                style = typography.labelMedium,
+                color = theme.textMuted,
+            )
         }
     }
     // Three lines on TV keep the actions on the first screen under the program.

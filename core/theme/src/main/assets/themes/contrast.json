@@ -1,0 +1,36 @@
+{
+    "key": "contrast",
+    "name": "High contrast",
+    "version": 1,
+    "colors": {
+        "background": "#000000",
+        "surface": "#1C1C1C",
+        "surfaceHigh": "#2E2E2E",
+        "line": "#7A7A7A",
+        "text": "#FFFFFF",
+        "textMuted": "#D6D6D6",
+        "accent": "#FFE14D",
+        "onAccent": "#000000",
+        "accentContainer": "#4A4000",
+        "onAccentContainer": "#FFF3B0",
+        "guideCell": "#1C1C1C",
+        "guideCellPast": "#0E0E0E",
+        "guideRuns": ["#00363A", "#3F2A00", "#14294D", "#173D12"],
+        "nowLine": "#FFE14D",
+        "banner": "#1C1C1C",
+        "bannerText": "#FFFFFF"
+    },
+    "typography": {
+        "display": "CONDENSED",
+        "body": "SANS",
+        "scale": 1.1
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": false,
+        "scanlineAlpha": 0.14
+    }
+}

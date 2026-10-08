@@ -11,6 +11,7 @@ import tv.anstelle.core.model.RuleField
 import tv.anstelle.core.model.RuleOp
 import tv.anstelle.core.model.SeasonMode
 import tv.anstelle.core.model.SlotKind
+import tv.anstelle.core.model.ProfileRole
 import tv.anstelle.core.model.WatchSource
 import tv.anstelle.core.model.codeOf
 
@@ -43,6 +44,8 @@ internal class Converters {
     @TypeConverter fun fromHdrType(value: HdrType): Int = value.code
     @TypeConverter fun toHdrType(code: Int): HdrType = codeOf(code)
 
+    @TypeConverter fun fromProfileRole(value: ProfileRole): Int = value.code
+    @TypeConverter fun toProfileRole(code: Int): ProfileRole = codeOf(code)
     @TypeConverter fun fromWatchSource(value: WatchSource): Int = value.code
     @TypeConverter fun toWatchSource(code: Int): WatchSource = codeOf(code)
 

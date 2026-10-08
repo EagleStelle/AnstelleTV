@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -27,10 +28,12 @@ import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.Artwork
+import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ScheduleRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.channels.ScheduleUpdater
+import tv.anstelle.core.data.profiles.AgeRestriction
 import tv.anstelle.core.data.programDetail
 import tv.anstelle.core.data.programTitle
 import tv.anstelle.core.database.dao.MediaItemDao
@@ -41,6 +44,7 @@ import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.jellyfin.auth.TokenStore
 import tv.anstelle.core.model.Channel
+import tv.anstelle.core.model.RatingLimits
 import tv.anstelle.core.model.SlotKind
 import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.player.CapabilityProbe
@@ -68,9 +72,12 @@ data class ProgramInfo(
     val logoUrl: String? = null,
     /** True for an episode, false for a movie or anything else without a show. */
     val isEpisode: Boolean = false,
+    /** Over the profile's maturity rating: banners blur the title and logo. */
+    val restricted: Boolean = false,
 )
 
-enum class TuneStatus { IDLE, TUNING, PLAYING, OFF_AIR, NO_SCHEDULE, ERROR }
+/** [RESTRICTED]: the program on now is over the profile's maturity rating, so the screen stays black. */
+enum class TuneStatus { IDLE, TUNING, PLAYING, OFF_AIR, RESTRICTED, NO_SCHEDULE, ERROR }
 
 data class PlaybackState(
     val channel: Channel? = null,
@@ -81,6 +88,8 @@ data class PlaybackState(
     /** The server, play method and picture and sound of the program on now. */
     val stream: StreamFacts? = null,
     val message: String? = null,
+    /** Why the program on now is blacked out, while [status] is [TuneStatus.RESTRICTED]. */
+    val restriction: AgeRestriction? = null,
     /** Goes up with every tune, so the screen knows to show the info banner. */
     val tuneCount: Int = 0,
 )
@@ -113,13 +122,17 @@ private class Program(
  *   queued, and when the new program is more than [MAX_DRIFT_MS] behind the wall clock (after
  *   buffering, say) it seeks ahead. A program with ASS subtitles isn't queued that way
  *   ([ProgramStream.chainsWith]): it starts on its own when the one before it ends.
- * - **Tracks:** each program starts on the profile's audio and subtitle defaults.
+ * - **Tracks:** each program starts on the watching profile's audio and subtitle defaults,
+ *   and its watch history goes to that profile's Jellyfin user.
  * - **Pool:** the channel in the surfing direction (or the one focused in the guide) is
  *   pre-warmed on the standby player, and tuning to it swaps the players.
  * - **Seeking** works as in any video, and the channel's schedule moves with it: the airing
  *   now starts where the new position puts it, and everything after it on the channel moves by
  *   the same amount, so the guide and the next program follow what is on screen.
  * - **Off air** shows until the off-air stretch ends, then the channel tunes itself again.
+ * - **Age restricted:** channels are the same for every profile, so a program over the
+ *   watching profile's maturity rating (or unrated, under a limit) still airs. The screen stays
+ *   black, says why, and tunes again when the program ends; it is never queued or pre-warmed.
  * - **Fallback:** a file the device turns out not to play is retried once through Jellyfin's
  *   HLS transcoding.
  * - **Screens:** the full-screen player and the guide's preview window share the playback.
@@ -144,6 +157,7 @@ class ChannelPlayer @Inject constructor(
     private val tracks: TrackChoices,
     private val fonts: FontCache,
     private val settings: SettingsRepository,
+    private val profiles: ProfileRepository,
     private val time: TimeSource,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
@@ -172,7 +186,9 @@ class ChannelPlayer @Inject constructor(
     private var trace: TuneTrace? = null
     private var retriedSlot = Long.MIN_VALUE
 
-    /** The tuned profile's audio and subtitle defaults. */
+    /** The watching profile, read at every tune: its defaults, history and maturity rating apply. */
+    private var profileId = 0L
+    private var limit: Int? = null
     private var prefs = TrackPrefs()
 
     private var tuneJob: Job? = null
@@ -317,8 +333,11 @@ class ChannelPlayer @Inject constructor(
         _state.update {
             PlaybackState(channel = channel, status = TuneStatus.TUNING, tuneCount = it.tuneCount + if (after == null) 1 else 0)
         }
-        settings.set(Settings.lastChannel(channel.profileId), channel.id)
-        prefs = tracks.prefs(channel.profileId)
+        val profile = profiles.observeActiveProfile().first()
+        profileId = profile.id
+        limit = profile.maxRatingScore
+        settings.set(Settings.lastChannel(profileId), channel.id)
+        prefs = tracks.prefs(profileId)
 
         val now = time.nowUtcMs()
         val slot = slotAt(channel.id, maxOf(now, after ?: now), scheduleIfMissing = true)
@@ -329,6 +348,11 @@ class ChannelPlayer @Inject constructor(
         }
         if (slot.kind == SlotKind.OFF_AIR) {
             offAir(channel, slot)
+            return
+        }
+        val item = slot.mediaItemId?.let { itemDao.byId(it) }
+        if (item != null && !allowed(item)) {
+            restricted(channel, slot, item)
             return
         }
         val program = resolve(slot, forceTranscode = false)
@@ -419,18 +443,32 @@ class ChannelPlayer @Inject constructor(
         return Program(slot, item, server, token, stream, logoUrl(item, server))
     }
 
-    /** The program right after [slot], or null when the channel goes off air or has nothing scheduled. */
+    /**
+     * The program right after [slot], or null when the channel goes off air, has nothing
+     * scheduled, or airs something the profile may not watch.
+     */
     private suspend fun nextProgram(slot: ScheduleSlotEntity): Program? {
         val next = scheduleDao.slotsFrom(slot.channelId, slot.endUtcMs, 1).firstOrNull() ?: return null
         if (next.kind != SlotKind.PROGRAM || next.startUtcMs != slot.endUtcMs) return null
-        return resolve(next, forceTranscode = false)
+        return resolve(next, forceTranscode = false)?.takeIf { allowed(it.item) }
     }
 
+    private fun allowed(item: MediaItemEntity) = RatingLimits.allows(limit, item.ratingScore)
+
     /** What follows [slot] for the banner, including an off-air stretch. */
-    private suspend fun upcoming(slot: ScheduleSlotEntity): ProgramInfo? {
-        val next = scheduleDao.slotsFrom(slot.channelId, slot.endUtcMs, 1).firstOrNull() ?: return null
+    private suspend fun upcoming(slot: ScheduleSlotEntity): ProgramInfo? = upcomingAt(slot.channelId, slot.endUtcMs)
+
+    /**
+     * What airs on [channelId] from [fromUtcMs] for the banner, including an off-air stretch. A
+     * program the profile may not watch is marked, and shown as one stretch with the restricted
+     * programs after it.
+     */
+    private suspend fun upcomingAt(channelId: Long, fromUtcMs: Long): ProgramInfo? {
+        val next = scheduleDao.slotsFrom(channelId, fromUtcMs, 1).firstOrNull() ?: return null
         val item = next.mediaItemId?.let { itemDao.byId(it) } ?: return ProgramInfo(OFF_AIR_TITLE, null, next.startUtcMs, next.endUtcMs)
-        return programInfo(item, next.startUtcMs, next.endUtcMs, serverDao.byId(item.serverId)?.let { logoUrl(item, it) })
+        val restricted = !allowed(item)
+        val end = if (restricted) runEnd(next) else next.endUtcMs
+        return programInfo(item, next.startUtcMs, end, serverDao.byId(item.serverId)?.let { logoUrl(item, it) }, restricted)
     }
 
     /** [item]'s title logo, or its show's for an episode. */
@@ -453,6 +491,38 @@ class ChannelPlayer @Inject constructor(
             delay(slot.endUtcMs - time.nowUtcMs() + RETUNE_GRACE_MS)
             tuneNow(channel)
         }
+    }
+
+    /**
+     * Blacks out [item], airing on [slot], and every restricted program straight after it, as
+     * one stretch; when the stretch ends the channel tunes itself again.
+     */
+    private suspend fun restricted(channel: Channel, slot: ScheduleSlotEntity, item: MediaItemEntity) {
+        stopActive()
+        trace = null
+        val limitName = RatingLimits.label(limit, profiles.ratingLevels())
+        val until = runEnd(slot)
+        val server = serverDao.byId(item.serverId)
+        _state.update {
+            it.copy(
+                status = TuneStatus.RESTRICTED,
+                // The picture is blacked out; the banner blurs the title and logo.
+                now = programInfo(item, slot.startUtcMs, until, server?.let { s -> logoUrl(item, s) }, restricted = true),
+                next = upcomingAt(slot.channelId, until),
+                restriction = AgeRestriction(item.officialRating, limitName),
+            )
+        }
+        AppLog.i(TAG, "Channel ${channel.number}: over the profile's rating limit until ${until - slot.startUtcMs} ms from item ${item.id}'s start")
+        waitJob = scope.launch {
+            delay(until - time.nowUtcMs() + RETUNE_GRACE_MS)
+            tuneNow(channel)
+        }
+    }
+
+    /** Where the run of restricted programs [slot] starts ends: the first program the profile may watch, or off air. */
+    private suspend fun runEnd(slot: ScheduleSlotEntity): Long {
+        val max = limit ?: return slot.endUtcMs
+        return withContext(io) { scheduleDao.restrictedUntil(slot.channelId, slot.endUtcMs, max) }?.coerceAtLeast(slot.endUtcMs) ?: slot.endUtcMs
     }
 
     private fun failAndRetry(message: String) {
@@ -520,7 +590,12 @@ class ChannelPlayer @Inject constructor(
             standby.player.seekTo(0, now - slot.startUtcMs)
             return
         }
-        val program = resolve(slot, forceTranscode = false) ?: return
+        val program = resolve(slot, forceTranscode = false)?.takeIf { allowed(it.item) }
+        if (program == null) {
+            pool.stop(standby)
+            standbyQueue = emptyList()
+            return
+        }
         val next = nextProgram(slot)?.takeIf { program.stream.chainsWith(it.stream) }
         pool.quiet(standby, withContext(io) { probe.capabilities }.concurrentVideoDecoders)
         val programs = listOfNotNull(program, next)
@@ -539,7 +614,7 @@ class ChannelPlayer @Inject constructor(
     }
 
     private fun startSession(program: Program, positionMs: Long) {
-        val profileId = current?.profileId ?: return
+        if (current == null) return
         session = reporter.start(
             item = program.item,
             server = program.server,
@@ -678,13 +753,14 @@ class ChannelPlayer @Inject constructor(
 
 private fun MediaItemEntity.streamInfo() = StreamInfo(container, videoCodec, audioCodec, width, height, videoBitDepth)
 
-private fun programInfo(item: MediaItemEntity, startUtcMs: Long, endUtcMs: Long, logoUrl: String? = null) = ProgramInfo(
+private fun programInfo(item: MediaItemEntity, startUtcMs: Long, endUtcMs: Long, logoUrl: String? = null, restricted: Boolean = false) = ProgramInfo(
     title = programTitle(item.title, item.showTitle),
     detail = programDetail(item.title, item.showTitle, item.season, item.episode, item.year),
     startUtcMs = startUtcMs,
     endUtcMs = endUtcMs,
     logoUrl = logoUrl,
     isEpisode = item.showTitle != null,
+    restricted = restricted,
 )
 
 /** The text track type, for screens that don't depend on Media3 directly. */

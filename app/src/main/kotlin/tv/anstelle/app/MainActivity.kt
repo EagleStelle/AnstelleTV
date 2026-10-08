@@ -37,19 +37,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val isTv = isTvDevice()
-        // The app is always dark, so system bar icons must be light whatever the system theme is.
-        if (!isTv) {
-            enableEdgeToEdge(
-                statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-                navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-            )
-        }
+        // System bar icons follow the theme's ground, whatever the system theme is: dark themes
+        // come first, so they start light.
+        if (!isTv) systemBars(light = false)
         super.onCreate(savedInstanceState)
-        setContent { AnstelleApp(isTv = isTv) }
+        setContent { AnstelleApp(isTv = isTv, onLightTheme = { light -> if (!isTv) systemBars(light) }) }
         if (BuildConfig.DEBUG) JankStats.createAndTrack(window, JankLogger())
 
         // Everything that is not needed for the first frame starts right after it is drawn.
         window.decorView.post { startDeferredWork(isTv) }
+    }
+
+    private fun systemBars(light: Boolean) {
+        val style = if (light) SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT) else SystemBarStyle.dark(Color.TRANSPARENT)
+        enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
     }
 
     private fun startDeferredWork(isTv: Boolean) {

@@ -25,16 +25,16 @@ class ChannelSetup(
 /** Turns a stored channel and the library into scheduler inputs. Pure. */
 object ChannelInputs {
     /**
-     * - The base lineup is matched against [catalog]; with [maxRatingScore] (a kid profile)
-     *   only items rated at or below it are candidates.
+     * - The base lineup is matched against [catalog]. Every profile shares the schedule, so no
+     *   profile's rating limit applies here; what a profile may not watch is blacked out on air.
      * - Seasons that override the rules become seasonal pools, keyed by the season's id.
      *   Seasons that only control visibility don't affect the schedule.
      * - A daypart may name a rule group (`ruleLogicGroup`). That group then only applies
      *   inside the daypart, as an extra filter, and is left out of the base lineup.
      */
-    fun build(setup: ChannelSetup, catalog: Catalog, maxRatingScore: Int?, zone: ZoneId): ScheduleInputs {
+    fun build(setup: ChannelSetup, catalog: Catalog, zone: ZoneId): ScheduleInputs {
         val channel = setup.channel
-        val items = catalog.items.filter { it.allowedFor(maxRatingScore) }
+        val items = catalog.items
         val base = LineupRows.decode(setup.rules.filter { it.seasonId == null })
         val daypartGroups = setup.dayparts.mapNotNullTo(HashSet()) { it.ruleLogicGroup }
 

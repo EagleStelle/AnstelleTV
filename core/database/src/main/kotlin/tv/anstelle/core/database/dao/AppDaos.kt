@@ -26,14 +26,29 @@ interface ProfileDao {
     @Query("SELECT * FROM profile WHERE id = :id")
     suspend fun byId(id: Long): ProfileEntity?
 
-    @Query("SELECT COUNT(*) FROM profile")
-    suspend fun count(): Int
+    @Query("SELECT * FROM profile WHERE id = :id")
+    fun observe(id: Long): Flow<ProfileEntity?>
+
+
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) FROM profile")
+    suspend fun maxSortOrder(): Int
 
     @Upsert
     suspend fun upsert(profile: ProfileEntity): Long
 
     @Query("DELETE FROM profile WHERE id = :id")
     suspend fun delete(id: Long)
+
+    /** Profiles whose watch history goes to a user of their own on [serverId]. */
+    @Query("SELECT * FROM profile WHERE serverId = :serverId AND jellyfinUserId IS NOT NULL")
+    suspend fun linkedTo(serverId: Long): List<ProfileEntity>
+
+    @Query("UPDATE profile SET serverId = :serverId, jellyfinUserId = :userId, jellyfinUserName = :userName, jellyfinDevice = :device WHERE id = :id")
+    suspend fun setAccount(id: Long, serverId: Long?, userId: String?, userName: String?, device: String?)
+
+    /** Profiles on a theme that is going away fall back to the default. */
+    @Query("UPDATE profile SET themeId = NULL WHERE themeId = :themeId")
+    suspend fun clearTheme(themeId: Long)
 }
 
 @Dao
@@ -81,11 +96,23 @@ interface ThemeDao {
     @Query("SELECT * FROM theme WHERE id = :id")
     suspend fun byId(id: Long): ThemeEntity?
 
+    @Query("SELECT * FROM theme WHERE id = :id")
+    fun observe(id: Long): Flow<ThemeEntity?>
+
     @Query("SELECT * FROM theme WHERE builtInKey = :key")
     suspend fun byBuiltInKey(key: String): ThemeEntity?
 
+    @Query("SELECT * FROM theme WHERE isBuiltIn = 1")
+    suspend fun builtIns(): List<ThemeEntity>
+
+    @Query("SELECT name FROM theme")
+    suspend fun names(): List<String>
+
     @Upsert
     suspend fun upsert(theme: ThemeEntity): Long
+
+    @Query("DELETE FROM theme WHERE id = :id")
+    suspend fun delete(id: Long)
 }
 
 @Dao
@@ -128,4 +155,8 @@ interface SettingDao {
 
     @Query("DELETE FROM setting WHERE `key` = :key")
     suspend fun remove(key: String)
+
+    /** Removes every per-profile setting of [profileId]: their keys all end in `.<profileId>`. */
+    @Query("DELETE FROM setting WHERE `key` LIKE '%.' || :profileId")
+    suspend fun removeForProfile(profileId: Long)
 }

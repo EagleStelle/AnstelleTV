@@ -19,45 +19,39 @@ import tv.anstelle.core.model.RuleOp
 
 @Dao
 interface ChannelDao {
-    @Query("SELECT * FROM channel WHERE profileId = :profileId ORDER BY number")
-    fun observeAll(profileId: Long): Flow<List<ChannelEntity>>
-
-    @Query("SELECT * FROM channel WHERE profileId = :profileId AND isHidden = 0 ORDER BY number")
-    fun observeVisible(profileId: Long): Flow<List<ChannelEntity>>
+    @Query("SELECT * FROM channel ORDER BY number")
+    fun observeAll(): Flow<List<ChannelEntity>>
 
     @Query("SELECT * FROM channel WHERE id = :id")
     fun observe(id: Long): Flow<ChannelEntity?>
 
-    @Query("SELECT * FROM channel ORDER BY profileId, number")
+    @Query("SELECT * FROM channel ORDER BY number")
     suspend fun all(): List<ChannelEntity>
-
-    @Query("SELECT * FROM channel WHERE profileId = :profileId ORDER BY number")
-    suspend fun forProfile(profileId: Long): List<ChannelEntity>
 
     @Query("SELECT * FROM channel WHERE id = :id")
     suspend fun byId(id: Long): ChannelEntity?
 
-    @Query("SELECT * FROM channel WHERE profileId = :profileId AND number = :number LIMIT 1")
-    suspend fun byNumber(profileId: Long, number: Int): ChannelEntity?
+    @Query("SELECT * FROM channel WHERE number = :number LIMIT 1")
+    suspend fun byNumber(number: Int): ChannelEntity?
 
-    @Query("SELECT COALESCE(MAX(number), 0) FROM channel WHERE profileId = :profileId")
-    suspend fun maxNumber(profileId: Long): Int
+    @Query("SELECT COALESCE(MAX(number), 0) FROM channel")
+    suspend fun maxNumber(): Int
 
     /** Library channels stop following the library once edited. */
     @Query("UPDATE channel SET isManaged = 0 WHERE id = :id")
     suspend fun stopManaging(id: Long)
 
-    @Query("SELECT autoKey FROM dismissed_channel WHERE profileId = :profileId")
-    suspend fun dismissedKeys(profileId: Long): List<String>
+    @Query("SELECT autoKey FROM dismissed_channel")
+    suspend fun dismissedKeys(): List<String>
 
-    @Query("SELECT COUNT(*) FROM dismissed_channel WHERE profileId = :profileId")
-    fun observeDismissedCount(profileId: Long): Flow<Int>
+    @Query("SELECT COUNT(*) FROM dismissed_channel")
+    fun observeDismissedCount(): Flow<Int>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun dismiss(dismissed: DismissedChannelEntity)
 
-    @Query("DELETE FROM dismissed_channel WHERE profileId = :profileId AND autoKey = :autoKey")
-    suspend fun undismiss(profileId: Long, autoKey: String)
+    @Query("DELETE FROM dismissed_channel WHERE autoKey = :autoKey")
+    suspend fun undismiss(autoKey: String)
 
     @Insert
     suspend fun insert(channel: ChannelEntity): Long
@@ -84,25 +78,20 @@ interface ChannelDao {
     suspend fun setNumber(id: Long, number: Int, atUtcMs: Long)
 
     /**
-     * Gives [channel] [number]. A channel of the same profile that already has the number
-     * takes [channel]'s old number, so numbers stay unique.
+     * Gives [channel] [number]. A channel that already has the number takes [channel]'s old
+     * number, so numbers stay unique.
      */
     @Transaction
     suspend fun renumber(channel: ChannelEntity, number: Int, atUtcMs: Long) {
-        byNumber(channel.profileId, number)?.let { other ->
+        byNumber(number)?.let { other ->
             if (other.id != channel.id) setNumber(other.id, channel.number, atUtcMs)
         }
         setNumber(channel.id, number, atUtcMs)
     }
 
-    /** The channels of [profileId] that always include [remoteId] in their own lineup. */
-    @Query(
-        """
-        SELECT DISTINCT r.channelId FROM channel_rule r JOIN channel c ON c.id = r.channelId
-        WHERE c.profileId = :profileId AND r.seasonId IS NULL AND r.op = :includeOp AND r.value = :remoteId
-        """,
-    )
-    suspend fun channelsIncluding(profileId: Long, remoteId: String, includeOp: RuleOp): List<Long>
+    /** The channels that always include [remoteId] in their own lineup. */
+    @Query("SELECT DISTINCT channelId FROM channel_rule WHERE seasonId IS NULL AND op = :includeOp AND value = :remoteId")
+    suspend fun channelsIncluding(remoteId: String, includeOp: RuleOp): List<Long>
 
     /** All rule rows of a channel: its own, its seasons' and its dayparts'. */
     @Query("SELECT * FROM channel_rule WHERE channelId = :channelId ORDER BY seasonId, logicGroup, id")
@@ -139,11 +128,11 @@ interface ChannelDao {
     @Upsert
     suspend fun upsertDaypart(daypart: ChannelDaypartEntity): Long
 
-    @Query("SELECT * FROM channel_group WHERE profileId = :profileId ORDER BY sortOrder, id")
-    fun observeGroups(profileId: Long): Flow<List<ChannelGroupEntity>>
+    @Query("SELECT * FROM channel_group ORDER BY sortOrder, id")
+    fun observeGroups(): Flow<List<ChannelGroupEntity>>
 
-    @Query("SELECT * FROM channel_group WHERE profileId = :profileId ORDER BY sortOrder, id")
-    suspend fun groups(profileId: Long): List<ChannelGroupEntity>
+    @Query("SELECT * FROM channel_group ORDER BY sortOrder, id")
+    suspend fun groups(): List<ChannelGroupEntity>
 
     @Query("SELECT * FROM channel_group WHERE id = :id")
     suspend fun groupById(id: Long): ChannelGroupEntity?

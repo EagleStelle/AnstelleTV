@@ -1,5 +1,10 @@
 package tv.anstelle.core.theme
 
+import tv.anstelle.core.model.FontChoice
+import tv.anstelle.core.model.ThemeColors
+import tv.anstelle.core.model.ThemeSpec
+import tv.anstelle.core.model.ThemeTypography
+
 /**
  * Fallback theme used for the first frame, before the profile's theme is read from the
  * database. It mirrors `assets/themes/rose.json`; a unit test keeps them equal.

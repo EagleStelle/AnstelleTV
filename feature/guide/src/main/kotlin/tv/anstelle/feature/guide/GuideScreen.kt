@@ -1,5 +1,11 @@
 package tv.anstelle.feature.guide
 
+import tv.anstelle.core.theme.components.obscured
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Lock
+import tv.anstelle.core.data.profiles.AgeRestriction
+import tv.anstelle.core.theme.components.AgeRestrictedMark
+import tv.anstelle.core.theme.components.RestrictedSize
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
@@ -100,6 +106,8 @@ internal data class SelectedProgram(
     val detail: String?,
     val startUtcMs: Long,
     val endUtcMs: Long,
+    /** Over the profile's maturity rating: blacked out, and never played on demand. */
+    val restricted: Boolean = false,
 ) {
     fun isOn(nowMs: Long) = nowMs in startUtcMs until endUtcMs
 }
@@ -117,8 +125,10 @@ fun GuideScreen(
     onWatch: (channelNumber: Int) -> Unit,
     onStartOver: (channelNumber: Int) -> Unit,
     onPlayOnDemand: (itemId: Long, positionMs: Long) -> Unit,
-    onAddToChannel: (itemId: Long) -> Unit,
-    onOpenSettings: () -> Unit,
+    /** Null for a member: adding to a channel is the owner's and admins'. */
+    onAddToChannel: ((itemId: Long) -> Unit)?,
+    /** Null for a member, who has no channels or servers to set up. */
+    onOpenSettings: (() -> Unit)?,
     modifier: Modifier = Modifier,
     viewModel: GuideViewModel = hiltViewModel(),
 ) {
@@ -139,11 +149,15 @@ fun GuideScreen(
     if (!state.loaded) return
     if (!state.hasChannels) {
         val actions = remember(onOpenSettings) {
-            listOf(PlaceholderAction("Settings", "Connect a Jellyfin server, then add channels", Icons.Filled.Settings, onOpenSettings))
+            listOfNotNull(onOpenSettings?.let { PlaceholderAction("Settings", "Connect a Jellyfin server, then add channels", Icons.Filled.Settings, it) })
         }
         PlaceholderScreen(
             title = "Live TV",
-            description = "No channels yet. They are made from your library after it syncs, or built in Settings, Channels.",
+            description = if (onOpenSettings != null) {
+                "No channels yet. They are made from your library after it syncs, or built in Settings, Channels."
+            } else {
+                "No channels yet. They appear once the owner or an admin connects a Jellyfin server."
+            },
             actions = actions,
             modifier = modifier,
         )
@@ -198,7 +212,7 @@ fun GuideScreen(
     if (isTv) LaunchedEffect(Unit) { runCatching { gridFocus.requestFocus() } }
 
     val selected by remember(state.channels) {
-        derivedStateOf { selectedProgram(state.channels, strips.value, grid) }
+        derivedStateOf { selectedProgram(state.channels, strips.value, grid, state.ratingLimit) }
     }
     LaunchedEffect(selected?.channel?.id, selected?.mediaItemId) {
         selected?.let { viewModel.focus(it.channel.id, it.mediaItemId) }
@@ -260,7 +274,7 @@ fun GuideScreen(
                         edgeToEdge = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Details(selected, details, playback, edgeToEdge = true, modifier = Modifier.fillMaxWidth())
+                    Details(selected, details, playback, state, edgeToEdge = true, modifier = Modifier.fillMaxWidth())
                 }
             } else {
                 // The preview and the details meet with no gap: one band of picture across the top.
@@ -271,14 +285,14 @@ fun GuideScreen(
                         onWatch = { playback.channel?.let { openPlayer(it.number) } },
                         modifier = Modifier.fillMaxHeight(),
                     )
-                    Details(selected, details, playback, Modifier.weight(1f))
+                    Details(selected, details, playback, state, Modifier.weight(1f))
                 }
             }
             Tabs(state.tabs, state.tab, viewModel::selectTab, Modifier.padding(horizontal = if (stacked) side else 0.dp))
             if (state.channels.isEmpty()) {
                 androidx.compose.material3.Text(
                     if (state.tab == GuideViewModel.TAB_FAVORITES) {
-                        "No favorite channels yet. Mark favorites in Settings, Channels."
+                        if (onOpenSettings != null) "No favorite channels yet. Mark favorites in Settings, Channels." else "No favorite channels yet."
                     } else {
                         "No channels here."
                     },
@@ -290,6 +304,7 @@ fun GuideScreen(
                 GuideGrid(
                     channels = state.channels,
                     strips = strips,
+                    ratingLimit = state.ratingLimit,
                     grid = grid,
                     listState = listState,
                     now = now,
@@ -307,9 +322,15 @@ fun GuideScreen(
             val nowMs = remember(program) { System.currentTimeMillis() }
             // A movie's year is its whole detail line; the loaded details say for sure when they match.
             val isMovie = details?.takeIf { it.mediaItemId == program.mediaItemId }?.isEpisode?.not() ?: (program.detail?.toIntOrNull() != null)
+            val choices = remember(program, isMovie) { programChoices(program, isMovie, nowMs, canAdd = onAddToChannel != null) }
+            // Nothing to offer (an age-restricted program still to come, on a member's profile): no dialog.
+            if (choices.isEmpty()) {
+                LaunchedEffect(program) { actions = null }
+                return@Box
+            }
             ProgramActions(
                 program = program,
-                choices = remember(program, isMovie) { programChoices(program, isMovie, nowMs) },
+                choices = choices,
                 nowMs = nowMs,
                 onWatch = { openPlayer(program.channel.number) },
                 onStartOver = {
@@ -317,7 +338,7 @@ fun GuideScreen(
                     onStartOver(program.channel.number)
                 },
                 onPlay = { position -> onPlayOnDemand(program.mediaItemId, position) },
-                onAddToChannel = { onAddToChannel(program.mediaItemId) },
+                onAddToChannel = { onAddToChannel?.invoke(program.mediaItemId) },
                 onDismiss = {
                     actions = null
                     runCatching { gridFocus.requestFocus() }
@@ -328,12 +349,12 @@ fun GuideScreen(
 }
 
 /** The program under the selection, from the loaded cells. */
-private fun selectedProgram(channels: List<GuideChannel>, strips: Map<Long, ProgramStrip>, grid: GuideGridState): SelectedProgram? {
+private fun selectedProgram(channels: List<GuideChannel>, strips: Map<Long, ProgramStrip>, grid: GuideGridState, limit: Int?): SelectedProgram? {
     val channel = channels.firstOrNull { it.id == grid.selectedChannel } ?: return null
     val strip = strips[channel.id] ?: return null
     val i = strip.indexAt(grid.selectedTime)
     if (i < 0) return null
-    return SelectedProgram(channel, strip.items[i], strip.titles[i], strip.details[i], strip.starts[i], strip.ends[i])
+    return SelectedProgram(channel, strip.items[i], strip.titles[i], strip.details[i], strip.starts[i], strip.ends[i], strip.isRestricted(i, limit))
 }
 
 /** The wall clock, updated twice a minute; read it in drawing or layout to avoid recomposition. */
@@ -391,8 +412,18 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
             },
             modifier = Modifier.fillMaxSize(),
         )
+        if (playback.status == TuneStatus.RESTRICTED) {
+            Box(Modifier.fillMaxSize().background(theme.background), contentAlignment = Alignment.Center) {
+                AgeRestrictedMark(
+                    detail = playback.restriction?.detail,
+                    size = if (LocalIsTv.current) RestrictedSize.PANEL else RestrictedSize.TILE,
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 20.dp),
+                )
+            }
+        }
         val status = when (playback.status) {
             TuneStatus.OFF_AIR -> "Off air"
+            TuneStatus.RESTRICTED -> "Age restricted"
             TuneStatus.TUNING -> "Tuning…"
             TuneStatus.NO_SCHEDULE, TuneStatus.ERROR -> "Not playing"
             else -> null
@@ -442,10 +473,18 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
  * The selected program, or what the preview plays while nothing is selected, over its show's
  * backdrop. The show's logo stands in for its title when the server has one. Five lines are
  * kept for the overview whether or not it fills them, so the grid never jumps as the
- * selection moves.
+ * selection moves. A program over the profile's maturity rating shows no artwork or
+ * overview: the restriction takes the overview's place.
  */
 @Composable
-private fun Details(selected: SelectedProgram?, details: ProgramDetails?, playback: PlaybackState, modifier: Modifier, edgeToEdge: Boolean = false) {
+private fun Details(
+    selected: SelectedProgram?,
+    details: ProgramDetails?,
+    playback: PlaybackState,
+    state: GuideUiState,
+    modifier: Modifier,
+    edgeToEdge: Boolean = false,
+) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val title: String
@@ -467,10 +506,18 @@ private fun Details(selected: SelectedProgram?, details: ProgramDetails?, playba
         time = on?.let { timeRange(it.startUtcMs, it.endUtcMs) }.orEmpty()
     }
     val more = details?.takeIf { selected != null && it.mediaItemId == selected.mediaItemId }
+    val restriction = when {
+        selected == null -> playback.restriction
+        more != null -> AgeRestriction.of(more.rating, more.ratingScore, state.ratingLimit, state.limitName)
+        selected.restricted -> AgeRestriction(null, state.limitName)
+        else -> null
+    }
     // Artwork belongs to the show, so it stays put while the selection moves through one show's episodes.
     val artwork = details?.takeIf { selected != null && it.title == selected.title }?.artwork
+    val restricted = restriction != null
     Backdrop(
-        url = artwork?.backdropUrl,
+        // An age-restricted program's picture is blacked out.
+        url = artwork?.backdropUrl?.takeUnless { restricted },
         modifier = modifier.clip(if (edgeToEdge) RectangleShape else RoundedCornerShape(topEnd = 2.dp, bottomEnd = 2.dp)),
         alignment = Alignment.Center,
     ) {
@@ -488,24 +535,34 @@ private fun Details(selected: SelectedProgram?, details: ProgramDetails?, playba
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = theme.displayFont,
                 ),
+                // An age-restricted program's title and logo are blurred.
+                modifier = Modifier.obscured(restricted, theme.textMuted, radius = 10.dp),
             )
             // The episode (or a movie's title and year) in full ink, then its facts quieter on the same line.
             val lead = lineUnderLogo(detail, title, isEpisode = more?.isEpisode ?: true, hasLogo = artwork?.logoUrl != null)
-            val line = buildAnnotatedString {
-                lead?.let { append(it) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // The episode (blurred when age restricted), then its facts, which stay readable.
+                lead?.let {
+                    androidx.compose.material3.Text(
+                        it,
+                        color = theme.text,
+                        fontSize = 13.sp,
+                        fontFamily = theme.bodyFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false).obscured(restricted, theme.textMuted, radius = 5.dp),
+                    )
+                }
                 if (more != null && more.facts.isNotEmpty()) {
-                    if (lead != null) append("  ·  ")
-                    withStyle(SpanStyle(color = theme.textMuted)) { append(more.facts) }
+                    androidx.compose.material3.Text(
+                        if (lead != null) "·  ${more.facts}" else more.facts,
+                        color = theme.textMuted,
+                        fontSize = 13.sp,
+                        fontFamily = theme.bodyFont,
+                        maxLines = 1,
+                    )
                 }
             }
-            androidx.compose.material3.Text(
-                line,
-                color = theme.text,
-                fontSize = 13.sp,
-                fontFamily = theme.bodyFont,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (selected != null) AirMarker(onAir = selected.isOn(System.currentTimeMillis()))
                 androidx.compose.material3.Text(
@@ -522,6 +579,24 @@ private fun Details(selected: SelectedProgram?, details: ProgramDetails?, playba
                 more?.badges?.forEach { Badge(it.uppercase()) }
             }
             val overviewLines = if (isTv) TV_OVERVIEW_LINES else OVERVIEW_LINES
+            if (restriction != null) {
+                // The overview's lines stay reserved, so the grid holds still.
+                Box(Modifier.padding(top = 3.dp).height(with(LocalDensity.current) { (16.sp * overviewLines).toDp() })) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Icon(Icons.Filled.Lock, contentDescription = null, tint = theme.textMuted, modifier = Modifier.size(14.dp))
+                        androidx.compose.material3.Text(
+                            "${AgeRestriction.TITLE.uppercase()}  ·  ${restriction.detail.uppercase()}",
+                            color = theme.textMuted,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = theme.displayFont,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                return@Column
+            }
             androidx.compose.material3.Text(
                 more?.overview.orEmpty(),
                 color = theme.text,
@@ -559,18 +634,23 @@ private fun Tabs(tabs: List<GuideTab>, open: String, onSelect: (String) -> Unit,
  * demand from its start or from where the channel is. Otherwise it plays on demand from the
  * start. Empty for an off-air stretch that isn't on now.
  */
-private fun programChoices(program: SelectedProgram, isMovie: Boolean, nowMs: Long): List<WatchChoice> {
+private fun programChoices(program: SelectedProgram, isMovie: Boolean, nowMs: Long, canAdd: Boolean): List<WatchChoice> {
     val tense = AiringTense.of(program.startUtcMs, program.endUtcMs, nowMs)
     val channel = program.channel
     if (program.mediaItemId == 0L) {
         return if (tense == AiringTense.ON_NOW) listOf(WatchChoices.liveOffAir(program.endUtcMs)) else emptyList()
+    }
+    val add = WatchChoices.addToChannel(isMovie).takeIf { canAdd }
+    // Over the profile's maturity rating: the channel stays dark, and nothing plays on demand.
+    if (program.restricted) {
+        return listOfNotNull(WatchChoices.liveRestricted(program.endUtcMs).takeIf { tense == AiringTense.ON_NOW }, add)
     }
     val watch = if (tense == AiringTense.ON_NOW) {
         WatchChoices.onNow(channel.number, channel.name, program.startUtcMs, program.endUtcMs, nowMs, isEpisode = !isMovie)
     } else {
         listOf(WatchChoices.fromStart(tense, program.startUtcMs))
     }
-    return watch + WatchChoices.addToChannel(isMovie)
+    return watch + listOfNotNull(add)
 }
 
 /** What can be done with the selected program: [choices] under a header saying what and when. */
@@ -607,10 +687,12 @@ private fun ProgramActions(
                 color = theme.text,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.obscured(program.restricted, theme.textMuted),
             )
         }
         androidx.compose.material3.Text(
-            listOfNotNull(program.detail, program.channel.name).joinToString("  ·  "),
+            // An age-restricted program's episode is left out, like its blurred title.
+            listOfNotNull(program.detail.takeUnless { program.restricted }, program.channel.name).joinToString("  ·  "),
             style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
             color = theme.textMuted,
             maxLines = 2,

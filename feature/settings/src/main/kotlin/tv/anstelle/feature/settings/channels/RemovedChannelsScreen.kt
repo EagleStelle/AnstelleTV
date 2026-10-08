@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.GeneratedChannel
 import tv.anstelle.core.theme.LocalIsTv
@@ -45,7 +44,6 @@ data class RemovedUiState(
 
 @HiltViewModel
 class RemovedChannelsViewModel @Inject constructor(
-    private val profiles: ProfileRepository,
     private val repository: ChannelRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(RemovedUiState())
@@ -55,7 +53,7 @@ class RemovedChannelsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            removed = repository.removedChannels(profiles.ensureActiveProfile().id)
+            removed = repository.removedChannels()
             publish()
         }
     }
@@ -68,7 +66,7 @@ class RemovedChannelsViewModel @Inject constructor(
         if (keys.isEmpty() || _state.value.busy) return
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
-            repository.bringBack(profiles.ensureActiveProfile().id, keys)
+            repository.bringBack(keys)
             removed = removed.filter { it.key !in keys }
             publish("Brought back ${keys.size} ${if (keys.size == 1) "channel" else "channels"}.")
         }

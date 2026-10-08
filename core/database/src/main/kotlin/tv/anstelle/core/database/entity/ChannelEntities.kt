@@ -10,36 +10,26 @@ import tv.anstelle.core.model.RuleField
 import tv.anstelle.core.model.RuleOp
 import tv.anstelle.core.model.SeasonMode
 
+/** A guide group. Channels and their groups are the same for every profile. */
 @Entity(
     tableName = "channel_group",
-    foreignKeys = [
-        ForeignKey(
-            entity = ProfileEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["profileId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
-    indices = [Index(value = ["profileId", "sortOrder"])],
+    indices = [Index(value = ["sortOrder"])],
 )
 data class ChannelGroupEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val profileId: Long,
     val name: String,
     val sortOrder: Int,
     /** For a segment someone made: its channels are numbered up from here. Null for other groups. */
     val numberStart: Int? = null,
 )
 
+/**
+ * A channel. Every profile sees every channel; what a profile may not watch is blacked out
+ * while it airs, not left out of the schedule.
+ */
 @Entity(
     tableName = "channel",
     foreignKeys = [
-        ForeignKey(
-            entity = ProfileEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["profileId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
         ForeignKey(
             entity = ChannelGroupEntity::class,
             parentColumns = ["id"],
@@ -48,13 +38,12 @@ data class ChannelGroupEntity(
         ),
     ],
     indices = [
-        Index(value = ["profileId", "number"]),
+        Index(value = ["number"]),
         Index(value = ["groupId"]),
     ],
 )
 data class ChannelEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val profileId: Long,
     val number: Int,
     val name: String,
     val logoUri: String?,
@@ -163,19 +152,7 @@ data class ChannelDaypartEntity(
 )
 
 /** A library channel someone deleted: its key isn't made into a channel again. */
-@Entity(
-    tableName = "dismissed_channel",
-    primaryKeys = ["profileId", "autoKey"],
-    foreignKeys = [
-        ForeignKey(
-            entity = ProfileEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["profileId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
-)
+@Entity(tableName = "dismissed_channel")
 data class DismissedChannelEntity(
-    val profileId: Long,
-    val autoKey: String,
+    @PrimaryKey val autoKey: String,
 )

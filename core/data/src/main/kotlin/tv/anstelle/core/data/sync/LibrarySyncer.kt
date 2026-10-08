@@ -8,6 +8,7 @@ import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.TimeSource
+import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.database.AnstelleDatabase
 import tv.anstelle.core.database.dao.ItemCollectionsRow
 import tv.anstelle.core.database.dao.LibraryDao
@@ -65,6 +66,7 @@ class LibrarySyncer @Inject constructor(
     private val probe: ServerProbe,
     private val sources: LibrarySourceFactory,
     private val status: SyncStatusTracker,
+    private val profiles: ProfileRepository,
     private val time: TimeSource,
 ) {
     private val locks = ConcurrentHashMap<Long, Mutex>()
@@ -123,11 +125,14 @@ class LibrarySyncer @Inject constructor(
         val serverNow = source.serverTimeUtcMs()
         val libraries = refreshLibraries(server, source.libraries())
         val ratings = RatingScores.from(source.parentalRatings())
+        profiles.saveRatingTable(server.id, ratings.table)
 
         for (library in libraries) syncLibrary(server, library, source, ratings, serverNow)
 
         val reconcileDue = server.lastReconcileUtcMs.let { it == null || time.nowUtcMs() - it >= RECONCILE_INTERVAL_MS }
         if (options.forceReconcile || options.fullRefresh || reconcileDue) reconcile(server, libraries, source)
+        // Profiles are Jellyfin users: names and pictures changed there follow.
+        profiles.refreshFromJellyfin(server, token)
     }
 
     /** Stores newly found libraries (on when their type can air) and drops the ones that are gone. */

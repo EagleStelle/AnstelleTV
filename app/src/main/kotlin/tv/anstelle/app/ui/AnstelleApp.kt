@@ -35,7 +35,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,17 +54,21 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.toRoute
 import androidx.tv.material3.NavigationDrawerItem
 import tv.anstelle.core.theme.AnstelleTheme
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
+import tv.anstelle.core.theme.scanlines
 
 import tv.anstelle.core.theme.components.AnstelleMark
 import tv.anstelle.core.theme.components.Wordmark
@@ -72,7 +78,11 @@ import tv.anstelle.feature.ondemand.ChannelScreen
 import tv.anstelle.feature.ondemand.OnDemandScreen
 import tv.anstelle.feature.player.OnDemandPlayerScreen
 import tv.anstelle.feature.player.PlayerScreen
+import tv.anstelle.feature.profiles.ProfileEditScreen
 import tv.anstelle.feature.profiles.ProfilePickerScreen
+import tv.anstelle.feature.settings.appearance.ThemeEditorScreen
+import tv.anstelle.feature.settings.appearance.ThemesScreen
+import tv.anstelle.feature.settings.AdminOnly
 import tv.anstelle.feature.settings.SettingsScreen
 import tv.anstelle.feature.settings.channels.AddToChannelScreen
 import tv.anstelle.feature.settings.channels.ChannelDetailScreen
@@ -89,60 +99,107 @@ import tv.anstelle.feature.settings.servers.AddServerScreen
 import tv.anstelle.feature.settings.servers.ServerDetailScreen
 import tv.anstelle.feature.settings.servers.ServersScreen
 
+/**
+ * The app: the profile's theme, then the shell and its screens, built anew for each profile so
+ * nothing of one profile's carries over. [onLightTheme] says whether the theme's ground is
+ * light, for the system bars' icons.
+ */
 @Composable
-fun AnstelleApp(isTv: Boolean) {
-    AnstelleTheme(isTv = isTv) {
-        val startup: StartupViewModel = hiltViewModel()
-        val state by startup.state.collectAsStateWithLifecycle()
-        val background = LocalAnstelleTheme.current.background
-
+fun AnstelleApp(isTv: Boolean, onLightTheme: (Boolean) -> Unit) {
+    val startup: StartupViewModel = hiltViewModel()
+    val session by startup.session.collectAsStateWithLifecycle()
+    val theme by startup.theme.collectAsStateWithLifecycle()
+    LaunchedEffect(theme.spec.isLight) { onLightTheme(theme.spec.isLight) }
+    AnstelleTheme(isTv = isTv, theme = theme) {
+        val effects = theme.spec.effects
         // Test tags double as resource ids, so macrobenchmarks can find the guide grid.
-        Box(Modifier.fillMaxSize().background(background).semantics { testTagsAsResourceId = true }) {
-            val ready = state as? StartupState.Ready ?: return@Box
-            val navController = rememberNavController()
-            val startDestination: Any = if (ready.showProfilePicker) ProfilesRoute else GuideRoute
-            val backStackEntry by navController.currentBackStackEntryAsState()
-            val destination = backStackEntry?.destination
-            val selected = TopLevelDestination.entries.firstOrNull { top ->
-                destination?.hierarchy?.any { it.hasRoute(top.route::class) } == true
-            }
-            val fullScreen = destination?.hasRoute(PlayerRoute::class) == true ||
-                destination?.hasRoute(OnDemandPlayRoute::class) == true ||
-                (destination?.hasRoute(ProfilesRoute::class) == true && ready.showProfilePicker && selected == null)
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(theme.background)
+                .scanlines(if (effects.scanlines) effects.scanlineAlpha else 0f)
+                .semantics { testTagsAsResourceId = true },
+        ) {
+            val current = session ?: return@Box
+            key(current) {
+                val navController = rememberNavController()
+                val startDestination: Any = if (current.launchPicker) ProfilesRoute(atLaunch = true) else GuideRoute
+                val backStackEntry by navController.currentBackStackEntryAsState()
+                val destination = backStackEntry?.destination
+                val selected = TopLevelDestination.entries.firstOrNull { top ->
+                    destination?.hierarchy?.any { it.hasRoute(top.route::class) } == true
+                }
+                val fullScreen = destination?.hasRoute(PlayerRoute::class) == true ||
+                    destination?.hasRoute(OnDemandPlayRoute::class) == true ||
+                    (destination?.hasRoute(ProfilesRoute::class) == true && current.launchPicker)
 
-            val content: @Composable (Modifier) -> Unit = { modifier ->
-                AppNavHost(navController, startDestination, modifier)
-            }
-            when {
-                fullScreen -> content(Modifier.fillMaxSize())
-                isTv -> TvShell(selected, onNavigate = { navController.navigateTopLevel(it) }, content = content)
-                else -> PhoneShell(selected, onNavigate = { navController.navigateTopLevel(it) }, content = content)
+                // The dashboard is app-wide: members don't see it.
+                val destinations = TopLevelDestination.entries.filter { it != TopLevelDestination.Dashboard || current.canManageApp }
+                val content: @Composable (Modifier) -> Unit = { modifier ->
+                    AppNavHost(navController, startDestination, current.canManageApp, onLaunchPickerDone = startup::pickerDone, modifier = modifier)
+                }
+                when {
+                    fullScreen -> content(Modifier.fillMaxSize())
+                    isTv -> TvShell(destinations, if (current.launchPicker) null else selected, onNavigate = { navController.navigateTopLevel(it) }, content = content)
+                    else -> PhoneShell(destinations, if (current.launchPicker) null else selected, onNavigate = { navController.navigateTopLevel(it) }, content = content)
+                }
             }
             PairingOverlay()
         }
     }
 }
 
+/**
+ * An app-wide destination (media servers, channels, web control, the dashboard): only the owner
+ * and admins see a way in. A member who lands on one anyway goes back.
+ */
+private inline fun <reified T : Any> NavGraphBuilder.adminOnly(
+    navController: NavHostController,
+    noinline content: @Composable (NavBackStackEntry) -> Unit,
+) = composable<T> { entry -> AdminOnly(onLeave = { navController.leave() }) { content(entry) } }
+
+private fun NavHostController.leave() {
+    if (!popBackStack()) navigateTopLevel(TopLevelDestination.Guide)
+}
+
+/** [canManageApp]: the owner and admins get the ways into app-wide settings; members don't see them. */
 @Composable
-private fun AppNavHost(navController: NavHostController, startDestination: Any, modifier: Modifier) {
+private fun AppNavHost(navController: NavHostController, startDestination: Any, canManageApp: Boolean, onLaunchPickerDone: () -> Unit, modifier: Modifier) {
+    val addToChannel: ((Long) -> Unit)? = if (canManageApp) ({ navController.navigate(AddToChannelRoute(it)) }) else null
+    val openSettings: (() -> Unit)? = if (canManageApp) ({ navController.navigateTopLevel(TopLevelDestination.Settings) }) else null
     NavHost(navController = navController, startDestination = startDestination, modifier = modifier) {
-        composable<ProfilesRoute> {
-            ProfilePickerScreen(onProfileSelected = { navController.navigateTopLevel(TopLevelDestination.Guide) })
+        composable<ProfilesRoute> { entry ->
+            val atLaunch = entry.toRoute<ProfilesRoute>().atLaunch
+            ProfilePickerScreen(
+                atLaunch = atLaunch,
+                // Another profile rebuilds every screen anyway; the same one leaves the launch picker.
+                onProfileSelected = { if (atLaunch) onLaunchPickerDone() else navController.navigateTopLevel(TopLevelDestination.Guide) },
+                onEditProfile = { navController.navigate(ProfileEditRoute(it)) },
+                onAddFromJellyfin = { navController.navigate(AddServerRoute(it, newProfile = true)) },
+            )
+        }
+        // The page itself asks for the profile's own PIN and closes on a profile the viewer may not change.
+        composable<ProfileEditRoute> {
+            ProfileEditScreen(
+                onOpenThemes = { navController.navigate(ThemesRoute(it)) },
+                onLinkAccount = { profileId, serverId -> navController.navigate(AddServerRoute(serverId, linkProfileId = profileId)) },
+                onGone = { navController.popBackStack() },
+            )
         }
         composable<GuideRoute> {
             GuideScreen(
                 onWatch = { navController.navigate(PlayerRoute(it)) },
                 onStartOver = { navController.navigate(PlayerRoute(it, restart = true)) },
                 onPlayOnDemand = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position)) },
-                onAddToChannel = { navController.navigate(AddToChannelRoute(it)) },
-                onOpenSettings = { navController.navigateTopLevel(TopLevelDestination.Settings) },
+                onAddToChannel = addToChannel,
+                onOpenSettings = openSettings,
             )
         }
         navigation<OnDemandGraph>(startDestination = OnDemandRoute) {
             composable<OnDemandRoute> {
                 OnDemandScreen(
                     onOpenChannel = { navController.navigate(OnDemandChannelRoute(it)) },
-                    onOpenSettings = { navController.navigateTopLevel(TopLevelDestination.Settings) },
+                    onOpenSettings = openSettings,
                 )
             }
             composable<OnDemandChannelRoute> {
@@ -150,21 +207,25 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onWatchLive = { navController.navigate(PlayerRoute(it)) },
                     onStartOver = { navController.navigate(PlayerRoute(it, restart = true)) },
                     onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position)) },
-                    onAddToChannel = { navController.navigate(AddToChannelRoute(it)) },
+                    onAddToChannel = addToChannel,
                     onGone = { navController.popBackStack() },
                 )
             }
         }
         composable<OnDemandPlayRoute> { OnDemandPlayerScreen() }
-        composable<AddToChannelRoute> { AddToChannelScreen(onGone = { navController.popBackStack() }) }
-        composable<DashboardRoute> { DashboardScreen() }
+        adminOnly<AddToChannelRoute>(navController) { AddToChannelScreen(onGone = { navController.popBackStack() }) }
+        adminOnly<DashboardRoute>(navController) { DashboardScreen() }
         navigation<SettingsGraph>(startDestination = SettingsRoute) {
+            // Each profile's own: theme, languages, watch history. The settings menu locks the shared rows itself.
+            composable<ThemesRoute> { ThemesScreen(onEdit = { navController.navigate(ThemeEditorRoute(it)) }) }
+            composable<ThemeEditorRoute> { ThemeEditorScreen(onGone = { navController.popBackStack() }) }
             composable<SettingsRoute> {
                 SettingsScreen(
                     onOpenServers = { navController.navigate(ServersRoute) },
                     onOpenChannels = { navController.navigate(ChannelsRoute) },
                     onOpenLanguages = { navController.navigate(PlaybackLanguagesRoute) },
                     onOpenWatchHistory = { navController.navigate(WatchHistoryRoute) },
+                    onOpenThemes = { navController.navigate(ThemesRoute()) },
                 )
             }
             composable<PlaybackLanguagesRoute> {
@@ -172,7 +233,8 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
             }
             composable<WatchHistoryRoute> { WatchHistoryScreen() }
             composable<LanguagePickerRoute> { LanguagePickerScreen(onPicked = { navController.popBackStack() }) }
-            composable<ChannelsRoute> {
+            // App-wide: the owner's and admins'.
+            adminOnly<ChannelsRoute>(navController) {
                 ChannelsScreen(
                     onOpenChannel = { navController.navigate(ChannelDetailRoute(it)) },
                     onNewChannel = { navController.navigate(ChannelLineupRoute()) },
@@ -181,14 +243,14 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onOpenGroups = { navController.navigate(ChannelGroupsRoute) },
                 )
             }
-            composable<ChannelDetailRoute> {
+            adminOnly<ChannelDetailRoute>(navController) {
                 ChannelDetailScreen(
                     onWatch = { navController.navigate(PlayerRoute(it)) },
                     onEditLineup = { navController.navigate(ChannelLineupRoute(it)) },
                     onDeleted = { navController.popBackStack() },
                 )
             }
-            composable<ChannelLineupRoute> {
+            adminOnly<ChannelLineupRoute>(navController) {
                 ChannelLineupScreen(
                     onSaved = { channelId, isNew ->
                         if (isNew) {
@@ -201,31 +263,44 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onBack = { navController.popBackStack() },
                 )
             }
-            composable<RemovedChannelsRoute> { RemovedChannelsScreen() }
-            composable<ChannelNumbersRoute> { ChannelNumbersScreen() }
-            composable<ChannelGroupsRoute> { ChannelGroupsScreen() }
-            composable<ServersRoute> {
+            adminOnly<RemovedChannelsRoute>(navController) { RemovedChannelsScreen() }
+            adminOnly<ChannelNumbersRoute>(navController) { ChannelNumbersScreen() }
+            adminOnly<ChannelGroupsRoute>(navController) { ChannelGroupsScreen() }
+            adminOnly<ServersRoute>(navController) {
                 ServersScreen(
                     onAddServer = { navController.navigate(AddServerRoute()) },
                     onOpenServer = { navController.navigate(ServerDetailRoute(it)) },
                 )
             }
-            composable<ServerDetailRoute> {
+            adminOnly<ServerDetailRoute>(navController) {
                 ServerDetailScreen(
                     onSignIn = { navController.navigate(AddServerRoute(it)) },
                     onRemoved = { navController.popBackStack() },
                 )
             }
-            composable<AddServerRoute> {
-                AddServerScreen(
-                    onSignedIn = { serverId ->
-                        // Land on the server's page, with the server list behind it.
-                        navController.navigate(ServerDetailRoute(serverId)) {
-                            popUpTo<ServersRoute>()
-                        }
-                    },
-                    onBack = { navController.popBackStack() },
-                )
+            composable<AddServerRoute> { entry ->
+                val linking = entry.toRoute<AddServerRoute>().linkProfileId > 0
+                val screen = @Composable {
+                    AddServerScreen(
+                        // Back to the profile's page, or to the picker with the new profile on it.
+                        onProfile = { navController.popBackStack() },
+                        onSignedIn = { serverId ->
+                            if (linking) {
+                                // Back to the profile's page.
+                                navController.popBackStack()
+                            } else {
+                                // Land on the server's page, with the server list behind it.
+                                navController.navigate(ServerDetailRoute(serverId)) {
+                                    popUpTo<ServersRoute>()
+                                }
+                            }
+                        },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                // A profile signing in as its own user comes from that profile's page, which already
+                // checked who may change it; adding a server or a profile is the owner's and admins'.
+                if (linking) screen() else AdminOnly(onLeave = { navController.leave() }, content = screen)
             }
         }
         composable<PlayerRoute> { PlayerScreen() }
@@ -248,6 +323,7 @@ private fun NavHostController.navigateTopLevel(destination: TopLevelDestination)
  */
 @Composable
 private fun PhoneShell(
+    destinations: List<TopLevelDestination>,
     selected: TopLevelDestination?,
     onNavigate: (TopLevelDestination) -> Unit,
     content: @Composable (Modifier) -> Unit,
@@ -255,7 +331,7 @@ private fun PhoneShell(
     val theme = LocalAnstelleTheme.current
     if (LocalConfiguration.current.screenWidthDp >= RAIL_MIN_WIDTH_DP) {
         Row(Modifier.fillMaxSize().background(theme.background)) {
-            NavRail(selected, onNavigate, Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)))
+            NavRail(destinations, selected, onNavigate, Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)))
             // The rail owns the start edge; the screen keeps clear of the other system bars.
             Box(
                 Modifier
@@ -277,7 +353,7 @@ private fun PhoneShell(
                     .height(BAR_HEIGHT)
                     .selectableGroup(),
             ) {
-                for (destination in TopLevelDestination.entries) {
+                for (destination in destinations) {
                     NavTab(destination, destination == selected, { onNavigate(destination) }, Modifier.weight(1f).fillMaxHeight())
                 }
             }
@@ -292,7 +368,7 @@ private fun PhoneShell(
  * in from the screen lands focus on the open destination, wherever the D-pad entered.
  */
 @Composable
-private fun NavRail(selected: TopLevelDestination?, onNavigate: (TopLevelDestination) -> Unit, modifier: Modifier = Modifier) {
+private fun NavRail(destinations: List<TopLevelDestination>, selected: TopLevelDestination?, onNavigate: (TopLevelDestination) -> Unit, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val requesters = remember { TopLevelDestination.entries.associateWith { FocusRequester() } }
@@ -316,7 +392,7 @@ private fun NavRail(selected: TopLevelDestination?, onNavigate: (TopLevelDestina
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(if (isTv) 4.dp else 0.dp),
         ) {
             AnstelleMark(Modifier.padding(top = if (isTv) 24.dp else 16.dp, bottom = 20.dp).size(if (isTv) 32.dp else 36.dp))
-            for (destination in TopLevelDestination.entries) {
+            for (destination in destinations) {
                 NavTab(
                     destination,
                     destination == selected,
@@ -399,12 +475,13 @@ private fun NavTab(destination: TopLevelDestination, selected: Boolean, onClick:
 /** TV: the same rail as tablets, with the screen beside it. */
 @Composable
 private fun TvShell(
+    destinations: List<TopLevelDestination>,
     selected: TopLevelDestination?,
     onNavigate: (TopLevelDestination) -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
     Row(Modifier.fillMaxSize().background(LocalAnstelleTheme.current.background)) {
-        NavRail(selected, onNavigate)
+        NavRail(destinations, selected, onNavigate)
         Box(Modifier.weight(1f).fillMaxHeight()) { content(Modifier.fillMaxSize()) }
     }
 }

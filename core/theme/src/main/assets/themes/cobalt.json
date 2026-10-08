@@ -1,0 +1,36 @@
+{
+    "key": "cobalt",
+    "name": "Cobalt",
+    "version": 1,
+    "colors": {
+        "background": "#080E1B",
+        "surface": "#0F192B",
+        "surfaceHigh": "#162136",
+        "line": "#1F2B42",
+        "text": "#EEF4FF",
+        "textMuted": "#9EB2D7",
+        "accent": "#8EDEFE",
+        "onAccent": "#080E1B",
+        "accentContainer": "#123542",
+        "onAccentContainer": "#C8E3EE",
+        "guideCell": "#0F192B",
+        "guideCellPast": "#0E141F",
+        "guideRuns": ["#343111", "#412637", "#14382A", "#442819"],
+        "nowLine": "#8EDEFE",
+        "banner": "#0F192B",
+        "bannerText": "#EEF4FF"
+    },
+    "typography": {
+        "display": "CONDENSED",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": false,
+        "scanlineAlpha": 0.14
+    }
+}

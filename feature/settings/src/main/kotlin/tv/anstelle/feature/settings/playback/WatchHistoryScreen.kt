@@ -1,5 +1,10 @@
 package tv.anstelle.feature.settings.playback
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import tv.anstelle.core.data.ProfileRepository
+import tv.anstelle.feature.settings.activeProfileId
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.OndemandVideo
@@ -33,16 +38,16 @@ import tv.anstelle.core.theme.components.FocusTile
 import tv.anstelle.feature.settings.servers.SettingsPage
 import javax.inject.Inject
 
-/** Where playback happens, each with its own [WatchSync] setting. */
-enum class SyncPlace(val title: String, val icon: ImageVector, val key: SettingKey.IntKey) {
-    LIVE_TV("Live TV", Icons.Filled.Tv, Settings.LiveTvSync),
-    ON_DEMAND("On demand", Icons.Filled.OndemandVideo, Settings.OnDemandSync),
+/** Where playback happens, each with its own [WatchSync] setting for each profile. */
+enum class SyncPlace(val title: String, val icon: ImageVector, val key: (profileId: Long) -> SettingKey.IntKey) {
+    LIVE_TV("Live TV", Icons.Filled.Tv, Settings::liveTvSync),
+    ON_DEMAND("On demand", Icons.Filled.OndemandVideo, Settings::onDemandSync),
 }
 
 @Immutable
 data class WatchHistoryUiState(
-    val liveTv: WatchSync = codeOf(Settings.LiveTvSync.default),
-    val onDemand: WatchSync = codeOf(Settings.OnDemandSync.default),
+    val liveTv: WatchSync = codeOf(Settings.liveTvSync(0).default),
+    val onDemand: WatchSync = codeOf(Settings.onDemandSync(0).default),
     val loaded: Boolean = false,
 ) {
     fun of(place: SyncPlace) = when (place) {
@@ -51,21 +56,24 @@ data class WatchHistoryUiState(
     }
 }
 
+/** The watching profile's own choices: each profile's history goes to its own Jellyfin user. */
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class WatchHistoryViewModel @Inject constructor(
     private val settings: SettingsRepository,
+    private val profiles: ProfileRepository,
 ) : ViewModel() {
-    val state: StateFlow<WatchHistoryUiState> = combine(
-        settings.observe(Settings.LiveTvSync),
-        settings.observe(Settings.OnDemandSync),
-    ) { live, onDemand ->
-        WatchHistoryUiState(codeOf(live), codeOf(onDemand), loaded = true)
+    val state: StateFlow<WatchHistoryUiState> = profiles.activeProfileId().flatMapLatest { profileId ->
+        combine(
+            settings.observe(Settings.liveTvSync(profileId)),
+            settings.observe(Settings.onDemandSync(profileId)),
+        ) { live, onDemand -> WatchHistoryUiState(codeOf(live), codeOf(onDemand), loaded = true) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WatchHistoryUiState())
 
     /** Steps through [SyncOrder], wrapping at either end. */
     fun step(place: SyncPlace, by: Int) {
         val next = SyncOrder[(SyncOrder.indexOf(state.value.of(place)) + by).mod(SyncOrder.size)]
-        viewModelScope.launch { settings.set(place.key, next.code) }
+        viewModelScope.launch { settings.set(place.key(profiles.activeProfileId().first()), next.code) }
     }
 }
 

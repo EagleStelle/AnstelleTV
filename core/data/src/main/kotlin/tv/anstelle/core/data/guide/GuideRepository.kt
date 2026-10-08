@@ -31,6 +31,9 @@ data class ProgramDetails(
     val badges: List<String>,
     /** The show's or movie's backdrop and logo. */
     val artwork: Artwork,
+    /** The rating as the library names it, and its score, for the profile's maturity rating. */
+    val rating: String? = null,
+    val ratingScore: Int? = null,
 )
 
 /** Reads the guide from SQLite: cells per time window, and the details of one program. */
@@ -76,6 +79,8 @@ class GuideRepository @Inject constructor(
                 StreamFacts.audio(item.audioCodec, item.audioFormat, item.audioChannels),
             ),
             artwork = artwork,
+            rating = item.officialRating?.takeIf { it.isNotBlank() },
+            ratingScore = item.ratingScore,
         )
 
         fun facts(item: MediaItemEntity): String = listOfNotNull(

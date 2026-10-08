@@ -14,6 +14,9 @@ data class ItemIdRow(val id: Long, val remoteId: String)
 
 data class TypeCount(val type: MediaType, val count: Int)
 
+/** An official rating as items carry it, its score, and how many items carry it. */
+data class RatingCount(val name: String, val score: Int, val count: Int)
+
 /** Metadata episodes inherit from their series. */
 data class SeriesMetadataRow(
     val remoteId: String,
@@ -144,6 +147,15 @@ interface MediaItemDao {
 
     @Query("SELECT type, COUNT(*) AS count FROM media_item WHERE serverId = :serverId GROUP BY type ORDER BY type")
     suspend fun typeCounts(serverId: Long): List<TypeCount>
+
+    @Query(
+        """
+        SELECT officialRating AS name, ratingScore AS score, COUNT(*) AS count FROM media_item
+        WHERE officialRating IS NOT NULL AND ratingScore IS NOT NULL
+        GROUP BY officialRating, ratingScore
+        """,
+    )
+    suspend fun ratingCounts(): List<RatingCount>
 
     @Query("SELECT COUNT(*) FROM media_item")
     fun observeTotalCount(): Flow<Int>

@@ -1,0 +1,36 @@
+{
+    "key": "sepia",
+    "name": "Sepia",
+    "version": 1,
+    "colors": {
+        "background": "#FEF5EC",
+        "surface": "#F6E7D6",
+        "surfaceHigh": "#EFDCC8",
+        "line": "#DFCAB2",
+        "text": "#211201",
+        "textMuted": "#6E4E27",
+        "accent": "#A44C1D",
+        "onAccent": "#FFF9F3",
+        "accentContainer": "#F4D0C1",
+        "onAccentContainer": "#472312",
+        "guideCell": "#F6E7D6",
+        "guideCellPast": "#F9EEE2",
+        "guideRuns": ["#D4DDFD", "#CAE7CE", "#F1D4EB", "#BEE6F2"],
+        "nowLine": "#A44C1D",
+        "banner": "#F6E7D6",
+        "bannerText": "#211201"
+    },
+    "typography": {
+        "display": "SERIF",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": false,
+        "scanlineAlpha": 0.14
+    }
+}

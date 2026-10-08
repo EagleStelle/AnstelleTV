@@ -44,6 +44,9 @@ object WatchChoices {
 
     fun liveOffAir(untilUtcMs: Long) = WatchChoice(WatchKind.LIVE, "Watch live", "Off air until ${clockTime(untilUtcMs)}.")
 
+    /** A program over the profile's maturity rating: the channel stays dark until it ends. */
+    fun liveRestricted(untilUtcMs: Long) = WatchChoice(WatchKind.LIVE, "Watch live", "Age restricted. Dark until ${clockTime(untilUtcMs)}.")
+
     /** The program on now, from its start on the channel. */
     val restart = WatchChoice(WatchKind.RESTART, "Start over", "Rewinds the channel to 0:00.")
 

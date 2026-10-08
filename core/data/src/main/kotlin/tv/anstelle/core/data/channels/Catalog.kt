@@ -29,16 +29,6 @@ class CatalogItem internal constructor(
     /** Show key for counting and scheduling; a standalone item is a show of its own. */
     val showKey: String get() = showKeyOf(row)
 
-    /**
-     * True when a profile limited to [maxRatingScore] (null: no limit) may watch the item.
-     * Unrated items never pass a limit, like the SQL `ratingScore <= :max` filter.
-     */
-    fun allowedFor(maxRatingScore: Int?): Boolean {
-        if (maxRatingScore == null) return true
-        val score = row.ratingScore ?: return false
-        return score <= maxRatingScore
-    }
-
     private companion object {
         fun tokens(value: String): Array<String> =
             value.split('|').filter { it.isNotBlank() }.map { it.trim().lowercase(Locale.ROOT) }.toTypedArray()

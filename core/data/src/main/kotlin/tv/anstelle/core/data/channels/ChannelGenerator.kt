@@ -74,9 +74,8 @@ class ChannelGenerator(private val words: ChannelWords, scale: Double = 1.0) {
         .thenComparator { a, b -> collator.compare(a.second, b.second) }
         .thenBy { it.first }
 
-    /** Channels for what a profile may watch ([maxRatingScore] null: everything), in guide order. */
-    fun generate(catalog: Catalog, maxRatingScore: Int? = null): List<GeneratedChannel> =
-        generate(catalog.items.filter { it.allowedFor(maxRatingScore) })
+    /** The library's channels, in guide order. Every profile shares them. */
+    fun generate(catalog: Catalog): List<GeneratedChannel> = generate(catalog.items)
 
     fun generate(items: List<CatalogItem>): List<GeneratedChannel> =
         Library(items.filter { it.row.type in Medium.Types }).channels().sortedWith(compareBy(order) { it.key to it.name })

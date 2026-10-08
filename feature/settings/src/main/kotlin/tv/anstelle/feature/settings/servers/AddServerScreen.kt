@@ -34,9 +34,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.QuickConnectState
 import tv.anstelle.core.data.ServerCandidate
 import tv.anstelle.core.data.ServerRepository
+import tv.anstelle.core.data.SignInFor
 import tv.anstelle.core.data.sync.userMessage
 import tv.anstelle.core.model.ServerConnectException
 import tv.anstelle.core.model.ServerProblem
@@ -68,22 +70,51 @@ data class AddServerUiState(
     val busy: Boolean = false,
     val error: String? = null,
     /** Set once signed in; the screen then closes. */
-    val signedInServerId: Long? = null,
-)
+    val signedIn: QuickConnectState.SignedIn? = null,
+    /** Signing in as this profile's own user, so only its watch history goes there. */
+    val linkProfileName: String? = null,
+    /** Signing in makes a new profile from the user. */
+    val newProfile: Boolean = false,
+) {
+    /** Signing in for a profile rather than for the server. */
+    val forProfile: Boolean get() = linkProfileName != null || newProfile
+}
 
 @HiltViewModel
 class AddServerViewModel @Inject constructor(
     savedState: SavedStateHandle,
     private val repository: ServerRepository,
+    private val profiles: ProfileRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(AddServerUiState())
     val state: StateFlow<AddServerUiState> = _state.asStateFlow()
     private var quickConnectJob: Job? = null
 
+    /** Who signing in is for: the server, a profile's own user, or a new profile. */
+    private val target: SignInFor = when {
+        (savedState.get<Long>("linkProfileId") ?: 0L) > 0 -> SignInFor.Profile(savedState.get<Long>("linkProfileId")!!)
+        savedState.get<Boolean>("newProfile") == true -> SignInFor.NewProfile
+        else -> SignInFor.Server
+    }
+
     init {
         // Signing in again to a known server starts with its saved address.
         val serverId = savedState.get<Long>("serverId") ?: 0L
-        if (serverId > 0) {
+        if (target != SignInFor.Server) {
+            viewModelScope.launch {
+                val server = repository.observeServer(serverId).first() ?: return@launch
+                val profile = (target as? SignInFor.Profile)?.let { profiles.observeProfile(it.profileId).first() }
+                _state.update {
+                    it.copy(
+                        address = server.baseUrl,
+                        username = profile?.jellyfinUserName.orEmpty(),
+                        linkProfileName = profile?.name,
+                        newProfile = target == SignInFor.NewProfile,
+                    )
+                }
+                connect()
+            }
+        } else if (serverId > 0) {
             viewModelScope.launch {
                 val server = repository.observeServer(serverId).first() ?: return@launch
                 _state.update { it.copy(address = server.baseUrl, username = server.userName.orEmpty()) }
@@ -102,9 +133,10 @@ class AddServerViewModel @Inject constructor(
 
     fun signInWithPassword() = launchAction { current ->
         val candidate = current.candidate ?: return@launchAction
-        val serverId = repository.signInWithPassword(candidate, current.username, current.password)
-        _state.update { it.copy(password = "", signedInServerId = serverId) }
+        val signedIn = repository.signInWithPassword(candidate, current.username, current.password, target)
+        _state.update { it.copy(password = "", signedIn = signedIn) }
     }
+
 
     fun startQuickConnect() {
         val candidate = _state.value.candidate ?: return
@@ -112,12 +144,12 @@ class AddServerViewModel @Inject constructor(
         _state.update { it.copy(step = AddServerStep.QUICK_CONNECT, quickConnectCode = null, error = null, busy = true) }
         quickConnectJob = viewModelScope.launch {
             try {
-                repository.quickConnect(candidate).collect { update ->
+                repository.quickConnect(candidate, target).collect { update ->
                     when (update) {
                         is QuickConnectState.WaitingForApproval ->
                             _state.update { it.copy(quickConnectCode = update.code, busy = false) }
                         is QuickConnectState.SignedIn ->
-                            _state.update { it.copy(signedInServerId = update.serverId) }
+                            _state.update { it.copy(signedIn = update) }
                     }
                 }
             } catch (e: ServerConnectException) {
@@ -133,7 +165,8 @@ class AddServerViewModel @Inject constructor(
         quickConnectJob?.cancel()
         return when (current.step) {
             AddServerStep.ADDRESS -> false
-            AddServerStep.SIGN_IN -> {
+            // A profile's sign-in has no address to go back to.
+            AddServerStep.SIGN_IN -> if (target != SignInFor.Server) false else {
                 _state.update { it.copy(step = AddServerStep.ADDRESS, error = null, busy = false) }
                 true
             }
@@ -162,16 +195,24 @@ class AddServerViewModel @Inject constructor(
     }
 }
 
-/** Connect a Jellyfin server: addresses, then Quick Connect or a password. */
+/**
+ * Connect a Jellyfin server: addresses, then Quick Connect or a password. For a profile it
+ * skips to signing in at the server's address, and [onProfile] gets the profile.
+ */
 @Composable
 fun AddServerScreen(
     onSignedIn: (Long) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onProfile: (profileId: Long) -> Unit = {},
     viewModel: AddServerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    LaunchedEffect(state.signedInServerId) { state.signedInServerId?.let(onSignedIn) }
+    LaunchedEffect(state.signedIn) {
+        val signedIn = state.signedIn ?: return@LaunchedEffect
+        val profileId = signedIn.profileId
+        if (profileId != null) onProfile(profileId) else onSignedIn(signedIn.serverId)
+    }
     androidx.activity.compose.BackHandler { if (!viewModel.back()) onBack() }
 
     when (state.step) {
@@ -185,8 +226,12 @@ fun AddServerScreen(
 private fun AddressStep(state: AddServerUiState, viewModel: AddServerViewModel, modifier: Modifier) {
     val firstFocus = rememberInitialFocus()
     SettingsPage(
-        title = "Add a Jellyfin server",
-        subtitle = "Enter the server's address: an IP address or a web address.",
+        title = when {
+            state.newProfile -> "Add a profile"
+            state.linkProfileName != null -> "Sign in for ${state.linkProfileName}"
+            else -> "Add a Jellyfin server"
+        },
+        subtitle = if (state.forProfile) "Reaching the server…" else "Enter the server's address: an IP address or a web address.",
         modifier = modifier,
     ) {
         item(key = "address") {
@@ -219,8 +264,18 @@ private fun SignInStep(state: AddServerUiState, viewModel: AddServerViewModel, m
     val candidate = state.candidate ?: return
     val firstFocus = rememberInitialFocus()
     SettingsPage(
-        title = "Sign in to ${candidate.info.name}",
-        subtitle = "Jellyfin ${candidate.info.version} at ${candidate.info.url}",
+        title = when {
+            state.newProfile -> "Add a profile"
+            state.linkProfileName != null -> "${candidate.info.name} for ${state.linkProfileName}"
+            else -> "Sign in to ${candidate.info.name}"
+        },
+        subtitle = when {
+            state.newProfile ->
+                "Profiles are Jellyfin users. Sign in as someone on ${candidate.info.name}: the new profile takes that user's name, picture, watched marks and resume points. Set a maturity rating on the profile's page afterwards."
+            state.linkProfileName != null ->
+                "Sign in as the Jellyfin user for ${state.linkProfileName}. The profile takes that user's name, picture, watched marks and resume points."
+            else -> "Jellyfin ${candidate.info.version} at ${candidate.info.url}"
+        },
         modifier = modifier,
     ) {
         if (candidate.quickConnectEnabled) {
@@ -265,6 +320,7 @@ private fun SignInStep(state: AddServerUiState, viewModel: AddServerViewModel, m
                 primary = true,
             )
         }
+
     }
 }
 

@@ -57,7 +57,8 @@ fun Backdrop(
 /**
  * A title as its logo when the server has one, else as text in [style]. The slot is at least
  * [height] tall either way (the logo exactly that), so swapping one for the other never moves
- * what sits under it. If the logo fails to load, the text comes back.
+ * what sits under it. If the logo fails to load, the text comes back. Light themes always set
+ * the text: title logos are drawn for dark pictures and fade into a light ground.
  */
 @Composable
 fun TitleLogo(
@@ -70,10 +71,11 @@ fun TitleLogo(
     maxLines: Int = 1,
 ) {
     var failed by remember(logoUrl) { mutableStateOf(false) }
+    val logo = logoUrl.takeUnless { LocalAnstelleTheme.current.spec.isLight }
     Box(modifier.heightIn(min = height), contentAlignment = Alignment.BottomStart) {
-        if (logoUrl != null && !failed) {
+        if (logo != null && !failed) {
             AsyncImage(
-                model = logoUrl,
+                model = logo,
                 contentDescription = title,
                 contentScale = ContentScale.Fit,
                 alignment = Alignment.BottomStart,

@@ -1,0 +1,36 @@
+{
+    "key": "mint",
+    "name": "Mint",
+    "version": 1,
+    "colors": {
+        "background": "#F0F9F5",
+        "surface": "#DEEEE6",
+        "surfaceHigh": "#D2E5DC",
+        "line": "#BED4C9",
+        "text": "#081A13",
+        "textMuted": "#3A5E4E",
+        "accent": "#047554",
+        "onAccent": "#F6FCF9",
+        "accentContainer": "#C2E2D3",
+        "onAccentContainer": "#0F3627",
+        "guideCell": "#DEEEE6",
+        "guideCellPast": "#E8F3EE",
+        "guideRuns": ["#FAD2D8", "#C6E2FA", "#F3D9BF", "#E9D6F4"],
+        "nowLine": "#047554",
+        "banner": "#DEEEE6",
+        "bannerText": "#081A13"
+    },
+    "typography": {
+        "display": "CONDENSED",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": false,
+        "scanlineAlpha": 0.14
+    }
+}

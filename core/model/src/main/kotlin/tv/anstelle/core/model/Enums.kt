@@ -147,6 +147,22 @@ enum class WatchSync(override val code: Int, val marksWatched: Boolean, val save
     BOTH(3, marksWatched = true, savesProgress = true),
 }
 
+/**
+ * What a profile may do in the app. There is always exactly one [OWNER]: the first profile
+ * set up, until it hands the role to another profile. Only the owner and admins change
+ * app-wide settings (media servers, channels, web control).
+ */
+enum class ProfileRole(override val code: Int) : CodedEnum {
+    /** Changes only its own profile. */
+    MEMBER(0),
+
+    /** Adds profiles, changes members' profiles and app-wide settings. */
+    ADMIN(1),
+
+    /** Changes every profile, makes admins, hands the role on, and can't be deleted. */
+    OWNER(2),
+}
+
 /** When subtitles show. */
 enum class SubtitleMode(override val code: Int) : CodedEnum {
     OFF(0),

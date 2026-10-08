@@ -118,7 +118,7 @@ class ChannelDetailViewModel @Inject constructor(
             if (channel == null) return@flatMapLatest flowOf(ChannelDetailUiState(loaded = true))
             val summary = summary()
             val logo = logo(channel.logoUri)
-            combine(repository.observeGroups(channel.profileId), ticks) { groups, _ ->
+            combine(repository.observeGroups(), ticks) { groups, _ ->
                 ChannelDetailUiState(channel, groups, repository.upcoming(channelId, 3), summary, logo, loaded = true)
             }
         }

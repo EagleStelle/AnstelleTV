@@ -24,15 +24,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AnstelleTextField
@@ -47,24 +43,18 @@ data class GroupItem(val id: Long, val name: String, val channelCount: Int)
 @Immutable
 data class GroupsUiState(val groups: List<GroupItem> = emptyList(), val loaded: Boolean = false)
 
-@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ChannelGroupsViewModel @Inject constructor(
-    private val profiles: ProfileRepository,
     private val repository: ChannelRepository,
 ) : ViewModel() {
-    val state: StateFlow<GroupsUiState> = profiles.activeProfileId()
-        .flatMapLatest { profileId ->
-            combine(repository.observeGroups(profileId), repository.observeChannels(profileId)) { groups, channels ->
-                val counts = channels.groupingBy { it.channel.groupId }.eachCount()
-                GroupsUiState(groups.map { GroupItem(it.id, it.name, counts[it.id] ?: 0) }, loaded = true)
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GroupsUiState())
+    val state: StateFlow<GroupsUiState> = combine(repository.observeGroups(), repository.observeChannels()) { groups, channels ->
+        val counts = channels.groupingBy { it.channel.groupId }.eachCount()
+        GroupsUiState(groups.map { GroupItem(it.id, it.name, counts[it.id] ?: 0) }, loaded = true)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GroupsUiState())
 
     fun create(name: String) {
         if (name.isBlank()) return
-        viewModelScope.launch { repository.createGroup(profiles.activeProfileId().first(), name) }
+        viewModelScope.launch { repository.createGroup(name) }
     }
 
     fun rename(groupId: Long, name: String) {

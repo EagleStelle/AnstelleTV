@@ -25,7 +25,8 @@ export interface PairStart {
 export interface Profile {
 	id: number;
 	name: string;
-	isKid: boolean;
+	/** Only the owner and admins change app-wide settings. */
+	role: 'owner' | 'admin' | 'member';
 	hasPin: boolean;
 }
 

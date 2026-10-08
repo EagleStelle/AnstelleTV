@@ -1,0 +1,36 @@
+{
+    "key": "amber",
+    "name": "Amber",
+    "version": 1,
+    "colors": {
+        "background": "#120D07",
+        "surface": "#1F180E",
+        "surfaceHigh": "#282015",
+        "line": "#332A1D",
+        "text": "#F8F3EC",
+        "textMuted": "#BDAF9C",
+        "accent": "#FFB334",
+        "onAccent": "#120D07",
+        "accentContainer": "#432B00",
+        "onAccentContainer": "#F5D9B4",
+        "guideCell": "#1F180E",
+        "guideCellPast": "#18130D",
+        "guideRuns": ["#2A2D49", "#1A3725", "#402639", "#0D3542"],
+        "nowLine": "#FFB334",
+        "banner": "#1F180E",
+        "bannerText": "#F8F3EC"
+    },
+    "typography": {
+        "display": "MONO",
+        "body": "SANS",
+        "scale": 1.0
+    },
+    "guide": {
+        "density": "COMFORTABLE",
+        "cellRadiusDp": 2
+    },
+    "effects": {
+        "scanlines": true,
+        "scanlineAlpha": 0.14
+    }
+}

@@ -35,8 +35,12 @@ data class PairConfirmResponse(val clientId: Long, val clientName: String)
 @Serializable
 data class SessionDto(val clientId: Long, val clientName: String, val deviceName: String, val version: String)
 
+/** [role] is `owner`, `admin` or `member`. */
 @Serializable
-data class ProfileDto(val id: Long, val name: String, val isKid: Boolean, val hasPin: Boolean)
+data class ProfileDto(val id: Long, val name: String, val role: String, val hasPin: Boolean)
+
+@Serializable
+data class ThemeDto(val id: Long, val name: String, val isBuiltIn: Boolean)
 
 @Serializable
 data class ChannelDto(

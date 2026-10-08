@@ -27,13 +27,10 @@
     },
     "guide": {
         "density": "COMFORTABLE",
-        "cellRadiusDp": 2,
-        "showChannelLogos": true
+        "cellRadiusDp": 2
     },
     "effects": {
         "scanlines": false,
-        "scanlineAlpha": 0.12,
-        "vignette": false
-    },
-    "banner": "BAR"
+        "scanlineAlpha": 0.14
+    }
 }
