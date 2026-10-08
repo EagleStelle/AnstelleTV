@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 5,
-    "identityHash": "cb906f44a67facdcb9c41ff5018307ae",
+    "identityHash": "14f66b3debf7f9487ce077daffbc41db",
     "entities": [
       {
         "tableName": "media_server",
@@ -262,7 +262,7 @@
       },
       {
         "tableName": "media_item",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `serverId` INTEGER NOT NULL, `libraryId` INTEGER, `remoteId` TEXT NOT NULL, `type` INTEGER NOT NULL, `title` TEXT NOT NULL, `sortTitle` TEXT, `seriesRemoteId` TEXT, `showTitle` TEXT, `season` INTEGER, `episode` INTEGER, `durationMs` INTEGER NOT NULL, `genres` TEXT NOT NULL, `studios` TEXT NOT NULL, `tags` TEXT NOT NULL, `collections` TEXT NOT NULL, `year` INTEGER, `premiereDateUtcMs` INTEGER, `officialRating` TEXT, `ratingScore` INTEGER, `overview` TEXT, `communityRating` REAL, `hdrType` INTEGER NOT NULL, `audioFormat` TEXT, `videoCodec` TEXT, `audioCodec` TEXT, `container` TEXT, `width` INTEGER, `height` INTEGER, `videoBitDepth` INTEGER, `audioChannels` INTEGER, `mediaSourceId` TEXT, `tracks` TEXT NOT NULL, `audioLanguages` TEXT NOT NULL, `primaryImageTag` TEXT, `backdropImageTag` TEXT, `logoImageTag` TEXT, `playedOnServer` INTEGER NOT NULL, `updatedAtUtcMs` INTEGER NOT NULL, FOREIGN KEY(`serverId`) REFERENCES `media_server`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `serverId` INTEGER NOT NULL, `libraryId` INTEGER, `remoteId` TEXT NOT NULL, `type` INTEGER NOT NULL, `title` TEXT NOT NULL, `sortTitle` TEXT, `seriesRemoteId` TEXT, `showTitle` TEXT, `season` INTEGER, `episode` INTEGER, `durationMs` INTEGER NOT NULL, `genres` TEXT NOT NULL, `studios` TEXT NOT NULL, `tags` TEXT NOT NULL, `collections` TEXT NOT NULL, `year` INTEGER, `premiereDateUtcMs` INTEGER, `officialRating` TEXT, `ratingScore` INTEGER, `overview` TEXT, `communityRating` REAL, `hdrType` INTEGER NOT NULL, `audioFormat` TEXT, `videoCodec` TEXT, `audioCodec` TEXT, `container` TEXT, `width` INTEGER, `height` INTEGER, `videoBitDepth` INTEGER, `audioChannels` INTEGER, `mediaSourceId` TEXT, `tracks` TEXT NOT NULL, `audioLanguages` TEXT NOT NULL, `primaryImageTag` TEXT, `backdropImageTag` TEXT, `logoImageTag` TEXT, `updatedAtUtcMs` INTEGER NOT NULL, FOREIGN KEY(`serverId`) REFERENCES `media_server`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -461,12 +461,6 @@
             "fieldPath": "logoImageTag",
             "columnName": "logoImageTag",
             "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "playedOnServer",
-            "columnName": "playedOnServer",
-            "affinity": "INTEGER",
-            "notNull": true
           },
           {
             "fieldPath": "updatedAtUtcMs",
@@ -1762,7 +1756,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'cb906f44a67facdcb9c41ff5018307ae')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '14f66b3debf7f9487ce077daffbc41db')"
     ]
   }
 }

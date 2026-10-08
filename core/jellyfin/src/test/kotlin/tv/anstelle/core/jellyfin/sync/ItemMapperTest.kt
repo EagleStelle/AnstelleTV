@@ -59,7 +59,6 @@ class ItemMapperTest {
         assertEquals(8f, series.communityRating)
         assertNull(series.mediaSourceId)
         assertNull(series.season)
-        assertFalse(series.playedOnServer)
     }
 
     @Test
@@ -101,7 +100,6 @@ class ItemMapperTest {
         // The episode has no backdrop or logo of its own; pages use its series'.
         assertNull(episode.backdropImageTag)
         assertNull(episode.logoImageTag)
-        assertTrue(episode.playedOnServer)
         assertEquals(1_000L, episode.updatedAtUtcMs)
     }
 

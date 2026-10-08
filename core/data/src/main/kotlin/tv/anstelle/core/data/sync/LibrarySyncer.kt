@@ -50,8 +50,8 @@ data class SyncOptions(
  * - **Series first:** episodes usually have no genres, studios, tags or rating of their
  *   own, so series are stored before episodes and episodes inherit from them. When a
  *   series changes, its episodes are fetched again.
- * - **Reconciliation:** deletions, played-state changes and box-set membership don't touch
- *   `DateLastSaved`, so an ID-only listing (cheap: no metadata) runs every few hours. Deleted
+ * - **Reconciliation:** deletions and box-set membership don't touch `DateLastSaved`, so
+ *   an ID-only listing (cheap: no metadata) runs every few hours. Deleted
  *   items are removed and the schedules that air them are marked for regeneration.
  */
 @Singleton
@@ -247,22 +247,16 @@ class LibrarySyncer @Inject constructor(
     private suspend fun reconcile(server: MediaServerEntity, libraries: List<LibraryEntity>, source: LibrarySource) {
         status.update(server.id, "Checking for removed items…")
         val remoteIds = HashSet<String>()
-        val played = ArrayList<String>()
         for (library in libraries) {
             val kinds = library.syncedKinds()
             if (kinds.isEmpty()) continue
-            remoteIds += source.itemIds(library.remoteId, kinds, playedOnly = false)
-            played += source.itemIds(library.remoteId, kinds, playedOnly = true)
+            remoteIds += source.itemIds(library.remoteId, kinds)
         }
         val gone = itemDao.allIds(server.id).filter { it.remoteId !in remoteIds }.map { it.id }
         removeItems(gone)
-        database.withTransaction {
-            itemDao.clearPlayed(server.id)
-            for (chunk in played.chunked(SQL_CHUNK)) itemDao.markPlayed(server.id, chunk)
-        }
         reconcileCollections(server, source)
         serverDao.setReconciled(server.id, time.nowUtcMs())
-        AppLog.i(TAG, "${server.name}: reconciled ${remoteIds.size} items, removed ${gone.size}, ${played.size} played")
+        AppLog.i(TAG, "${server.name}: reconciled ${remoteIds.size} items, removed ${gone.size}")
     }
 
     /**

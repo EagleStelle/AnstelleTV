@@ -1,43 +1,70 @@
 package tv.anstelle.core.data.playback
 
-import tv.anstelle.core.model.WatchReportMode
+import tv.anstelle.core.model.WatchSync
+import java.util.BitSet
 
-/** What to do about the item's played state once a report says playback stopped. */
+/** What to do about the item's played state once playback stops. */
 enum class AfterStop {
     NOTHING,
 
-    /** Jellyfin may have marked the item played after a partial view: check, and unmark it. */
-    UNMARK_IF_PLAYED,
+    /** The view counts as watching the item: mark it watched unless Jellyfin already did. */
+    MARK_WATCHED,
 
-    /** A full view counts: if the server marked the item played, record it locally too. */
-    RECORD_PLAYED,
+    /**
+     * Playback was reported for its progress only, but Jellyfin moves the played mark on
+     * its own (off at the start, on past 90%): put back the mark the item had before.
+     */
+    RESTORE_PLAYED,
 }
 
 /**
- * Channels start programs mid-way, so Jellyfin often sees a viewer "finish" an episode they
- * joined at minute 15 and marks it played. In [WatchReportMode.REPORT_NO_MARK] mode such
- * partial views are reported but don't leave the item played; only a view from (near) the
- * start to (near) the end does. On demand the viewer picked the item and the spot
- * themselves, so Jellyfin's marks stay, as in [WatchReportMode.FULL].
+ * When a view counts as watching an item, and what that means for Jellyfin's played mark.
+ *
+ * A channel joins programs mid-way and lets the viewer seek, so only what actually played on
+ * screen counts there: a program is watched when [WatchCoverage] covers 90% of it. On demand
+ * the viewer picked the item and the spot, so stopping past 90% counts, as in Jellyfin's apps.
  */
 object WatchRules {
-    /** A view counts as full when it joined in the first two minutes (or 5%) and lasted to 90%. */
-    fun isFullView(joinedAtMs: Long, stoppedAtMs: Long, durationMs: Long): Boolean {
-        if (durationMs <= 0) return false
-        val joinedEarly = joinedAtMs <= maxOf(EARLY_JOIN_MS, durationMs / 20)
-        val reachedEnd = stoppedAtMs * 10 >= durationMs * 9
-        return joinedEarly && reachedEnd
+    fun watchedThrough(coveredMs: Long, durationMs: Long): Boolean =
+        durationMs > 0 && coveredMs * 10 >= durationMs * 9
+
+    fun reachedEnd(stoppedAtMs: Long, durationMs: Long): Boolean =
+        durationMs > 0 && stoppedAtMs * 10 >= durationMs * 9
+
+    fun afterStop(sync: WatchSync, watched: Boolean, onDemand: Boolean): AfterStop = when {
+        sync == WatchSync.OFF -> AfterStop.NOTHING
+        // Like Jellyfin's own apps: its marks stand.
+        onDemand && sync == WatchSync.BOTH -> AfterStop.NOTHING
+        sync.marksWatched && watched -> AfterStop.MARK_WATCHED
+        sync.savesProgress -> AfterStop.RESTORE_PLAYED
+        else -> AfterStop.NOTHING
     }
 
-    fun afterStop(mode: WatchReportMode, playedBefore: Boolean, fullView: Boolean, onDemand: Boolean = false): AfterStop = when (mode) {
-        WatchReportMode.OFF -> AfterStop.NOTHING
-        WatchReportMode.FULL -> AfterStop.RECORD_PLAYED
-        WatchReportMode.REPORT_NO_MARK -> when {
-            fullView || onDemand -> AfterStop.RECORD_PLAYED
-            playedBefore -> AfterStop.NOTHING
-            else -> AfterStop.UNMARK_IF_PLAYED
-        }
+    /** Whether the played mark before playback is needed when it stops. */
+    fun needsPlayedBefore(sync: WatchSync, onDemand: Boolean): Boolean =
+        sync.savesProgress && !(onDemand && sync == WatchSync.BOTH)
+}
+
+/**
+ * The seconds of an item that actually played, so joining late or seeking past a part never
+ * counts as watching it. The player samples its position about once a second while playing;
+ * two samples close together mean the stretch between them played.
+ */
+class WatchCoverage(private val durationMs: Long) {
+    private val seconds = BitSet()
+    private var lastMs = -1L
+
+    fun sample(positionMs: Long) {
+        val position = positionMs.coerceIn(0, durationMs)
+        val from = if (lastMs >= 0 && position - lastMs in 0..MAX_STEP_MS) lastMs else position
+        seconds.set((from / 1000).toInt(), (position / 1000).toInt() + 1)
+        lastMs = position
     }
 
-    private const val EARLY_JOIN_MS = 2 * 60_000L
+    val coveredMs: Long get() = minOf(seconds.cardinality() * 1000L, durationMs)
+
+    private companion object {
+        /** Longer than a tick and its jitter, shorter than the players' 10 s skips. */
+        const val MAX_STEP_MS = 3_000L
+    }
 }

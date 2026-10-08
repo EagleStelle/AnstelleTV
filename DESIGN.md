@@ -232,7 +232,7 @@ One hue, one signal: every value sits on the same rose-violet axis, from near-bl
 - **Ink** (ink): the ground every screen sits on, the text on any rose fill, and off-air guide cells.
 - **Coal** (coal): one step up from the ground; rows, guide cells, panels over video, the navigation bar and rail, text fields.
 - **Coal High** (coal-high): the second step; a pressed row on touch and the poster placeholder.
-- **Line** (line): hairlines, panel edges, secondary button outlines, empty ladder segments, the time header's half-hour ticks, empty number-entry slots.
+- **Line** (line): hairlines, panel edges, empty ladder segments, the time header's half-hour ticks, empty number-entry slots.
 - **Bone** (bone): primary text and the focused fill of the primary button.
 - **Muted** (muted): secondary text, unselected tabs, outlines of badges and the selection hairline on an unfocused guide cell. Tinted from the palette, not a neutral grey.
 
@@ -276,7 +276,7 @@ The player is full screen with no shell; on phones and tablets it turns the scre
 
 On demand is channels, not a catalog, and keeps the guide's margins and gaps so the two screens line up: 32 px sides, 12 px top and bottom, 8 px between bands on TV; 12, 8 and 6 px on phones. The banner sits at the top (inside a 3 px focus frame on TV, edge to edge from the top on phones like the guide's stacked preview, at least 252 px tall on TV and 236 on phones), then one row per guide group in the guide's order, a row header in the condensed field voice (the group's name in bone, the number range it spans muted, 15 px on TV, 13 on phones) a gap more above it than under it, over a row of channel tiles 214 px wide on TV and 172 on phones whose pictures sit one gap apart. Tile pictures, the banner's picture and the headers all start at the side margin; on phones the banner's text does too.
 
-A channel's page, on the same margins and gaps, opens on a hero: the backdrop edge to edge (running out past the page padding and, on phones, under the back bar, which takes the ground's color once the hero scrolls away), with the channel's number block and name, the episode's still (240 px wide on TV, 160 on phones) or a movie's poster, the logo or title (84 px tall on TV, 56 on phones), facts, a status line with its ladder and the overview (three lines on TV, so the watch choices stay on the first screen; all of it on phones). The watch choices follow as menu rows two to a row from 600 px, one on phones; then the season tabs and the episode rows. The page's one other action, Add to a channel, is a secondary button at the top end: closing the hero's channel line on TV, in the back bar on phones (a back bar takes actions at its end, as Android's top bars do). The rest of the page follows on the plain ground under a hard edge.
+A channel's page, on the same margins and gaps, opens on a hero: the backdrop edge to edge (running out past the page padding and, on phones, under the back bar, which takes the ground's color once the hero scrolls away), with the channel's number block and name, the episode's still (240 px wide on TV, 160 on phones) or a movie's poster, the logo or title (84 px tall on TV, 56 on phones), facts, a status line with its ladder and the overview (three lines on TV, so the watch choices stay on the first screen; all of it on phones). The watch choices follow as one row of keys (see Buttons), with Add to a channel as the last key; then the season tabs and the episode rows. The rest of the page follows on the plain ground under a hard edge.
 
 ## Elevation & Depth
 
@@ -289,20 +289,23 @@ The system is flat. There are no shadows, gradients, glows or blurs anywhere, an
 
 **The No Zoom Rule.** Focus never scales, glows or lifts. Compose for TV's default focus scale and glow are off.
 
+**The Fill Not Frame Rule** (user decision). A button or key is a fill, never a frame: no outline at rest, on focus or on press. It reads apart from the ground by its fill alone (coal, or rose for the primary), the way a menu row does, and every state change is a change of fill. Hairlines belong to panels over video, empty entry slots, badges and the guide's cells, never to anything you press as a button.
+
 ## Shapes
 
-Near-square corners everywhere: 2 px on controls, rows, guide cells, posters, buttons, badges and number blocks; 4 px on panels over video and dialogs. Edges are 1 px hairlines in line color (panels, secondary buttons, off-air cells, empty entry slots) or muted (badges, the unfocused selection in the guide). Markers are squares, not dots: the on-air marker is a solid 8 px square, up next the same square hollow with a 1.5 px stroke, and the now line's head in the time header is an 8 px square on a 2 px stem. Progress is a ladder of rectangular segments with 2 px gaps.
+Near-square corners everywhere: 2 px on controls, rows, guide cells, posters, buttons, badges and number blocks; 4 px on panels over video and dialogs. Edges are 1 px hairlines in line color (panels, off-air cells, empty entry slots) or muted (badges, the unfocused selection in the guide); buttons and keys never take one (see The Fill Not Frame Rule). Markers are squares, not dots: the on-air marker is a solid 8 px square, up next the same square hollow with a 1.5 px stroke, and the now line's head in the time header is an 8 px square on a 2 px stem. Progress is a ladder of rectangular segments with 2 px gaps.
 
 The mark is a channel bug: an ink "A" on a rose tile with a small corner (6 units on a 108-unit grid), its crossbar running on past the right leg the way the now line runs out of frame. The in-app mark and the generated launcher icon and TV banner share the same geometry.
 
 ## Components
 
 ### Buttons
-Flat, solid and labelled; the OSD's action keys.
+Flat, solid and labelled; the OSD's action keys. Fills only, never outlines.
 - **Shape:** near-square (2 px).
 - **Primary:** rose with ink label, 48 px tall on touch and 52 px on TV, 20 / 24 px side padding, optional 20 px leading icon. One per screen.
 - **Focus:** the primary turns bone (it is already rose, so focus has to show as something else); a secondary turns rose with ink text.
-- **Secondary:** coal with bone label and a 1 px line outline.
+- **Secondary:** coal with bone label, no outline. A touch press steps it up to coal high.
+- **Watch key:** a channel page's ways to watch, plus Add to a channel, as one row of keys of one width (84 by 52 px on TV, 72 by 44 on touch, narrower on phones too small for five): the icon centered on a coal key with no outline, its label under it in uppercase label-medium. The key and label take the press together; focus fills the key rose with an ink icon and turns the label rose. On touch the first key is the primary, rose with an ink icon.
 
 ### Cards / Containers
 - **OSD panel:** coal with a 1 px line edge, 4 px corners, 24 px padding on TV and 18 px on touch, children 10 px apart. Used for messages over video and the action dialog.
@@ -366,6 +369,7 @@ A show's or movie's logo from the server stands in for its title in the guide's 
 - **Don't** float player controls in a panel of their own; they belong in the banner's program column.
 - **Don't** add yellow, grey, blue, violet, orange or red, stock Tailwind or shadcn values, or a terracotta-and-cream scheme.
 - **Don't** zoom, scale, glow or ring a focused control; fill it. The text field is the one exception: as a platform field its outline turns rose.
+- **Don't** outline a button or key, in any state; it is a fill.
 - **Don't** round corners past 4 px or draw pill or circle controls of your own; the platform Material 3 Switch on touch is the only pill.
 - **Don't** change the guide's layout; restyle only.
 - **Don't** move the now line behind the cells.

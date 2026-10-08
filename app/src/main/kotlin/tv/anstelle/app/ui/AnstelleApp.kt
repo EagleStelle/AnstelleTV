@@ -84,6 +84,7 @@ import tv.anstelle.feature.settings.channels.ChannelsScreen
 import tv.anstelle.feature.settings.playback.LanguageList
 import tv.anstelle.feature.settings.playback.LanguagePickerScreen
 import tv.anstelle.feature.settings.playback.PlaybackLanguagesScreen
+import tv.anstelle.feature.settings.playback.WatchHistoryScreen
 import tv.anstelle.feature.settings.servers.AddServerScreen
 import tv.anstelle.feature.settings.servers.ServerDetailScreen
 import tv.anstelle.feature.settings.servers.ServersScreen
@@ -163,11 +164,13 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onOpenServers = { navController.navigate(ServersRoute) },
                     onOpenChannels = { navController.navigate(ChannelsRoute) },
                     onOpenLanguages = { navController.navigate(PlaybackLanguagesRoute) },
+                    onOpenWatchHistory = { navController.navigate(WatchHistoryRoute) },
                 )
             }
             composable<PlaybackLanguagesRoute> {
                 PlaybackLanguagesScreen(onAddLanguage = { navController.navigate(LanguagePickerRoute(subtitles = it == LanguageList.SUBTITLES)) })
             }
+            composable<WatchHistoryRoute> { WatchHistoryScreen() }
             composable<LanguagePickerRoute> { LanguagePickerScreen(onPicked = { navController.popBackStack() }) }
             composable<ChannelsRoute> {
                 ChannelsScreen(

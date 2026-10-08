@@ -1,8 +1,14 @@
 package tv.anstelle.feature.ondemand
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -10,6 +16,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -19,6 +26,8 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Update
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,13 +43,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -72,9 +82,7 @@ import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.DialogAction
 import tv.anstelle.core.theme.components.FocusSurface
-import tv.anstelle.core.theme.components.FocusTile
 import tv.anstelle.core.theme.components.NumberBlock
-import tv.anstelle.core.theme.components.OsdButton
 import tv.anstelle.core.theme.components.OsdTab
 import tv.anstelle.core.theme.components.SectionLabel
 import tv.anstelle.core.theme.components.SegmentLadder
@@ -151,7 +159,6 @@ fun ChannelScreen(
         return
     }
     val isTv = LocalIsTv.current
-    val wide = isTv || with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } >= WIDE_DP.dp
     val clock = rememberClock()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -181,10 +188,9 @@ fun ChannelScreen(
     val shown = seasons[season].orEmpty()
     val choices = topicChoices(page, state.openedAtMs)
 
-    // Items above the episodes: the hero, the action rows, the season tabs or heading.
-    val actionRows = choices.chunked(if (wide) 2 else 1)
-    val firstEpisodeIndex = 1 + actionRows.size + 1
-    /** Down from the last action row skips to the episode on the channel, not the season's first. */
+    // Items above the episodes: the hero, the keys, the season tabs or heading.
+    val firstEpisodeIndex = 3
+    /** Down from the keys skips to the episode on the channel, not the season's first. */
     fun toTopic(): Boolean {
         val index = shown.indexOfFirst { it.id == item.id }.takeIf { it >= 0 } ?: return false
         scope.launch {
@@ -194,35 +200,22 @@ fun ChannelScreen(
         }
         return true
     }
+    // The ways to watch, then adding the show to a channel, as one row of keys.
+    val keys = choices + WatchChoice(WatchKind.ADD_TO_CHANNEL, "Add to a channel", detail = "")
 
-
-    // Adding the show to a channel is about the show, not a way to watch it: it sits at the
-    // page's top end, out of the choices' grid (the hero's first line on TV, the back bar on phones).
-    val add: @Composable () -> Unit = {
-        OsdButton(
-            text = "Add to a channel",
-            icon = Icons.AutoMirrored.Filled.PlaylistAdd,
-            onClick = {
-                lastTouched = null
-                onAddToChannel(item.id)
-            },
-        )
-    }
-    val hero: @Composable ColumnScope.() -> Unit = { Hero(page, clock.value, action = if (isTv) add else null) }
-    Page(item.artwork.backdropUrl, hero, modifier, listState = listState, topAction = add) {
-        actionRows.forEachIndexed { r, row ->
-            item(key = "actions-$r") {
-                val last = r == actionRows.lastIndex
+    val hero: @Composable ColumnScope.() -> Unit = { Hero(page, clock.value) }
+    Page(item.artwork.backdropUrl, hero, modifier, listState = listState) {
+        item(key = "keys") {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                // Keys keep one width whatever the count, so they line up from page to page.
+                val keyWidth = if (isTv) TV_KEY_WIDTH else minOf(TOUCH_KEY_WIDTH, (maxWidth - screenGap * (KEY_COLUMNS - 1)) / KEY_COLUMNS)
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .let { if (last && topicEpisode != null && isTv) it.onPreviewKeyEvent { e -> e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && toTopic() } else it },
+                    Modifier.let { if (topicEpisode != null && isTv) it.onPreviewKeyEvent { e -> e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && toTopic() } else it },
                     horizontalArrangement = Arrangement.spacedBy(screenGap),
                 ) {
-                    row.forEachIndexed { c, choice ->
-                        FocusTile(
-                            title = choice.title,
-                            subtitle = choice.detail,
+                    keys.forEachIndexed { i, choice ->
+                        WatchKey(
+                            label = choice.title,
                             icon = choice.icon(),
                             onClick = {
                                 lastTouched = null
@@ -233,13 +226,11 @@ fun ChannelScreen(
                                     WatchKind.ADD_TO_CHANNEL -> onAddToChannel(item.id)
                                 }
                             },
-                            // Touch has no focus to lead with: the first choice is the primary instead.
-                            primary = r == 0 && c == 0 && !isTv,
-                            modifier = Modifier.weight(1f).let { if (r == 0 && c == 0) it.focusRequester(firstFocus) else it },
+                            // Touch has no focus to lead with: the first key is the primary instead.
+                            primary = i == 0 && !isTv,
+                            modifier = Modifier.width(keyWidth).let { if (i == 0) it.focusRequester(firstFocus) else it },
                         )
                     }
-                    // An odd last choice keeps its half, so the grid holds its columns.
-                    if (wide && row.size == 1) Box(Modifier.weight(1f))
                 }
             }
         }
@@ -248,7 +239,8 @@ fun ChannelScreen(
                 SeasonTabs(seasons, season, topicSeason = topicEpisode?.let { seasonKey(it.season) }) { season = it }
             }
         } else if (page.episodes.isNotEmpty()) {
-            item(key = "seasons") { SectionLabel("Episodes") }
+            // The keys sit one gap above it, as the hero sits above them.
+            item(key = "seasons") { SectionLabel("Episodes", top = 0.dp) }
         }
         items(shown, key = { it.id }) { episode ->
             val isTopic = episode.id == item.id
@@ -325,7 +317,6 @@ fun ChannelScreen(
 /**
  * The ways to watch the page's program, in the guide's own words: live on the channel, the
  * channel from the program's start, on demand from the start or from where the channel is.
- * Adding the show to a channel isn't a way to watch it; it sits at the top of the page.
  */
 private fun topicChoices(page: ChannelPage, nowMs: Long): List<WatchChoice> {
     val item = page.item
@@ -345,7 +336,59 @@ private fun WatchChoice.icon() = when (kind) {
     WatchKind.LIVE -> Icons.Filled.LiveTv
     WatchKind.RESTART -> Icons.Filled.Replay
     WatchKind.ADD_TO_CHANNEL -> Icons.AutoMirrored.Filled.PlaylistAdd
-    WatchKind.PLAY -> Icons.Filled.PlayArrow
+    // Picking up partway reads apart from playing from the start.
+    WatchKind.PLAY -> if (positionMs > 0) Icons.Filled.Update else Icons.Filled.PlayArrow
+}
+
+/**
+ * One key of the page's row: the icon on a flat key with no outline, its label under it in the
+ * OSD's condensed voice. The whole key and label take the press; focus fills the key with the
+ * accent and turns the label rose. A [primary] key is rose with ink, turning bone when focused,
+ * like the primary button.
+ */
+@Composable
+private fun WatchKey(label: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = false) {
+    val theme = LocalAnstelleTheme.current
+    val isTv = LocalIsTv.current
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val fill = when {
+        focused -> if (primary) theme.text else theme.accent
+        primary -> theme.accent
+        pressed && !isTv -> theme.surfaceHigh
+        else -> theme.surface
+    }
+    Column(
+        modifier.clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(if (isTv) 8.dp else 6.dp),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(if (isTv) 52.dp else 44.dp)
+                .clip(ControlShape)
+                .background(fill)
+                .indication(interaction, if (isTv) null else ripple(color = if (primary) theme.onAccent else theme.text)),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.material3.Icon(
+                icon,
+                contentDescription = null,
+                tint = if (focused || primary) theme.onAccent else theme.text,
+                modifier = Modifier.size(if (isTv) 26.dp else 24.dp),
+            )
+        }
+        androidx.compose.material3.Text(
+            label.uppercase(),
+            style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+            color = if (focused) theme.accent else theme.text,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 /**
@@ -354,7 +397,7 @@ private fun WatchChoice.icon() = when (kind) {
  * then the overview.
  */
 @Composable
-private fun ColumnScope.Hero(page: ChannelPage, nowMs: Long, action: (@Composable () -> Unit)?) {
+private fun ColumnScope.Hero(page: ChannelPage, nowMs: Long) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
@@ -372,7 +415,6 @@ private fun ColumnScope.Hero(page: ChannelPage, nowMs: Long, action: (@Composabl
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        action?.invoke()
     }
     // An episode shows its own still, wide; a movie its poster.
     val wide = item.isEpisode
@@ -421,7 +463,7 @@ private fun airingStatus(page: ChannelPage, nowMs: Long): AiringStatus {
 @Composable
 private fun SeasonTabs(seasons: Map<String, List<EpisodeEntry>>, open: String?, topicSeason: String?, onSelect: (String) -> Unit) {
     val theme = LocalAnstelleTheme.current
-    Box(Modifier.padding(top = 8.dp)) {
+    Box {
         Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(1.dp).background(theme.line))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             items(seasons.keys.toList(), key = { it }) { key ->
@@ -515,5 +557,13 @@ private fun seasonKey(season: Int?): String = when (season) {
 /** A resume point this close to the end counts as watched through. */
 private const val RESUME_LIMIT_PERCENT = 95
 
-/** From this width the actions sit two to a row. */
-private const val WIDE_DP = 600
+/** The most keys the row holds; touch keys share the width as if all were there. */
+private const val KEY_COLUMNS = 5
+
+// Keys keep one shape on every device (84 by 52 on TV, 72 by 44 on touch), so TV and phone rows read alike.
+
+/** A key's width on TV. */
+private val TV_KEY_WIDTH = 84.dp
+
+/** A touch key's widest; narrow phones shrink it to fit five. The label under it widens the target past 48. */
+private val TOUCH_KEY_WIDTH = 72.dp

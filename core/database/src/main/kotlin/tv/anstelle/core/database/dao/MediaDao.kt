@@ -194,13 +194,4 @@ interface MediaItemDao {
 
     @Query("SELECT id FROM media_item WHERE libraryId = :libraryId")
     suspend fun idsInLibrary(libraryId: Long): List<Long>
-
-    @Query("UPDATE media_item SET playedOnServer = 0 WHERE serverId = :serverId")
-    suspend fun clearPlayed(serverId: Long)
-
-    @Query("UPDATE media_item SET playedOnServer = 1 WHERE serverId = :serverId AND remoteId IN (:remoteIds)")
-    suspend fun markPlayed(serverId: Long, remoteIds: List<String>)
-
-    @Query("UPDATE media_item SET playedOnServer = :played WHERE id = :id")
-    suspend fun setPlayedOnServer(id: Long, played: Boolean)
 }

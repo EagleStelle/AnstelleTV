@@ -92,7 +92,6 @@ object ItemMapper {
             primaryImageTag = item.imageTags?.get(ImageType.PRIMARY),
             backdropImageTag = item.backdropImageTags?.firstOrNull(),
             logoImageTag = item.imageTags?.get(ImageType.LOGO),
-            playedOnServer = item.userData?.played ?: false,
             updatedAtUtcMs = context.nowUtcMs,
         )
     }

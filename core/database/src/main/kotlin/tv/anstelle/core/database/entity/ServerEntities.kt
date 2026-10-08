@@ -32,7 +32,7 @@ data class MediaServerEntity(
     val lastSyncUtcMs: Long? = null,
     /** Why the last sync failed, or null when it succeeded. */
     val lastSyncError: String? = null,
-    /** Device time of the last ID-only reconciliation (deletions and played state). */
+    /** Device time of the last ID-only reconciliation (deletions and box sets). */
     val lastReconcileUtcMs: Long? = null,
 )
 
@@ -134,8 +134,6 @@ data class MediaItemEntity(
     val backdropImageTag: String?,
     /** The title logo's tag (a transparent image of the title); null when there is none. */
     val logoImageTag: String?,
-    /** Played state on the server at last sync, used by the REPORT_NO_MARK report mode. */
-    val playedOnServer: Boolean,
     /** Device time of the sync that last wrote this row. */
     val updatedAtUtcMs: Long,
 )

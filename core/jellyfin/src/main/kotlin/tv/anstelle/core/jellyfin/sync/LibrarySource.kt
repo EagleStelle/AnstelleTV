@@ -9,7 +9,6 @@ import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.api.ImageType
 import org.jellyfin.sdk.model.api.ItemFields
-import org.jellyfin.sdk.model.api.ItemFilter
 import org.jellyfin.sdk.model.api.ItemSortBy
 import org.jellyfin.sdk.model.api.LocationType
 import org.jellyfin.sdk.model.api.ParentalRating
@@ -54,8 +53,8 @@ interface LibrarySource {
         limit: Int,
     ): ItemPage
 
-    /** Ids of every item below [parentId], or of the played ones only. Cheap: no metadata. */
-    suspend fun itemIds(parentId: String, kinds: Set<BaseItemKind>, playedOnly: Boolean): List<String>
+    /** Ids of every item below [parentId]. Cheap: no metadata. */
+    suspend fun itemIds(parentId: String, kinds: Set<BaseItemKind>): List<String>
 
     suspend fun boxSets(): List<RemoteBoxSet>
 
@@ -126,7 +125,7 @@ internal class JellyfinLibrarySource(
                 excludeLocationTypes = listOf(LocationType.VIRTUAL),
                 minDateLastSaved = changedSinceUtcMs?.let(::sdkDateTime),
                 fields = ItemDetailFields,
-                enableUserData = true,
+                enableUserData = false,
                 enableImages = true,
                 // One of each: the poster, the first backdrop and the title logo.
                 imageTypeLimit = 1,
@@ -141,11 +140,7 @@ internal class JellyfinLibrarySource(
         ItemPage(result.items, result.totalRecordCount)
     }
 
-    override suspend fun itemIds(
-        parentId: String,
-        kinds: Set<BaseItemKind>,
-        playedOnly: Boolean,
-    ): List<String> = jellyfinCall("Listing item ids") {
+    override suspend fun itemIds(parentId: String, kinds: Set<BaseItemKind>): List<String> = jellyfinCall("Listing item ids") {
         val ids = ArrayList<String>()
         var start = 0
         while (true) {
@@ -156,8 +151,7 @@ internal class JellyfinLibrarySource(
                     recursive = true,
                     includeItemTypes = kinds,
                     excludeLocationTypes = listOf(LocationType.VIRTUAL),
-                    filters = if (playedOnly) listOf(ItemFilter.IS_PLAYED) else null,
-                    enableUserData = playedOnly,
+                    enableUserData = false,
                     enableImages = false,
                     sortBy = listOf(ItemSortBy.SORT_NAME),
                     startIndex = start,

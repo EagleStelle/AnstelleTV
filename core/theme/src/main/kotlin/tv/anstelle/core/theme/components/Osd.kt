@@ -118,14 +118,14 @@ fun BackBar(onBack: () -> Unit, modifier: Modifier = Modifier, title: String? = 
     }
 }
 
-/** The heading of a group of rows, set like an OSD field label. */
+/** The heading of a group of rows, set like an OSD field label, [top] clear of what is above. */
 @Composable
-fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+fun SectionLabel(text: String, modifier: Modifier = Modifier, top: Dp = 16.dp) {
     androidx.compose.material3.Text(
         text.uppercase(),
         style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
         color = LocalAnstelleTheme.current.textMuted,
-        modifier = modifier.padding(top = 16.dp, bottom = 2.dp),
+        modifier = modifier.padding(top = top, bottom = 2.dp),
     )
 }
 

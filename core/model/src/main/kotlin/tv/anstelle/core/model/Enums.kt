@@ -136,13 +136,15 @@ enum class WatchSource(override val code: Int) : CodedEnum {
     LIVE(2),
 }
 
-/** How channel playback is reported back to Jellyfin. */
-enum class WatchReportMode(override val code: Int) : CodedEnum {
-    OFF(0),
-
-    /** Report playback, but never leave an item marked watched after a partial channel view. */
-    REPORT_NO_MARK(1),
-    FULL(2),
+/**
+ * What playback leaves in Jellyfin, chosen apart for Live TV and On demand: the item's watched
+ * status, its progress (the resume point where the user stopped), both, or nothing.
+ */
+enum class WatchSync(override val code: Int, val marksWatched: Boolean, val savesProgress: Boolean) : CodedEnum {
+    OFF(0, marksWatched = false, savesProgress = false),
+    STATUS(1, marksWatched = true, savesProgress = false),
+    PROGRESS(2, marksWatched = false, savesProgress = true),
+    BOTH(3, marksWatched = true, savesProgress = true),
 }
 
 /** When subtitles show. */

@@ -74,8 +74,7 @@ internal fun Poster(imageUrl: String?, title: String, modifier: Modifier) {
  * A scrolling page headed by a hero: the show's or movie's backdrop under the flat wash, edge
  * to edge, with [hero] on it (title or logo, facts, overview). The rest of the page follows on
  * the plain ground. Phones get a back arrow over the hero; it takes the ground's color once the
- * hero has scrolled away from under it, with [topAction] (an action about the whole page) at
- * its end. TV has no back bar; its hero carries the action itself.
+ * hero has scrolled away from under it. TV has no back bar.
  */
 @Composable
 internal fun Page(
@@ -83,7 +82,6 @@ internal fun Page(
     hero: @Composable ColumnScope.() -> Unit,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
-    topAction: (@Composable () -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
     val theme = LocalAnstelleTheme.current
@@ -121,7 +119,6 @@ internal fun Page(
             BackBar(
                 onBack = { back?.onBackPressed() },
                 modifier = Modifier.background(if (overHero) Color.Transparent else theme.background),
-                actions = { topAction?.invoke() },
             )
         }
     }

@@ -53,6 +53,7 @@ const val PlayerRouteNoChannel = -1
 @Serializable data object ChannelNumbersRoute
 @Serializable data object ChannelGroupsRoute
 @Serializable data object PlaybackLanguagesRoute
+@Serializable data object WatchHistoryRoute
 
 /** Adds a language to the subtitle list when [subtitles], else to the audio list. */
 @Serializable data class LanguagePickerRoute(val subtitles: Boolean)

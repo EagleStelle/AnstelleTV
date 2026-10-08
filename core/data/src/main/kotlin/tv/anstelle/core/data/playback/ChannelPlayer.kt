@@ -491,9 +491,10 @@ class ChannelPlayer @Inject constructor(
         }
     }
 
-    /** Every 10 s a progress report; every 20 s a standby refresh. */
+    /** Every second a sample of what played; every 10 s a progress report; every 20 s a standby refresh. */
     private fun tick(ticks: Int) {
         val player = _player.value ?: return
+        if (player.isPlaying) session?.let { reporter.playing(it, player.currentPosition) }
         if (ticks % PROGRESS_TICKS == 0) session?.let { reporter.progress(it, player.currentPosition, paused = !player.isPlaying) }
         if (ticks % STANDBY_TICKS == 0) refreshStandby()
     }

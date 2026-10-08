@@ -1,6 +1,7 @@
 package tv.anstelle.feature.settings.playback
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -22,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -120,7 +122,7 @@ fun PlaybackLanguagesScreen(
         subtitle = "Every program starts on these. Picking a track while watching changes only the program on now.",
         modifier = modifier,
     ) {
-        section("Audio languages")
+        section("Audio languages", first = true)
         languageRows(LanguageList.AUDIO, prefs.audioLanguages, open, onOpen = { open = it }, viewModel, Modifier.focusRequester(firstFocus))
         item(key = "add-audio") {
             FocusTile(
@@ -158,12 +160,14 @@ fun PlaybackLanguagesScreen(
     }
 }
 
-private fun LazyListScope.section(title: String) {
+/** A heading over a group of rows, with more room above it than below unless it opens the page. */
+internal fun LazyListScope.section(title: String, first: Boolean = false) {
     item(key = "section-$title") {
         androidx.compose.material3.Text(
             title,
             style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
             color = tv.anstelle.core.theme.LocalAnstelleTheme.current.text,
+            modifier = if (first) Modifier else Modifier.padding(top = if (LocalIsTv.current) 18.dp else 12.dp),
         )
     }
 }

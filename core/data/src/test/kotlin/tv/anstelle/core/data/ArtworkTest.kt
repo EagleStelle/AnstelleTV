@@ -18,7 +18,7 @@ class ArtworkTest {
         overview = null, communityRating = null, hdrType = HdrType.SDR, audioFormat = null, videoCodec = null,
         audioCodec = null, container = null, width = null, height = null, videoBitDepth = null, audioChannels = null,
         mediaSourceId = null, tracks = MediaTracks(emptyList(), emptyList(), emptyList()), audioLanguages = "",
-        primaryImageTag = null, backdropImageTag = backdrop, logoImageTag = logo, playedOnServer = false, updatedAtUtcMs = 0,
+        primaryImageTag = null, backdropImageTag = backdrop, logoImageTag = logo, updatedAtUtcMs = 0,
     )
 
     @Test

@@ -170,7 +170,7 @@ class ServerRepository @Inject constructor(
         val serverId = existing?.id ?: id
         tokens.put(info.id, session.accessToken)
         AppLog.i(TAG, "Signed in to ${info.name} ${info.version} as ${session.userName}")
-        // Another user sees other libraries and has other played state: fetch everything again.
+        // Another user sees other libraries and items: fetch everything again.
         syncNow(serverId, fullRefresh = userChanged, forceReconcile = true)
         serverId
     }

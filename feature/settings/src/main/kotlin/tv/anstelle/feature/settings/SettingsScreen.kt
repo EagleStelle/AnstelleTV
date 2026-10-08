@@ -61,7 +61,7 @@ import tv.anstelle.core.database.dao.PairedClientDao
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.core.model.MediaServer
 import tv.anstelle.core.model.TrackPrefs
-import tv.anstelle.core.model.WatchReportMode
+import tv.anstelle.core.model.WatchSync
 import tv.anstelle.core.model.codeOf
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
@@ -70,7 +70,11 @@ import tv.anstelle.core.theme.components.PageHeader
 import tv.anstelle.core.theme.components.SectionLabel
 import tv.anstelle.core.theme.components.TileTrailing
 import tv.anstelle.core.theme.components.pagePadding
+import tv.anstelle.feature.settings.playback.SyncPlace
 import tv.anstelle.feature.settings.playback.languageName
+import tv.anstelle.feature.settings.playback.syncDescription
+import tv.anstelle.feature.settings.playback.syncName
+import tv.anstelle.feature.settings.playback.watchHistorySummary
 
 import tv.anstelle.feature.settings.channels.activeProfileId
 import tv.anstelle.feature.settings.playback.summary as playbackSummary
@@ -82,7 +86,8 @@ data class SettingsUiState(
     val webServer: WebServerStatus = WebServerStatus.Stopped,
     val pairedClients: List<PairedClientEntity> = emptyList(),
     val servers: List<MediaServer> = emptyList(),
-    val reporting: WatchReportMode = WatchReportMode.REPORT_NO_MARK,
+    val liveTvSync: WatchSync = codeOf(Settings.LiveTvSync.default),
+    val onDemandSync: WatchSync = codeOf(Settings.OnDemandSync.default),
     val tracks: TrackPrefs = TrackPrefs(),
 )
 
@@ -96,35 +101,21 @@ class SettingsViewModel @Inject constructor(
     profiles: ProfileRepository,
     tracks: TrackChoices,
 ) : ViewModel() {
+    private val sync = combine(settings.observe(Settings.LiveTvSync), settings.observe(Settings.OnDemandSync)) { live, onDemand ->
+        codeOf<WatchSync>(live) to codeOf<WatchSync>(onDemand)
+    }
+
     val state: StateFlow<SettingsUiState> = combine(
         settings.observe(Settings.WebServerEnabled),
         webServer.status,
         pairedClients.observeAll(),
         servers.observeServers(),
-        settings.observe(Settings.WatchReporting),
-    ) { enabled, status, clients, serverList, reporting ->
-        SettingsUiState(enabled, status, clients, serverList, codeOf(reporting))
+        sync,
+    ) { enabled, status, clients, serverList, (live, onDemand) ->
+        SettingsUiState(enabled, status, clients, serverList, live, onDemand)
     }.combine(profiles.activeProfileId().flatMapLatest { tracks.observePrefs(it) }) { state, prefs ->
         state.copy(tracks = prefs)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
-
-    /** Steps through: report without marking watched → report everything → don't report. */
-    fun nextReporting() = stepReporting(1)
-
-    fun previousReporting() = stepReporting(-1)
-
-    fun setReporting(mode: WatchReportMode) {
-        viewModelScope.launch { settings.set(Settings.WatchReporting, mode.code) }
-    }
-
-
-    private fun stepReporting(by: Int) {
-        viewModelScope.launch {
-            val modes = REPORTING_ORDER
-            val next = modes[(modes.indexOf(state.value.reporting) + by).mod(modes.size)]
-            settings.set(Settings.WatchReporting, next.code)
-        }
-    }
 
     fun setWebServerEnabled(enabled: Boolean) {
         viewModelScope.launch {
@@ -148,6 +139,7 @@ fun SettingsScreen(
     onOpenServers: () -> Unit,
     onOpenChannels: () -> Unit,
     onOpenLanguages: () -> Unit,
+    onOpenWatchHistory: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -161,8 +153,6 @@ fun SettingsScreen(
 
     fun Modifier.tracks(item: SettingsItem) = onFocusChanged { if (it.isFocused) current = item }
     fun about(item: SettingsItem) = if (wide) null else description(item, state)
-    // Touch picks watch history from a list; the D-pad steps through it in place.
-    var pickingReporting by remember { mutableStateOf(false) }
 
     Row(modifier.fillMaxSize().background(theme.background)) {
         // The header stays put while the rows scroll under it, so it is never left half clipped.
@@ -215,11 +205,8 @@ fun SettingsScreen(
                     title = "Watch history",
                     subtitle = about(SettingsItem.HISTORY),
                     icon = Icons.Filled.History,
-                    value = reportingValue(state.reporting),
-                    onClick = if (isTv) viewModel::nextReporting else ({ pickingReporting = true }),
-                    onPrevious = if (isTv) viewModel::previousReporting else null,
-                    onNext = if (isTv) viewModel::nextReporting else null,
-                    trailing = if (isTv) TileTrailing.None else TileTrailing.Chevron,
+                    trailing = TileTrailing.Chevron,
+                    onClick = onOpenWatchHistory,
                     modifier = Modifier.fillMaxWidth().tracks(SettingsItem.HISTORY),
                 )
             }
@@ -244,50 +231,11 @@ fun SettingsScreen(
             }
         }
         }
-        if (pickingReporting) {
-            ReportingPicker(
-                current = state.reporting,
-                onPick = {
-                    viewModel.setReporting(it)
-                    pickingReporting = false
-                },
-                onDismiss = { pickingReporting = false },
-            )
-        }
         if (wide) {
             Box(Modifier.width(1.dp).fillMaxHeight().background(theme.line))
             InfoPanel(current, state, Modifier.weight(0.44f).fillMaxHeight())
         }
     }
-}
-
-/** The watch history choices as a list, for touch. */
-@Composable
-private fun ReportingPicker(current: WatchReportMode, onPick: (WatchReportMode) -> Unit, onDismiss: () -> Unit) {
-    val theme = LocalAnstelleTheme.current
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = theme.surface,
-        title = { androidx.compose.material3.Text("Watch history", style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, color = theme.text) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                for (mode in REPORTING_ORDER) {
-                    FocusTile(
-                        title = reportingValue(mode),
-                        subtitle = reportingDescription(mode),
-                        selected = mode == current,
-                        onClick = { onPick(mode) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) {
-                androidx.compose.material3.Text("Cancel", color = theme.accent)
-            }
-        },
-    )
 }
 
 /** What the focused row does, at reading size, with what belongs to it. */
@@ -309,7 +257,7 @@ private fun InfoPanel(item: SettingsItem, state: SettingsUiState, modifier: Modi
         }
         item(key = "about") {
             androidx.compose.material3.Text(
-                description(item, state),
+                if (item == SettingsItem.HISTORY) HISTORY_INTRO else description(item, state),
                 style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
                 color = theme.textMuted,
             )
@@ -335,6 +283,11 @@ private fun InfoPanel(item: SettingsItem, state: SettingsUiState, modifier: Modi
                 items(state.pairedClients, key = { "client-${it.id}" }) { client ->
                     Fact(client.name, listOfNotNull(client.lastAddress, client.userAgent?.take(60)).joinToString(" · "), false)
                 }
+            }
+            SettingsItem.HISTORY -> {
+                item(key = "in-use") { SectionLabel("In use") }
+                item(key = "live") { Fact("Live TV · ${syncName(state.liveTvSync)}", syncDescription(SyncPlace.LIVE_TV, state.liveTvSync), false) }
+                item(key = "ondemand") { Fact("On demand · ${syncName(state.onDemandSync)}", syncDescription(SyncPlace.ON_DEMAND, state.onDemandSync), false) }
             }
             else -> Unit
         }
@@ -398,7 +351,7 @@ private fun description(item: SettingsItem, state: SettingsUiState): String = wh
     }
     SettingsItem.CHANNELS -> "Lineups, numbers, groups, logos and favorites. Channels are made from your library; any of them can be edited."
     SettingsItem.LANGUAGES -> playbackSummary(state.tracks)
-    SettingsItem.HISTORY -> reportingDescription(state.reporting)
+    SettingsItem.HISTORY -> watchHistorySummary(state.liveTvSync, state.onDemandSync)
     SettingsItem.WEB -> {
         val server = state.webServer
         when {
@@ -417,18 +370,6 @@ private fun serversValue(servers: List<MediaServer>): String = when {
     else -> "${servers.size} connected"
 }
 
-private fun reportingDescription(mode: WatchReportMode) = when (mode) {
-    WatchReportMode.REPORT_NO_MARK -> "Jellyfin sees what plays, but a program joined part-way isn't marked watched."
-    WatchReportMode.FULL -> "Jellyfin marks programs watched as usual, even ones joined part-way."
-    WatchReportMode.OFF -> "Nothing is sent to Jellyfin."
-}
-
-private fun reportingValue(mode: WatchReportMode) = when (mode) {
-    WatchReportMode.REPORT_NO_MARK -> "Report only"
-    WatchReportMode.FULL -> "Report all"
-    WatchReportMode.OFF -> "Off"
-}
-
-private val REPORTING_ORDER = listOf(WatchReportMode.REPORT_NO_MARK, WatchReportMode.FULL, WatchReportMode.OFF)
+private const val HISTORY_INTRO = "What Live TV and On demand save to your server."
 
 private const val WIDE_DP = 600

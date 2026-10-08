@@ -9,6 +9,7 @@ import org.jellyfin.sdk.model.api.PlaybackProgressInfo
 import org.jellyfin.sdk.model.api.PlaybackStartInfo
 import org.jellyfin.sdk.model.api.PlaybackStopInfo
 import org.jellyfin.sdk.model.api.RepeatMode
+import org.jellyfin.sdk.model.api.UpdateUserItemDataDto
 import org.jellyfin.sdk.model.serializer.toUUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,7 +22,7 @@ data class PlaystateItem(
     val transcoded: Boolean,
 )
 
-/** Playback reports and played state for one signed-in user on one server. */
+/** Playback reports, played state and resume points for one signed-in user on one server. */
 interface Playstate {
     suspend fun started(item: PlaystateItem, positionMs: Long)
     suspend fun progress(item: PlaystateItem, positionMs: Long, paused: Boolean)
@@ -29,7 +30,12 @@ interface Playstate {
 
     /** Whether the server has the item marked played for this user. */
     suspend fun isPlayed(itemId: String): Boolean
-    suspend fun markUnplayed(itemId: String)
+
+    /** Marks the item watched at [atUtcMs], as Jellyfin's own apps do: one more play, resume point cleared. */
+    suspend fun markWatched(itemId: String, atUtcMs: Long)
+
+    /** Sets only the played flag, leaving the resume point, play count and last played date as they are. */
+    suspend fun setPlayed(itemId: String, played: Boolean)
 
     /** Where the user stopped watching the item, or 0 when Jellyfin keeps no resume point. */
     suspend fun resumePositionMs(itemId: String): Long
@@ -105,8 +111,13 @@ private class JellyfinPlaystate(
         api.userDataApi.getItemUserData(itemId = itemId.toUUID(), userId = user).content.played
     }
 
-    override suspend fun markUnplayed(itemId: String) = jellyfinCall("Marking unplayed") {
-        api.userDataApi.markUnplayedItem(itemId = itemId.toUUID(), userId = user)
+    override suspend fun markWatched(itemId: String, atUtcMs: Long) = jellyfinCall("Marking watched") {
+        api.userDataApi.markPlayedItem(itemId = itemId.toUUID(), userId = user, datePlayed = sdkDateTime(atUtcMs))
+        Unit
+    }
+
+    override suspend fun setPlayed(itemId: String, played: Boolean) = jellyfinCall("Setting played state") {
+        api.userDataApi.updateItemUserData(itemId = itemId.toUUID(), userId = user, data = UpdateUserItemDataDto(played = played))
         Unit
     }
 

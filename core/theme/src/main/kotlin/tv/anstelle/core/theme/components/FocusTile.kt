@@ -2,7 +2,6 @@ package tv.anstelle.core.theme.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -237,7 +236,7 @@ fun FocusTile(
 
 /**
  * A button: [primary] is the screen's one main action (rose, turning bone when focused so
- * focus still shows); the rest sit on the surface step.
+ * focus still shows); the rest sit on the surface step. A button is a fill, never an outline.
  */
 @Composable
 fun OsdButton(
@@ -257,7 +256,7 @@ fun OsdButton(
         contentColor = if (primary) theme.onAccent else theme.text,
         focusColor = if (primary) theme.text else theme.accent,
         focusContentColor = theme.onAccent,
-        modifier = modifier.then(if (primary) Modifier else Modifier.border(1.dp, theme.line, ControlShape)),
+        modifier = modifier,
     ) {
         Row(
             Modifier

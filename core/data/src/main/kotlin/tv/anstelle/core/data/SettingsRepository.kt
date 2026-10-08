@@ -42,8 +42,14 @@ object Settings {
     /** Profile shown after launch; 0 means none chosen yet. */
     val ActiveProfileId = SettingKey.LongKey("profile.active", 0L)
 
-    /** A [tv.anstelle.core.model.WatchReportMode] code: how channel playback is reported to Jellyfin. */
-    val WatchReporting = SettingKey.IntKey("playback.report", tv.anstelle.core.model.WatchReportMode.REPORT_NO_MARK.code)
+    /**
+     * A [tv.anstelle.core.model.WatchSync] code: what channel airings leave in Jellyfin. By
+     * default a program watched through is marked watched, and progress is left to On demand.
+     */
+    val LiveTvSync = SettingKey.IntKey("sync.live", tv.anstelle.core.model.WatchSync.STATUS.code)
+
+    /** A [tv.anstelle.core.model.WatchSync] code: what on-demand playback leaves in Jellyfin, by default what its own apps do. */
+    val OnDemandSync = SettingKey.IntKey("sync.ondemand", tv.anstelle.core.model.WatchSync.BOTH.code)
 
     /**
      * The profile's audio languages in order of preference, as ISO 639-2/T codes joined by

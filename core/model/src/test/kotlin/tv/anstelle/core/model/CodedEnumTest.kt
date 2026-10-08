@@ -8,7 +8,7 @@ class CodedEnumTest {
     private val all: List<List<CodedEnum>> = listOf(
         MediaType.entries, PlaybackOrder.entries, SlotKind.entries, ChannelKind.entries,
         RuleField.entries, RuleOp.entries, SeasonMode.entries, LiveSourceType.entries,
-        HdrType.entries, WatchSource.entries, WatchReportMode.entries, SubtitleMode.entries,
+        HdrType.entries, WatchSource.entries, WatchSync.entries, SubtitleMode.entries,
     )
 
     @Test

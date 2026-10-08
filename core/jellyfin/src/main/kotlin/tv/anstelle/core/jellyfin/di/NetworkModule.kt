@@ -33,6 +33,13 @@ object NetworkModule {
         .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
+        .addInterceptor { chain ->
+            val request = chain.request()
+            val response = chain.proceed(request)
+            val path = request.url.encodedPath
+            if ("/Images/" !in path && "/Videos/" !in path) android.util.Log.d("Anstelle/HttpTmp", "${request.method} $path ${response.code}")
+            response
+        }
         .build()
 
     @Provides
