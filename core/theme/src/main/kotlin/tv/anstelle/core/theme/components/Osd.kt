@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,6 +45,15 @@ import kotlin.math.roundToInt
 /** Side padding of a full page. */
 val pagePadding: Dp @Composable get() = if (LocalIsTv.current) 48.dp else 16.dp
 
+/** The guide's side margin. On demand keeps the same, so the two screens line up as one set. */
+val screenSide: Dp @Composable get() = if (LocalIsTv.current) 32.dp else 12.dp
+
+/** The guide's space above and below its content. */
+val screenEdge: Dp @Composable get() = if (LocalIsTv.current) 12.dp else 8.dp
+
+/** The guide's gap between its bands (preview, tabs, grid); On demand's between its rows. */
+val screenGap: Dp @Composable get() = if (LocalIsTv.current) 8.dp else 6.dp
+
 /** A screen's title, an optional line under it and a hairline that closes the header. */
 @Composable
 fun PageHeader(title: String, modifier: Modifier = Modifier, subtitle: String? = null) {
@@ -75,14 +85,15 @@ fun PageHeader(title: String, modifier: Modifier = Modifier, subtitle: String? =
 }
 
 /**
- * A phone screen's top bar: a back arrow and, when given, the screen's title. Flat on the
- * page's ground; TV screens don't use it, the remote's Back does the job.
+ * A phone screen's top bar: a back arrow and, when given, the screen's title, with the page's
+ * own [actions] at its end, where Android puts a top bar's actions. Flat on the page's ground;
+ * TV screens don't use it, the remote's Back does the job.
  */
 @Composable
-fun BackBar(onBack: () -> Unit, modifier: Modifier = Modifier, title: String? = null) {
+fun BackBar(onBack: () -> Unit, modifier: Modifier = Modifier, title: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
     val theme = LocalAnstelleTheme.current
     Row(
-        modifier.fillMaxWidth().height(56.dp).padding(start = 4.dp, end = 16.dp),
+        modifier.fillMaxWidth().height(56.dp).padding(start = 4.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         androidx.compose.material3.IconButton(onClick = onBack) {
@@ -99,9 +110,11 @@ fun BackBar(onBack: () -> Unit, modifier: Modifier = Modifier, title: String? = 
                 color = theme.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 4.dp),
+                modifier = Modifier.padding(start = 4.dp).weight(1f, fill = false),
             )
         }
+        Spacer(Modifier.weight(1f))
+        actions()
     }
 }
 
@@ -222,6 +235,34 @@ fun AirMarker(onAir: Boolean, modifier: Modifier = Modifier, color: Color = Loca
             val stroke = 1.5.dp.toPx()
             drawRect(color, topLeft = Offset(stroke / 2, stroke / 2), size = Size(size.width - stroke, size.height - stroke), style = Stroke(stroke))
         }
+    }
+}
+
+/**
+ * When a program airs, as the banner's NOW line says it: the marker (solid on now, hollow for
+ * later, none once it has aired), the field [label] in the accent, then [text], the times. An
+ * aired program's line is quiet throughout. [ink] recolors it all, for a line on a focus fill.
+ */
+@Composable
+fun StatusLine(onAir: Boolean?, label: String, text: String, modifier: Modifier = Modifier, ink: Color? = null) {
+    val theme = LocalAnstelleTheme.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    val aired = onAir == null
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (onAir != null) AirMarker(onAir, color = ink ?: theme.accent)
+        androidx.compose.material3.Text(
+            buildAnnotatedString {
+                withStyle(SpanStyle(color = ink ?: if (aired) theme.textMuted else theme.accent)) { append(label.uppercase()) }
+                if (text.isNotEmpty()) {
+                    append("  ")
+                    append(text.uppercase())
+                }
+            },
+            style = typography.labelMedium,
+            color = ink ?: theme.textMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

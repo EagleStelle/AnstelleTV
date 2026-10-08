@@ -15,13 +15,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.text.TextStyle
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,47 +47,12 @@ import tv.anstelle.core.theme.LocalIsTv
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import tv.anstelle.core.theme.components.BackBar
 import tv.anstelle.core.theme.components.Backdrop
-import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdBadge
+import tv.anstelle.core.theme.components.screenEdge
+import tv.anstelle.core.theme.components.screenGap
+import tv.anstelle.core.theme.components.screenSide
 import tv.anstelle.core.theme.components.TitleLogo
 
-
-/**
- * A poster with its title. Focus fills the card with the accent, so the poster sits in an
- * accent frame over an accent caption; nothing grows or glows.
- */
-@Composable
-internal fun PosterCard(
-    title: String,
-    subtitle: String?,
-    imageUrl: String?,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val theme = LocalAnstelleTheme.current
-    FocusSurface(onClick = onClick, modifier = modifier, color = Color.Transparent) { focused ->
-        Column(Modifier.padding(3.dp)) {
-            Poster(imageUrl, title, Modifier.fillMaxWidth().aspectRatio(2f / 3f))
-            Column(Modifier.padding(horizontal = 5.dp, vertical = 6.dp)) {
-                androidx.compose.material3.Text(
-                    title,
-                    style = androidx.compose.material3.MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                subtitle?.let {
-                    androidx.compose.material3.Text(
-                        it,
-                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                        color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-    }
-}
 
 /** An image from the server, or the title's first letter on the surface step when there is none. */
 @Composable
@@ -104,33 +74,36 @@ internal fun Poster(imageUrl: String?, title: String, modifier: Modifier) {
  * A scrolling page headed by a hero: the show's or movie's backdrop under the flat wash, edge
  * to edge, with [hero] on it (title or logo, facts, overview). The rest of the page follows on
  * the plain ground. Phones get a back arrow over the hero; it takes the ground's color once the
- * hero has scrolled away from under it.
+ * hero has scrolled away from under it, with [topAction] (an action about the whole page) at
+ * its end. TV has no back bar; its hero carries the action itself.
  */
 @Composable
 internal fun Page(
     backdropUrl: String?,
     hero: @Composable ColumnScope.() -> Unit,
     modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState(),
+    topAction: (@Composable () -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val back = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
-    val side = if (isTv) 48.dp else 16.dp
-    val top = if (isTv) 32.dp else 0.dp
-    val listState = rememberLazyListState()
+    // The guide's margins and gaps, so moving between the two never shifts the edges.
+    val side = screenSide
+    val top = if (isTv) screenEdge else 0.dp
     Box(modifier.fillMaxSize().background(theme.background)) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = side, end = side, top = top, bottom = if (isTv) 32.dp else 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(start = side, end = side, top = top, bottom = screenEdge),
+            verticalArrangement = Arrangement.spacedBy(screenGap),
         ) {
             item(key = "hero") {
                 Backdrop(backdropUrl, Modifier.bleed(side, top).fillMaxWidth()) {
                     Column(
-                        Modifier.padding(start = side, end = side, top = if (isTv) 40.dp else BAR_HEIGHT + 4.dp, bottom = if (isTv) 28.dp else 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        Modifier.padding(start = side, end = side, top = if (isTv) 24.dp else BAR_HEIGHT + 4.dp, bottom = if (isTv) 20.dp else 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(screenGap),
                         content = hero,
                     )
                 }
@@ -148,6 +121,7 @@ internal fun Page(
             BackBar(
                 onBack = { back?.onBackPressed() },
                 modifier = Modifier.background(if (overHero) Color.Transparent else theme.background),
+                actions = { topAction?.invoke() },
             )
         }
     }
@@ -192,15 +166,15 @@ internal fun HeroTitle(logoUrl: String?, title: String) {
     )
 }
 
-/** A long overview: up to six lines on TV, all of it on a phone, where the page scrolls. */
+/** A long overview: up to [tvLines] on TV, all of it on a phone, where the page scrolls. */
 @Composable
-internal fun Overview(text: String, modifier: Modifier = Modifier) {
+internal fun Overview(text: String, modifier: Modifier = Modifier, tvLines: Int = 6) {
     val isTv = LocalIsTv.current
     androidx.compose.material3.Text(
         text,
         style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
         color = LocalAnstelleTheme.current.text,
-        maxLines = if (isTv) 6 else Int.MAX_VALUE,
+        maxLines = if (isTv) tvLines else Int.MAX_VALUE,
         overflow = TextOverflow.Ellipsis,
         modifier = modifier.widthIn(max = 720.dp),
     )
@@ -247,11 +221,39 @@ internal fun Text(
     )
 }
 
-/** "12:34" or "1:02:03". */
-internal fun clock(ms: Long): String {
-    val seconds = ms / 1000
-    val h = seconds / 3600
-    val m = seconds % 3600 / 60
-    val s = seconds % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+/** The wall clock, updated twice a minute, for time left and progress ladders. */
+@Composable
+internal fun rememberClock(): State<Long> {
+    val clock = remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            clock.longValue = System.currentTimeMillis()
+            delay(CLOCK_MS)
+        }
+    }
+    return clock
+}
+
+private const val CLOCK_MS = 30_000L
+
+/** How far [nowMs] is through an airing, 0 to 1. */
+internal fun progress(startUtcMs: Long, endUtcMs: Long, nowMs: Long): Float =
+    if (endUtcMs <= startUtcMs) 0f else ((nowMs - startUtcMs).toFloat() / (endUtcMs - startUtcMs)).coerceIn(0f, 1f)
+
+/**
+ * A channel number as a small OSD block: ink on the accent, or the accent on ink while the
+ * tile around it is focused, so the block still reads on the focus fill.
+ */
+@Composable
+internal fun ChannelNumber(number: Int, focused: Boolean, style: TextStyle, modifier: Modifier = Modifier) {
+    val theme = LocalAnstelleTheme.current
+    androidx.compose.material3.Text(
+        "$number",
+        style = style.merge(TextStyle(fontFamily = theme.displayFont, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")),
+        color = if (focused) theme.accent else theme.onAccent,
+        maxLines = 1,
+        modifier = modifier
+            .background(if (focused) theme.onAccent else theme.accent, ControlShape)
+            .padding(horizontal = 6.dp, vertical = 1.dp),
+    )
 }

@@ -21,13 +21,13 @@ import kotlinx.serialization.Serializable
 /** No channel asked for: the player resumes the last one. 0 is a channel number like any other. */
 const val PlayerRouteNoChannel = -1
 
-@Serializable data class PlayerRoute(val channelNumber: Int = PlayerRouteNoChannel)
+/** [restart] takes the program on now back to its start once the channel tunes (Start over). */
+@Serializable data class PlayerRoute(val channelNumber: Int = PlayerRouteNoChannel, val restart: Boolean = false)
 
-/** On-demand browsing and the pages below it, so the On demand tab stays selected on all of them. */
+/** On demand and the channel pages below it, so the On demand tab stays selected on all of them. */
 @Serializable data object OnDemandGraph
 @Serializable data object OnDemandRoute
-@Serializable data class OnDemandShowRoute(val seriesId: Long)
-@Serializable data class OnDemandItemRoute(val itemId: Long)
+@Serializable data class OnDemandChannelRoute(val channelId: Long)
 
 /** Full-screen on-demand playback of [itemId] from [positionMs]. */
 @Serializable data class OnDemandPlayRoute(val itemId: Long, val positionMs: Long = 0)

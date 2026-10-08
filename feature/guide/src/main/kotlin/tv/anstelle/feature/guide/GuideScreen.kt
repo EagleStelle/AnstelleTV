@@ -1,12 +1,10 @@
 package tv.anstelle.feature.guide
 
 import android.view.ViewGroup
-import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -26,7 +23,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
@@ -49,7 +45,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.SpanStyle
@@ -72,24 +67,29 @@ import kotlinx.coroutines.delay
 import tv.anstelle.core.data.guide.ProgramDetails
 import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.data.guide.ProgramStrip
+import tv.anstelle.core.data.ondemand.AiringTense
+import tv.anstelle.core.data.ondemand.WatchChoice
+import tv.anstelle.core.data.ondemand.WatchChoices
+import tv.anstelle.core.data.ondemand.WatchKind
 import tv.anstelle.core.data.playback.PlaybackState
 import tv.anstelle.core.data.playback.TuneStatus
 import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
+import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.Backdrop
-import tv.anstelle.core.theme.components.FocusTile
+import tv.anstelle.core.theme.components.DialogAction
 import tv.anstelle.core.theme.components.NumberBlock
 import tv.anstelle.core.theme.components.OsdBadge
-import tv.anstelle.core.theme.components.OsdPanel
 import tv.anstelle.core.theme.components.OsdTab
-import tv.anstelle.core.theme.components.TileTrailing
+import tv.anstelle.core.theme.components.StatusLine
+import tv.anstelle.core.theme.components.screenEdge
+import tv.anstelle.core.theme.components.screenGap
+import tv.anstelle.core.theme.components.screenSide
 import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.PlaceholderAction
 import tv.anstelle.core.theme.components.PlaceholderScreen
-import java.text.DateFormat
-import java.util.Date
 
 /** The cell the selection is on. [mediaItemId] is 0 off air. */
 @Immutable
@@ -115,6 +115,7 @@ internal data class SelectedProgram(
 @Composable
 fun GuideScreen(
     onWatch: (channelNumber: Int) -> Unit,
+    onStartOver: (channelNumber: Int) -> Unit,
     onPlayOnDemand: (itemId: Long, positionMs: Long) -> Unit,
     onAddToChannel: (itemId: Long) -> Unit,
     onOpenSettings: () -> Unit,
@@ -217,7 +218,16 @@ fun GuideScreen(
 
     fun activate() {
         val program = selected ?: return
-        if (program.isOn(System.currentTimeMillis())) watch(program.channel) else actions = program
+        when {
+            program.isOn(System.currentTimeMillis()) -> watch(program.channel)
+            // An off-air stretch to come offers nothing to watch.
+            program.mediaItemId != 0L -> actions = program
+        }
+    }
+
+    fun hold() {
+        val program = selected ?: return
+        if (program.mediaItemId != 0L || program.isOn(System.currentTimeMillis())) actions = program
     }
 
     /** A tap on a program airing now previews its channel; on the previewed channel, or a second tap, it acts like OK. */
@@ -232,13 +242,13 @@ fun GuideScreen(
 
     // A phone held upright stacks the preview over the details, both edge to edge.
     val stacked = !isTv && with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } < STACK_BELOW_DP.dp
-    val side = if (isTv) 32.dp else 12.dp
+    val side = screenSide
     Box(modifier.fillMaxSize().background(theme.background)) {
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = if (stacked) 0.dp else side, vertical = if (isTv) 12.dp else if (stacked) 0.dp else 8.dp),
-            verticalArrangement = Arrangement.spacedBy(if (isTv) 8.dp else 6.dp),
+                .padding(horizontal = if (stacked) 0.dp else side, vertical = if (stacked) 0.dp else screenEdge),
+            verticalArrangement = Arrangement.spacedBy(screenGap),
         ) {
             if (stacked) {
                 // The details hang straight off the preview: one band of picture down the top.
@@ -286,7 +296,7 @@ fun GuideScreen(
                     metrics = metrics,
                     focusRequester = gridFocus,
                     onActivate = ::activate,
-                    onActions = { actions = selected },
+                    onActions = ::hold,
                     onCellTap = ::cellTapped,
                     onChannelTap = ::watch,
                     modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = if (stacked) side else 0.dp),
@@ -294,9 +304,18 @@ fun GuideScreen(
             }
         }
         actions?.let { program ->
+            val nowMs = remember(program) { System.currentTimeMillis() }
+            // A movie's year is its whole detail line; the loaded details say for sure when they match.
+            val isMovie = details?.takeIf { it.mediaItemId == program.mediaItemId }?.isEpisode?.not() ?: (program.detail?.toIntOrNull() != null)
             ProgramActions(
                 program = program,
+                choices = remember(program, isMovie) { programChoices(program, isMovie, nowMs) },
+                nowMs = nowMs,
                 onWatch = { openPlayer(program.channel.number) },
+                onStartOver = {
+                    viewModel.openingPlayer()
+                    onStartOver(program.channel.number)
+                },
                 onPlay = { position -> onPlayOnDemand(program.mediaItemId, position) },
                 onAddToChannel = { onAddToChannel(program.mediaItemId) },
                 onDismiss = {
@@ -534,99 +553,79 @@ private fun Tabs(tabs: List<GuideTab>, open: String, onSelect: (String) -> Unit,
     }
 }
 
-/** What can be done with the selected program. */
+/**
+ * The ways to watch the selected program, in the words the channel's page in On demand uses
+ * too. On now: the channel live, the channel from the program's start, or the program on
+ * demand from its start or from where the channel is. Otherwise it plays on demand from the
+ * start. Empty for an off-air stretch that isn't on now.
+ */
+private fun programChoices(program: SelectedProgram, isMovie: Boolean, nowMs: Long): List<WatchChoice> {
+    val tense = AiringTense.of(program.startUtcMs, program.endUtcMs, nowMs)
+    val channel = program.channel
+    if (program.mediaItemId == 0L) {
+        return if (tense == AiringTense.ON_NOW) listOf(WatchChoices.liveOffAir(program.endUtcMs)) else emptyList()
+    }
+    val watch = if (tense == AiringTense.ON_NOW) {
+        WatchChoices.onNow(channel.number, channel.name, program.startUtcMs, program.endUtcMs, nowMs, isEpisode = !isMovie)
+    } else {
+        listOf(WatchChoices.fromStart(tense, program.startUtcMs))
+    }
+    return watch + WatchChoices.addToChannel(isMovie)
+}
+
+/** What can be done with the selected program: [choices] under a header saying what and when. */
 @Composable
 private fun ProgramActions(
     program: SelectedProgram,
+    choices: List<WatchChoice>,
+    nowMs: Long,
     onWatch: () -> Unit,
+    onStartOver: () -> Unit,
     onPlay: (positionMs: Long) -> Unit,
     onAddToChannel: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val theme = LocalAnstelleTheme.current
-    val first = remember { FocusRequester() }
-    BackHandler(onBack = onDismiss)
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
-    val now = remember { System.currentTimeMillis() }
-    val onNow = program.isOn(now)
-    val elapsed = now - program.startUtcMs
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color(0xCC000000))
-            .pointerInput(Unit) { detectTapGestures { onDismiss() } },
-        contentAlignment = Alignment.Center,
-    ) {
-        OsdPanel(
-            Modifier
-                .widthIn(max = 560.dp)
-                .padding(24.dp)
-                // Taps on the panel itself don't close it.
-                .pointerInput(Unit) { detectTapGestures { } },
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                NumberBlock(
-                    "${program.channel.number}",
-                    style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.height(36.dp),
-                )
-                androidx.compose.material3.Text(
-                    program.title,
-                    style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
-                    color = theme.text,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            androidx.compose.material3.Text(
-                listOfNotNull(program.detail, timeRange(program.startUtcMs, program.endUtcMs), program.channel.name).joinToString("  ·  "),
-                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                color = theme.textMuted,
+    val actions = choices.map { choice ->
+        when (choice.kind) {
+            WatchKind.LIVE -> DialogAction(choice.title, choice.detail, Icons.Filled.LiveTv, onWatch)
+            WatchKind.RESTART -> DialogAction(choice.title, choice.detail, Icons.Filled.Replay, onStartOver)
+            WatchKind.PLAY -> DialogAction(choice.title, choice.detail, Icons.Filled.PlayArrow) { onPlay(choice.positionMs) }
+            WatchKind.ADD_TO_CHANNEL -> DialogAction(choice.title, choice.detail, Icons.AutoMirrored.Filled.PlaylistAdd, onAddToChannel)
+        }
+    }
+    ActionDialog(actions, onDismiss) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            NumberBlock(
+                "${program.channel.number}",
+                style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.height(36.dp),
             )
-            val tile = Modifier.fillMaxWidth()
-            var focusUsed = false
-            fun Modifier.firstFocus(): Modifier = if (focusUsed) this else this.focusRequester(first).also { focusUsed = true }
-            if (onNow) {
-                FocusTile("Watch channel ${program.channel.number}", onClick = onWatch, subtitle = "Join it live.", icon = Icons.Filled.LiveTv, trailing = TileTrailing.Chevron, modifier = tile.firstFocus())
-            }
-            if (program.mediaItemId != 0L) {
-                FocusTile(
-                    "Start from beginning",
-                    onClick = { onPlay(0) },
-                    subtitle = "Play it on demand, with pause and seeking.",
-                    icon = Icons.Filled.Replay,
-                    modifier = tile.firstFocus(),
-                )
-                if (onNow && elapsed >= MIN_RESUME_MS) {
-                    FocusTile(
-                        "Watch from here",
-                        onClick = { onPlay(elapsed) },
-                        subtitle = "On demand from ${minutes(elapsed)} in, with pause and seeking.",
-                        icon = Icons.Filled.PlayArrow,
-                        modifier = tile,
-                    )
-                }
-                FocusTile(
-                    "Add to channel",
-                    onClick = onAddToChannel,
-                    subtitle = "Always air it on a channel of your choice.",
-                    icon = Icons.AutoMirrored.Filled.PlaylistAdd,
-                    modifier = tile,
-                )
-            }
-            FocusTile("Close", onClick = onDismiss, icon = Icons.Filled.Close, modifier = tile.firstFocus())
+            androidx.compose.material3.Text(
+                program.title,
+                style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
+                color = theme.text,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        androidx.compose.material3.Text(
+            listOfNotNull(program.detail, program.channel.name).joinToString("  ·  "),
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            color = theme.textMuted,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        val range = WatchChoices.clockRange(program.startUtcMs, program.endUtcMs)
+        when (AiringTense.of(program.startUtcMs, program.endUtcMs, nowMs)) {
+            AiringTense.ON_NOW -> StatusLine(true, "On now", "$range  ·  ${WatchChoices.span(program.endUtcMs - nowMs, roundUp = true)} left")
+            AiringTense.LATER -> StatusLine(false, "Later", range)
+            AiringTense.AIRED -> StatusLine(null, "Aired", range)
         }
     }
 }
 
-private fun time(utcMs: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(utcMs))
-
-private fun timeRange(startUtcMs: Long, endUtcMs: Long) = "${time(startUtcMs)} – ${time(endUtcMs)}"
-
-private fun minutes(ms: Long): String {
-    val minutes = ms / 60_000
-    return if (minutes < 60) "$minutes min" else "${minutes / 60} h ${minutes % 60} min"
-}
+private fun timeRange(startUtcMs: Long, endUtcMs: Long) = WatchChoices.clockRange(startUtcMs, endUtcMs)
 
 private const val CLOCK_MS = 30_000L
 
@@ -639,4 +638,3 @@ private const val TV_OVERVIEW_LINES = 3
 
 /** Narrower than this (a phone held upright), the preview sits over the details instead of beside them. */
 private const val STACK_BELOW_DP = 600
-private const val MIN_RESUME_MS = 60_000L

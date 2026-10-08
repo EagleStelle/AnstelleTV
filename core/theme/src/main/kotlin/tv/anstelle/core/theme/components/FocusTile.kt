@@ -103,7 +103,8 @@ enum class TileTrailing { None, Chevron }
  * left, the current [value] on the right. With [onPrevious] and [onNext] the value is a
  * choice that left and right step through on the D-pad (OK steps forward too); [selected]
  * marks the chosen item of a list with a check. A [toggle] shows as a switch on touch
- * screens and as its [value] (On, Off) on TV.
+ * screens and as its [value] (On, Off) on TV. A [primary] row is the screen's one main
+ * choice: rose with ink text, turning bone when focused, like the primary button.
  */
 @Composable
 fun FocusTile(
@@ -120,6 +121,7 @@ fun FocusTile(
     onLongClick: (() -> Unit)? = null,
     onPrevious: (() -> Unit)? = null,
     onNext: (() -> Unit)? = null,
+    primary: Boolean = false,
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
@@ -128,6 +130,9 @@ fun FocusTile(
         onClick = onClick,
         onLongClick = onLongClick,
         enabled = enabled,
+        color = if (primary) theme.accent else theme.surface,
+        contentColor = if (primary) theme.onAccent else theme.text,
+        focusColor = if (primary) theme.text else theme.accent,
         modifier = if (stepping) {
             modifier.onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -141,7 +146,7 @@ fun FocusTile(
             modifier
         },
     ) { focused ->
-        val muted = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted
+        val muted = if (focused || primary) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted
         Row(
             Modifier
                 .defaultMinSize(minHeight = if (isTv) 64.dp else 56.dp)

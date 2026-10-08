@@ -99,7 +99,7 @@ private enum class Panel { CONTROLS, AUDIO, SUBTITLES }
 /**
  * Full-screen channel playback, like a TV: up/down or the channel keys surf, digits enter a
  * number, left and right seek back 10 s and ahead 30 s (the channel's schedule moves with the
- * program). The banner always carries its keys (audio, subtitles and Restart); it snaps in on
+ * program). The banner always carries its keys (audio, subtitles and Start over); it snaps in on
  * every tune and seek with focus left on the picture, and OK, Info or Menu moves focus into the
  * keys. On phones, swipe up or down to surf, tap for the banner and drag its bar to seek.
  */
@@ -212,8 +212,8 @@ fun PlayerScreen(
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             // Read again whenever the playback state moves: the keys stay on screen across tunes.
-            val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.label?.substringBefore(" · ") }
-            val subtitles = remember(state, panel) { viewModel.subtitleOptions().firstOrNull { it.selected }?.label }
+            val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.short }
+            val subtitles = remember(state, panel) { viewModel.subtitleOptions().firstOrNull { it.selected }?.short }
             InfoBanner(
                 state = state,
                 // Phones drag the bar; the remote seeks with left and right.
@@ -231,7 +231,7 @@ fun PlayerScreen(
                             }, Modifier.focusRequester(subtitlesKey), value = subtitles)
                             // Tracks on the left, the player's own action on the right.
                             Spacer(Modifier.weight(1f))
-                            OsdKey("Restart", Icons.Filled.Replay, onClick = {
+                            OsdKey("Start over", Icons.Filled.Replay, onClick = {
                                 panel = null
                                 viewModel.restart()
                                 bannerRequest++

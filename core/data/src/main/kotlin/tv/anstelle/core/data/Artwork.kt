@@ -17,21 +17,36 @@ data class Artwork(val backdropUrl: String?, val logoUrl: String?) {
         private const val LOGO_WIDTH = 640
 
         /** [item]'s backdrop and logo, falling back to [series]' for an episode. */
-        fun of(baseUrl: String?, item: MediaItemEntity, series: MediaItemEntity?): Artwork {
+        fun of(baseUrl: String?, item: MediaItemEntity, series: MediaItemEntity?): Artwork = of(
+            baseUrl,
+            item.remoteId, item.backdropImageTag, item.logoImageTag,
+            series?.remoteId, series?.backdropImageTag, series?.logoImageTag,
+        )
+
+        /** The same from the image tags alone, as a joined query reads them. */
+        fun of(
+            baseUrl: String?,
+            remoteId: String,
+            backdropTag: String?,
+            logoTag: String?,
+            seriesRemoteId: String?,
+            seriesBackdropTag: String?,
+            seriesLogoTag: String?,
+        ): Artwork {
             if (baseUrl == null) return None
             val backdrop = when {
-                item.backdropImageTag != null -> item
-                series?.backdropImageTag != null -> series
+                backdropTag != null -> remoteId to backdropTag
+                seriesRemoteId != null && seriesBackdropTag != null -> seriesRemoteId to seriesBackdropTag
                 else -> null
             }
             val logo = when {
-                item.logoImageTag != null -> item
-                series?.logoImageTag != null -> series
+                logoTag != null -> remoteId to logoTag
+                seriesRemoteId != null && seriesLogoTag != null -> seriesRemoteId to seriesLogoTag
                 else -> null
             }
             return Artwork(
-                backdropUrl = backdrop?.let { jellyfinImageUrl(baseUrl, it.remoteId, "Backdrop/0", it.backdropImageTag, maxWidth = BACKDROP_WIDTH) },
-                logoUrl = logo?.let { jellyfinImageUrl(baseUrl, it.remoteId, "Logo", it.logoImageTag, maxWidth = LOGO_WIDTH) },
+                backdropUrl = backdrop?.let { (id, tag) -> jellyfinImageUrl(baseUrl, id, "Backdrop/0", tag, maxWidth = BACKDROP_WIDTH) },
+                logoUrl = logo?.let { (id, tag) -> jellyfinImageUrl(baseUrl, id, "Logo", tag, maxWidth = LOGO_WIDTH) },
             )
         }
     }

@@ -27,6 +27,30 @@ data class GuideAiring(
     val year: Int?,
 )
 
+/**
+ * What a channel airs at one moment, with the artwork tags of the item and of its series. The
+ * item fields are null off air.
+ */
+data class ChannelAiring(
+    val channelId: Long,
+    val mediaItemId: Long?,
+    val startUtcMs: Long,
+    val endUtcMs: Long,
+    val serverId: Long?,
+    val remoteId: String?,
+    val title: String?,
+    val showTitle: String?,
+    val season: Int?,
+    val episode: Int?,
+    val year: Int?,
+    val overview: String?,
+    val backdropImageTag: String?,
+    val logoImageTag: String?,
+    val seriesRemoteId: String?,
+    val seriesBackdropImageTag: String?,
+    val seriesLogoImageTag: String?,
+)
+
 @Dao
 interface ScheduleDao {
     /**
@@ -87,6 +111,25 @@ interface ScheduleDao {
         toUtcMs: Long,
         maxSlotMs: Long,
     ): List<GuideAiring>
+
+    /**
+     * What each of [channelIds] airs at [atUtcMs], programs and off-air stretches alike, in one
+     * read. [maxSlotMs] bounds the index range scan like [guideWindow]'s.
+     */
+    @Query(
+        """
+        SELECT s.channelId, s.mediaItemId, s.startUtcMs, s.endUtcMs, m.serverId, m.remoteId,
+               m.title, m.showTitle, m.season, m.episode, m.year, m.overview,
+               m.backdropImageTag, m.logoImageTag, series.remoteId AS seriesRemoteId,
+               series.backdropImageTag AS seriesBackdropImageTag, series.logoImageTag AS seriesLogoImageTag
+        FROM schedule_slot s LEFT JOIN media_item m ON m.id = s.mediaItemId
+        LEFT JOIN media_item series ON series.serverId = m.serverId AND series.remoteId = m.seriesRemoteId
+        WHERE s.channelId IN (:channelIds)
+          AND s.startUtcMs > :atUtcMs - :maxSlotMs AND s.startUtcMs <= :atUtcMs
+          AND s.endUtcMs > :atUtcMs
+        """,
+    )
+    suspend fun airingsAt(channelIds: List<Long>, atUtcMs: Long, maxSlotMs: Long): List<ChannelAiring>
 
     /** The longest slot, which bounds [guideWindow]'s range scan. */
     @Query("SELECT COALESCE(MAX(endUtcMs - startUtcMs), 0) FROM schedule_slot")

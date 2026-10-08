@@ -63,6 +63,12 @@ object Settings {
     /** The guide tab the profile had open: "all", "favorites" or "group:<id>". */
     fun guideTab(profileId: Long) = SettingKey.StringKey("guide.tab.$profileId", "all")
 
+    /** How many channels, picked at random, the On demand banner cycles through. */
+    fun onDemandBanner(profileId: Long) = SettingKey.IntKey("ondemand.banner.$profileId", 10)
+
+    /** The choices for [onDemandBanner]. */
+    val OnDemandBannerSizes = listOf(5, 10, 15, 20, 25, 30)
+
     /** The number the profile's library channels of [segment] count up from. */
     fun channelNumberStart(profileId: Long, segment: tv.anstelle.core.data.channels.ChannelSegment) =
         SettingKey.IntKey("channels.start.${segment.name.lowercase()}.$profileId", segment.defaultStart)

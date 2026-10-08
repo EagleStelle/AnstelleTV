@@ -19,11 +19,15 @@ import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** An audio or subtitle track the viewer can pick, or "off" for subtitles ([groupIndex] -1). */
+/**
+ * An audio or subtitle track the viewer can pick, or "off" for subtitles ([groupIndex] -1).
+ * [label] tells it apart in the list; [short] is what the banner's key shows, the language alone.
+ */
 data class TrackOption(
     val groupIndex: Int,
     val trackIndex: Int,
     val label: String,
+    val short: String,
     val language: String?,
     val selected: Boolean,
 )
@@ -78,22 +82,20 @@ class TrackChoices @Inject constructor(
     }
 
     /**
-     * The tracks of [type], each named by its language alone. Tracks that share a language, or
-     * don't name one, show their details instead so they can be told apart.
+     * The tracks of [type], each named by its language alone; tracks that share a language add
+     * only what tells them apart ([TrackLabels]).
      */
     fun options(player: Player, type: Int): List<TrackOption> {
         val groups = player.currentTracks.groups
         val tracks = groups.indices.filter { groups[it].type == type }
             .flatMap { g -> (0 until groups[g].length).filter { groups[g].isTrackSupported(it) }.map { g to it } }
-        val formats = tracks.map { (g, t) -> groups[g].getTrackFormat(t) }
-        val languages = formats.map(::languageName)
-        val counts = languages.groupingBy { it }.eachCount()
+        val facts = tracks.map { (g, t) -> facts(groups[g].getTrackFormat(t)) }
+        val labels = TrackLabels.of(facts)
         val options = tracks.mapIndexedTo(ArrayList()) { i, (g, t) ->
-            val language = languages[i]
-            val label = if (language != null && counts[language] == 1) language else details(formats[i], i + 1)
-            TrackOption(g, t, label, formats[i].language, groups[g].isTrackSelected(t))
+            val format = groups[g].getTrackFormat(t)
+            TrackOption(g, t, labels[i], facts[i].language ?: labels[i], format.language, groups[g].isTrackSelected(t))
         }
-        if (type == C.TRACK_TYPE_TEXT) options.add(0, TrackOption(-1, -1, "Off", null, options.none { it.selected }))
+        if (type == C.TRACK_TYPE_TEXT) options.add(0, TrackOption(-1, -1, "Off", "Off", null, options.none { it.selected }))
         return options
     }
 
@@ -116,23 +118,20 @@ class TrackChoices @Inject constructor(
             Locale.forLanguageTag(it).getDisplayLanguage(Locale.getDefault()).ifBlank { it }
         }
 
-    /** "English · 5.1 · DD" or "Japanese · Signs". */
-    private fun details(format: Format, number: Int): String {
-        val parts = ArrayList<String>(5)
-        languageName(format)?.let { parts += it }
-        format.label?.takeIf { it.isNotBlank() }?.let { parts += it }
-        if (format.selectionFlags and C.SELECTION_FLAG_FORCED != 0) parts += "forced"
-        when (format.channelCount) {
-            Format.NO_VALUE, 0 -> Unit
-            1 -> parts += "mono"
-            2 -> parts += "stereo"
-            6 -> parts += "5.1"
-            8 -> parts += "7.1"
-            else -> parts += "${format.channelCount} ch"
-        }
-        codecName(format.sampleMimeType)?.let { parts += it }
-        return parts.distinctBy { it.lowercase(Locale.ROOT) }.joinToString(" · ").ifEmpty { "Track $number" }
-    }
+    private fun facts(format: Format) = TrackFacts(
+        language = languageName(format),
+        name = format.label?.takeIf { it.isNotBlank() },
+        forced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+        channels = when (format.channelCount) {
+            Format.NO_VALUE, 0 -> null
+            1 -> "mono"
+            2 -> "stereo"
+            6 -> "5.1"
+            8 -> "7.1"
+            else -> "${format.channelCount} ch"
+        },
+        codec = codecName(format.sampleMimeType),
+    )
 
     private fun codecName(mime: String?): String? = when (mime) {
         MimeTypes.AUDIO_AC3 -> "DD"

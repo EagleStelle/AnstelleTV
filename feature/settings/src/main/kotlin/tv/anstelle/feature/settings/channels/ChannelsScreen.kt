@@ -1,7 +1,16 @@
 package tv.anstelle.feature.settings.channels
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.ViewCarousel
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import tv.anstelle.core.data.Settings
+import tv.anstelle.core.data.SettingsRepository
+import tv.anstelle.core.theme.LocalAnstelleTheme
+import tv.anstelle.core.theme.components.TileTrailing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Folder
@@ -49,6 +58,8 @@ data class ChannelsUiState(
     val channels: List<ChannelSummary> = emptyList(),
     /** Library channels that were deleted. */
     val removed: Int = 0,
+    /** How many random channels the On demand banner cycles through. */
+    val bannerSize: Int = 10,
     val loaded: Boolean = false,
 )
 
@@ -60,14 +71,33 @@ internal fun ProfileRepository.activeProfileId(): Flow<Long> = flow { emit(ensur
 class ChannelsViewModel @Inject constructor(
     profiles: ProfileRepository,
     channels: ChannelRepository,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
+    private var profileId = 0L
+
     val state: StateFlow<ChannelsUiState> = profiles.activeProfileId()
         .flatMapLatest { profileId ->
-            combine(channels.observeChannels(profileId), channels.observeRemovedCount(profileId)) { list, removed ->
-                ChannelsUiState(list, removed, loaded = true)
+            this.profileId = profileId
+            combine(
+                channels.observeChannels(profileId),
+                channels.observeRemovedCount(profileId),
+                settings.observe(Settings.onDemandBanner(profileId)),
+            ) { list, removed, banner ->
+                ChannelsUiState(list, removed, banner, loaded = true)
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChannelsUiState())
+
+    fun setBannerSize(size: Int) {
+        viewModelScope.launch { settings.set(Settings.onDemandBanner(profileId), size) }
+    }
+
+    /** Steps the banner's size through its choices, wrapping at either end. */
+    fun stepBannerSize(by: Int) {
+        val sizes = Settings.OnDemandBannerSizes
+        val current = sizes.indexOf(state.value.bannerSize).takeIf { it >= 0 } ?: sizes.indexOf(Settings.onDemandBanner(profileId).default)
+        setBannerSize(sizes[(current + by).mod(sizes.size)])
+    }
 }
 
 /** Every channel of the active profile, with the ways to add more. */
@@ -82,11 +112,23 @@ fun ChannelsScreen(
     viewModel: ChannelsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val isTv = LocalIsTv.current
     val firstFocus = remember { FocusRequester() }
     // Coming back from a channel, focus returns to it: the list is still scrolled there.
     val returnFocus = remember { FocusRequester() }
     var lastOpened by rememberSaveable { mutableStateOf<Long?>(null) }
-    if (LocalIsTv.current) {
+    var pickingBanner by remember { mutableStateOf(false) }
+    if (pickingBanner) {
+        BannerSizePicker(
+            current = state.bannerSize,
+            onPick = {
+                viewModel.setBannerSize(it)
+                pickingBanner = false
+            },
+            onDismiss = { pickingBanner = false },
+        )
+    }
+    if (isTv) {
         LaunchedEffect(state.loaded) {
             if (!state.loaded) return@LaunchedEffect
             val returned = lastOpened != null && runCatching { returnFocus.requestFocus() }.isSuccess
@@ -122,6 +164,20 @@ fun ChannelsScreen(
                 subtitle = "Where each group of channels is numbered from.",
                 icon = Icons.Filled.FormatListNumbered,
                 onClick = onOpenNumbers,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item(key = "banner") {
+            // The D-pad steps the size in place; touch picks it from a list.
+            FocusTile(
+                title = "On demand banner",
+                subtitle = "Channels picked at random on each visit for the top of On demand.",
+                icon = Icons.Filled.ViewCarousel,
+                value = "${state.bannerSize} channels",
+                onClick = if (isTv) ({ viewModel.stepBannerSize(1) }) else ({ pickingBanner = true }),
+                onPrevious = if (isTv) ({ viewModel.stepBannerSize(-1) }) else null,
+                onNext = if (isTv) ({ viewModel.stepBannerSize(1) }) else null,
+                trailing = if (isTv) TileTrailing.None else TileTrailing.Chevron,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -166,4 +222,32 @@ fun ChannelsScreen(
             )
         }
     }
+}
+
+/** The banner's sizes as a list, for touch. */
+@Composable
+private fun BannerSizePicker(current: Int, onPick: (Int) -> Unit, onDismiss: () -> Unit) {
+    val theme = LocalAnstelleTheme.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = theme.surface,
+        title = { androidx.compose.material3.Text("On demand banner", style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, color = theme.text) },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(Settings.OnDemandBannerSizes) { size ->
+                    FocusTile(
+                        title = "$size channels",
+                        selected = size == current,
+                        onClick = { onPick(size) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                androidx.compose.material3.Text("Cancel", color = theme.accent)
+            }
+        },
+    )
 }

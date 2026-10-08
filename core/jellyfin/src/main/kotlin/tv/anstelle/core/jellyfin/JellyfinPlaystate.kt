@@ -1,6 +1,7 @@
 package tv.anstelle.core.jellyfin
 
 import org.jellyfin.sdk.api.client.extensions.sessionApi
+import org.jellyfin.sdk.api.client.extensions.showApi
 import org.jellyfin.sdk.api.client.extensions.userDataApi
 import org.jellyfin.sdk.model.api.PlayMethod
 import org.jellyfin.sdk.model.api.PlaybackOrder
@@ -32,6 +33,9 @@ interface Playstate {
 
     /** Where the user stopped watching the item, or 0 when Jellyfin keeps no resume point. */
     suspend fun resumePositionMs(itemId: String): Long
+
+    /** The resume points of a show's episodes that have one, by item id, in one request. */
+    suspend fun resumePoints(seriesId: String): Map<String, Long>
 }
 
 @Singleton
@@ -108,6 +112,16 @@ private class JellyfinPlaystate(
 
     override suspend fun resumePositionMs(itemId: String): Long = jellyfinCall("Reading the resume point") {
         api.userDataApi.getItemUserData(itemId = itemId.toUUID(), userId = user).content.playbackPositionTicks / TICKS_PER_MS
+    }
+
+    override suspend fun resumePoints(seriesId: String): Map<String, Long> = jellyfinCall("Reading resume points") {
+        api.showApi.getEpisodes(seriesId = seriesId.toUUID(), userId = user, enableImages = false, enableUserData = true)
+            .content.items
+            .mapNotNull { episode ->
+                val ticks = episode.userData?.playbackPositionTicks ?: 0
+                if (ticks > 0) episode.id.toJellyfinId() to ticks / TICKS_PER_MS else null
+            }
+            .toMap()
     }
 
     private fun method(item: PlaystateItem) = if (item.transcoded) PlayMethod.TRANSCODE else PlayMethod.DIRECT_PLAY

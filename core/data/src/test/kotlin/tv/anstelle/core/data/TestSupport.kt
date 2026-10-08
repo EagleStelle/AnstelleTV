@@ -3,6 +3,7 @@ package tv.anstelle.core.data
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import tv.anstelle.core.database.dao.CatalogRow
+import tv.anstelle.core.database.dao.ChannelAiring
 import tv.anstelle.core.database.dao.GuideAiring
 import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.database.entity.ScheduleSlotEntity
@@ -111,6 +112,18 @@ class FakeScheduleDao : ScheduleDao {
             .filter { it.channelId in channelIds && it.startUtcMs > fromUtcMs - maxSlotMs && it.startUtcMs < toUtcMs && it.endUtcMs > fromUtcMs }
             .map {
                 GuideAiring(it.channelId, it.kind, it.mediaItemId, it.mediaItemId, it.startUtcMs, it.endUtcMs, it.mediaItemId?.let { id -> "Item $id" }, null, null, null, null)
+            }
+
+    /** Like [guideWindow], items are "Item <id>" with no artwork. */
+    override suspend fun airingsAt(channelIds: List<Long>, atUtcMs: Long, maxSlotMs: Long): List<ChannelAiring> =
+        slots.values
+            .filter { it.channelId in channelIds && it.startUtcMs > atUtcMs - maxSlotMs && it.startUtcMs <= atUtcMs && it.endUtcMs > atUtcMs }
+            .map {
+                val item = it.mediaItemId
+                ChannelAiring(
+                    it.channelId, item, it.startUtcMs, it.endUtcMs, item?.let { 1L }, item?.let { id -> "item-$id" },
+                    item?.let { id -> "Item $id" }, null, null, null, null, null, null, null, null, null, null,
+                )
             }
 
     override suspend fun maxSlotMs(): Long = slots.values.maxOfOrNull { it.endUtcMs - it.startUtcMs } ?: 0

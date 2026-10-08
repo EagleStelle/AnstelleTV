@@ -68,9 +68,8 @@ import tv.anstelle.core.theme.components.AnstelleMark
 import tv.anstelle.core.theme.components.Wordmark
 import tv.anstelle.feature.dashboard.DashboardScreen
 import tv.anstelle.feature.guide.GuideScreen
-import tv.anstelle.feature.ondemand.ItemScreen
+import tv.anstelle.feature.ondemand.ChannelScreen
 import tv.anstelle.feature.ondemand.OnDemandScreen
-import tv.anstelle.feature.ondemand.ShowScreen
 import tv.anstelle.feature.player.OnDemandPlayerScreen
 import tv.anstelle.feature.player.PlayerScreen
 import tv.anstelle.feature.profiles.ProfilePickerScreen
@@ -132,6 +131,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         composable<GuideRoute> {
             GuideScreen(
                 onWatch = { navController.navigate(PlayerRoute(it)) },
+                onStartOver = { navController.navigate(PlayerRoute(it, restart = true)) },
                 onPlayOnDemand = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position)) },
                 onAddToChannel = { navController.navigate(AddToChannelRoute(it)) },
                 onOpenSettings = { navController.navigateTopLevel(TopLevelDestination.Settings) },
@@ -140,26 +140,16 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         navigation<OnDemandGraph>(startDestination = OnDemandRoute) {
             composable<OnDemandRoute> {
                 OnDemandScreen(
-                    onOpenShow = { navController.navigate(OnDemandShowRoute(it)) },
-                    onOpenItem = { navController.navigate(OnDemandItemRoute(it)) },
+                    onOpenChannel = { navController.navigate(OnDemandChannelRoute(it)) },
+                    onOpenSettings = { navController.navigateTopLevel(TopLevelDestination.Settings) },
                 )
             }
-            composable<OnDemandShowRoute> {
-                ShowScreen(
-                    onOpenItem = { navController.navigate(OnDemandItemRoute(it)) },
+            composable<OnDemandChannelRoute> {
+                ChannelScreen(
+                    onWatchLive = { navController.navigate(PlayerRoute(it)) },
+                    onStartOver = { navController.navigate(PlayerRoute(it, restart = true)) },
                     onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position)) },
                     onAddToChannel = { navController.navigate(AddToChannelRoute(it)) },
-                    onGone = { navController.popBackStack() },
-                )
-            }
-            composable<OnDemandItemRoute> {
-                ItemScreen(
-                    onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position)) },
-                    onAddToChannel = { navController.navigate(AddToChannelRoute(it)) },
-                    onOpenShow = { seriesId ->
-                        // Back to the show's page when it is right behind this one.
-                        navController.navigate(OnDemandShowRoute(seriesId)) { popUpTo<OnDemandShowRoute> { inclusive = true } }
-                    },
                     onGone = { navController.popBackStack() },
                 )
             }

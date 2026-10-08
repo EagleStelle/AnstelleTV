@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -119,6 +120,8 @@ class OnDemandPlayerViewModel @Inject constructor(
 
     fun next() = playback.skipToNext()
 
+    fun previous() = playback.skipToPrevious()
+
     fun pause() {
         if (playback.state.value.playing) playback.togglePlay()
     }
@@ -140,9 +143,10 @@ private enum class DemandPanel { CONTROLS, AUDIO, SUBTITLES }
 
 /**
  * Full-screen on-demand playback: OK plays or pauses, left and right jump back 10 s and ahead
- * 30 s. The banner always carries its keys (audio and subtitles on the left; play, the jumps and
- * next episode on the right); up, down or Menu moves focus into them. Phones tap for the banner
- * and drag its bar to seek.
+ * 30 s, the remote's previous and next keys step through the show's episodes. The banner always
+ * carries its keys (audio and subtitles on the left; then previous, 10 s back, pause, 30 s ahead
+ * and next, in the remote's own order, pause in the middle); up, down or Menu moves focus into
+ * them. Phones tap for the banner and drag its bar to seek.
  */
 @Composable
 fun OnDemandPlayerScreen(
@@ -208,6 +212,7 @@ fun OnDemandPlayerScreen(
                     Key.DirectionRight, Key.MediaFastForward -> viewModel.seekBy(AHEAD_MS)
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> viewModel.togglePlay()
                     Key.MediaNext -> viewModel.next()
+                    Key.MediaPrevious -> viewModel.previous()
                     Key.DirectionUp, Key.DirectionDown -> panel = DemandPanel.CONTROLS
                     else -> return@onKeyEvent false
                 }
@@ -230,8 +235,8 @@ fun OnDemandPlayerScreen(
         }
         if (overlayVisible || panel != null || !state.playing) {
             // Read again whenever the playback state moves: the keys stay on screen across episodes.
-            val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.label?.substringBefore(" · ") }
-            val subtitles = remember(state, panel) { viewModel.subtitleOptions().firstOrNull { it.selected }?.label }
+            val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.short }
+            val subtitles = remember(state, panel) { viewModel.subtitleOptions().firstOrNull { it.selected }?.short }
             Overlay(
                 state = state,
                 viewModel = viewModel,
@@ -247,24 +252,31 @@ fun OnDemandPlayerScreen(
                                 returnKey = subtitlesKey
                                 panel = DemandPanel.SUBTITLES
                             }, Modifier.focusRequester(subtitlesKey), value = subtitles)
-                            // Tracks on the left, the player's own actions on the right.
+                            // Tracks on the left; the transport on the right in the remote's order, pause in the middle.
                             Spacer(Modifier.weight(1f))
+                            // An episode keeps both episode keys in place, dimmed at either end of its show; a movie has neither.
+                            if (state.isEpisode) {
+                                OsdKey("Previous", Icons.Filled.SkipPrevious, enabled = state.previous != null, onClick = {
+                                    panel = null
+                                    viewModel.previous()
+                                })
+                            }
+                            OsdKey("10 s", Icons.Filled.Replay10, onClick = {
+                                viewModel.seekBy(-BACK_MS)
+                                overlay++
+                            })
                             OsdKey(
                                 if (state.playing) "Pause" else "Play",
                                 if (state.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 onClick = viewModel::togglePlay,
                                 modifier = Modifier.focusRequester(playKey),
                             )
-                            OsdKey("10 s", Icons.Filled.Replay10, onClick = {
-                                viewModel.seekBy(-BACK_MS)
-                                overlay++
-                            })
                             OsdKey("30 s", Icons.Filled.Forward30, onClick = {
                                 viewModel.seekBy(AHEAD_MS)
                                 overlay++
                             })
-                            if (state.next != null) {
-                                OsdKey("Next episode", Icons.Filled.SkipNext, onClick = {
+                            if (state.isEpisode) {
+                                OsdKey("Next", Icons.Filled.SkipNext, enabled = state.next != null, onClick = {
                                     panel = null
                                     viewModel.next()
                                 })

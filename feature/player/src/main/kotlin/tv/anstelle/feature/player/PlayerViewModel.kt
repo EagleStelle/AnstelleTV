@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.Settings
@@ -18,12 +19,13 @@ import tv.anstelle.core.data.playback.ChannelPlayer
 import tv.anstelle.core.data.playback.TRACK_TYPE_AUDIO
 import tv.anstelle.core.data.playback.TRACK_TYPE_TEXT
 import tv.anstelle.core.data.playback.TrackOption
+import tv.anstelle.core.data.playback.TuneStatus
 import tv.anstelle.core.model.Channel
 import javax.inject.Inject
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    savedState: SavedStateHandle,
+    private val savedState: SavedStateHandle,
     profiles: ProfileRepository,
     channels: ChannelRepository,
     private val playback: ChannelPlayer,
@@ -32,6 +34,9 @@ class PlayerViewModel @Inject constructor(
     /** Matches the `channelNumber` argument of the navigation route; 0 resumes the last channel. */
     /** The channel number asked for; negative when none was (0 is a channel number like any other). */
     private val requestedNumber: Int = savedState.get<Int>("channelNumber") ?: -1
+
+    /** Matches the `restart` argument: Start over, once, when the asked-for channel first plays. */
+    private var restartPending: Boolean = savedState.get<Boolean>("restart") ?: false
 
     val state = playback.state
     val player = playback.player
@@ -94,6 +99,14 @@ class PlayerViewModel @Inject constructor(
             return
         }
         playback.tune(id)
+        if (restartPending) {
+            restartPending = false
+            savedState["restart"] = false
+            viewModelScope.launch {
+                state.first { it.status == TuneStatus.PLAYING && it.channel?.id == id }
+                playback.restart()
+            }
+        }
     }
 
     fun channelUp() = playback.channelUp()

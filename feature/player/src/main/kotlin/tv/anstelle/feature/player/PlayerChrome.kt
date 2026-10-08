@@ -148,6 +148,9 @@ internal fun OsdKeys(modifier: Modifier = Modifier, content: @Composable RowScop
 /** A key's side padding, which [OsdKeys] lets run into the column's margin. */
 private val KEY_PADDING = 12.dp
 
+/** How much of the muted ink a key keeps while it can't act. */
+private const val DISABLED_ALPHA = 0.45f
+
 /** Lays the element out [horizontal] wider on each side than its parent allows, centered on it. */
 private fun Modifier.bleed(horizontal: Dp) = layout { measurable, constraints ->
     if (!constraints.hasBoundedWidth) {
@@ -162,7 +165,8 @@ private fun Modifier.bleed(horizontal: Dp) = layout { measurable, constraints ->
 /**
  * One key of the banner: an icon and a condensed label. A key with a [value] (the track in use)
  * shows the icon and the value alone, "♪ JAPANESE", so a row of them fits the program's column;
- * the label stays for screen readers. Flat on the banner; focus fills it with the accent.
+ * the label stays for screen readers. Flat on the banner; focus fills it with the accent. A key
+ * that can't act now keeps its place, dimmed, and focus passes over it, so the row never shifts.
  */
 @Composable
 internal fun OsdKey(
@@ -171,12 +175,14 @@ internal fun OsdKey(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     value: String? = null,
+    enabled: Boolean = true,
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     FocusSurface(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier.semantics { contentDescription = listOfNotNull(label, value).joinToString(", ") },
         color = Color.Transparent,
         contentColor = theme.bannerText,
@@ -186,7 +192,11 @@ internal fun OsdKey(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val ink = if (focused) theme.onAccent else theme.bannerText
+            val ink = when {
+                focused -> theme.onAccent
+                enabled -> theme.bannerText
+                else -> theme.textMuted.copy(alpha = DISABLED_ALPHA)
+            }
             icon?.let { androidx.compose.material3.Icon(it, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp)) }
             androidx.compose.material3.Text(
                 (value ?: label).uppercase(),

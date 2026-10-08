@@ -61,12 +61,15 @@ data class OnDemandState(
     val stream: StreamFacts? = null,
     /** What plays after this episode, or null. */
     val next: String? = null,
+    /** The episode before this one in its show, or null (a movie, or the first episode). */
+    val previous: String? = null,
     val message: String? = null,
 )
 
 /**
  * Plays a movie or an episode on demand, from any position, with pause and seeking (unlike
- * channels, which follow the schedule). An episode runs on into the rest of its show.
+ * channels, which follow the schedule). An episode runs on into the rest of its show, and can
+ * step back to the one before it.
  *
  * It has its own player, so the channel pool keeps its state. Many TV devices can run only
  * one video decoder, so the caller stops channel playback first. One instance per screen;
@@ -117,6 +120,9 @@ class OnDemandPlayer @Inject constructor(
     /** Episodes still to come after the queue. */
     private val upcoming = ArrayDeque<MediaItemEntity>()
 
+    /** Every episode of the show playing, in order; empty for a movie. */
+    private var episodes: List<MediaItemEntity> = emptyList()
+
     /** The next episode when it couldn't be queued; it starts when the queue ends. */
     private var deferred: Entry? = null
     private var profileId = 0L
@@ -136,12 +142,22 @@ class OnDemandPlayer @Inject constructor(
                 _state.update { it.copy(status = OnDemandStatus.ERROR, message = "This can't be played. Is the server signed in?") }
                 return@launch
             }
-            upcoming.clear()
-            upcoming.addAll(repository.episodesAfter(entry.item, maxRating))
+            episodes = repository.showEpisodes(entry.item, maxRating)
+            follow(entry.item)
             start(entry, positionMs)
             startTicker()
         }
     }
+
+    /** Lines up the episodes after [item] to play once it ends. */
+    private fun follow(item: MediaItemEntity) {
+        upcoming.clear()
+        val index = episodes.indexOfFirst { it.id == item.id }
+        if (index >= 0) upcoming.addAll(episodes.subList(index + 1, episodes.size))
+    }
+
+    private fun episodeBefore(item: MediaItemEntity): MediaItemEntity? =
+        episodes.indexOfFirst { it.id == item.id }.takeIf { it > 0 }?.let { episodes[it - 1] }
 
     /** Plays [entry] on its own from [positionMs], then queues what follows it. */
     private suspend fun start(entry: Entry, positionMs: Long) {
@@ -185,6 +201,18 @@ class OnDemandPlayer @Inject constructor(
         exo?.seekTo(positionMs.coerceAtLeast(0))
     }
 
+    /** Goes back to the episode before this one, from its start, when there is one. */
+    fun skipToPrevious() {
+        val current = queue.firstOrNull()?.item ?: return
+        val previous = episodeBefore(current) ?: return
+        endSession(atEnd = false)
+        scope.launch {
+            val entry = resolve(previous, forceTranscode = false) ?: return@launch fail("This can't be played.")
+            follow(previous)
+            start(entry, 0)
+        }
+    }
+
     /** Jumps to the next episode, when there is one. */
     fun skipToNext() {
         val player = exo ?: return
@@ -217,6 +245,7 @@ class OnDemandPlayer @Inject constructor(
         pooled = null
         queue.clear()
         upcoming.clear()
+        episodes = emptyList()
         deferred = null
         scope.cancel()
     }
@@ -267,6 +296,7 @@ class OnDemandPlayer @Inject constructor(
                 isEpisode = item.showTitle != null,
                 stream = entry.facts,
                 next = (queue.getOrNull(1) ?: deferred)?.item?.let(::nextLabel),
+                previous = episodeBefore(item)?.let(::nextLabel),
                 message = null,
             )
         }
