@@ -13,7 +13,7 @@ import tv.anstelle.core.data.guide.GuideRepository
 import tv.anstelle.core.data.guide.ProgramBadges
 import tv.anstelle.core.data.jellyfinImageUrl
 import tv.anstelle.core.data.programDetail
-import tv.anstelle.core.data.profiles.AgeRestriction
+import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.data.programTitle
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.MediaItemDao
@@ -25,6 +25,7 @@ import tv.anstelle.core.jellyfin.PlaystateFactory
 import tv.anstelle.core.jellyfin.auth.TokenStore
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.MediaType
+import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.model.RatingLimits
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -44,11 +45,11 @@ data class ChannelNow(
     val overview: String?,
     val artwork: Artwork,
     /**
-     * Set when the program is over the profile's maturity rating: then [artwork] keeps only
-     * the logo (screens blur it with the title), [overview] is blacked out, and [endUtcMs] is
-     * the end of the whole run of restricted programs.
+     * Set when the profile may not watch the program: then [artwork] keeps only the logo
+     * (screens blur it with the title), [overview] is blacked out, and [endUtcMs] is the end of
+     * the whole run of restricted programs.
      */
-    val restriction: AgeRestriction? = null,
+    val restriction: Restriction? = null,
 ) {
     val offAir: Boolean get() = mediaItemId == 0L
 }
@@ -97,22 +98,23 @@ data class ChannelPage(
     /** True when the channel airs it now; false when the channel is off air and it comes next. */
     val onNow: Boolean,
     val item: ItemPage,
-    /** The show's episodes within the rating limit, in order; empty for a movie. */
+    /** The show's episodes the profile may watch, in order; empty for a movie. */
     val episodes: List<EpisodeEntry>,
     /** The show's Jellyfin id, for its episodes' resume points; null for a movie. */
     val seriesRemoteId: String?,
     /**
-     * Set when the program is over the profile's maturity rating: then its pictures and
-     * overview are blacked out and it can't be played on demand.
+     * Set when the profile may not watch the program: then its pictures and overview are
+     * blacked out and it can't be played on demand.
      */
-    val restriction: AgeRestriction? = null,
+    val restriction: Restriction? = null,
 )
 
 /**
  * On demand from SQLite: what every channel airs, a channel's program and its show. Only
- * resume points ask the server. `maxRating` is the profile's maturity rating limit (null for
- * none); unrated items never pass a limit. Channels are the same for every profile, so what a
- * channel airs over the limit is still listed, blacked out.
+ * resume points ask the server. `access` is what the watching profile may watch: its maturity
+ * rating limit (unrated items never pass one) and what its Jellyfin users can't see. Channels
+ * are the same for every profile, so what a channel airs beyond that is still listed, blacked
+ * out.
  */
 @Singleton
 class OnDemandRepository @Inject constructor(
@@ -126,11 +128,11 @@ class OnDemandRepository @Inject constructor(
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
     /** What each of [channels] airs at [atUtcMs], in one read; a channel with no schedule is left out. */
-    suspend fun nowOn(channels: List<Channel>, atUtcMs: Long, maxRating: Int?): Map<Long, ChannelNow> = withContext(io) {
+    suspend fun nowOn(channels: List<Channel>, atUtcMs: Long, access: ProfileAccess): Map<Long, ChannelNow> = withContext(io) {
         if (channels.isEmpty()) return@withContext emptyMap()
         val byId = channels.associateBy { it.id }
         val bases = baseUrls()
-        val limitName = limitName(maxRating)
+        val limitName = limitName(access.limit)
         val maxSlot = scheduleDao.maxSlotMs()
         // SQLite on older Android allows 999 bound values per statement.
         val rows = channels.map { it.id }.chunked(MAX_IDS_PER_QUERY).flatMap { scheduleDao.airingsAt(it, atUtcMs, maxSlot) }
@@ -143,7 +145,7 @@ class OnDemandRepository @Inject constructor(
                 val now = if (item == null || title == null || remoteId == null) {
                     ChannelNow(channel, 0, row.startUtcMs, row.endUtcMs, GuideRepository.OFF_AIR_TITLE, null, false, null, Artwork.None)
                 } else {
-                    val restriction = AgeRestriction.of(row.officialRating, row.ratingScore, maxRating, limitName)
+                    val restriction = Restriction.of(item, row.officialRating, row.ratingScore, access, limitName)
                     val artwork = Artwork.of(
                         row.serverId?.let(bases::get),
                         remoteId, row.backdropImageTag, row.logoImageTag,
@@ -153,7 +155,7 @@ class OnDemandRepository @Inject constructor(
                         channel = channel,
                         mediaItemId = item,
                         startUtcMs = row.startUtcMs,
-                        endUtcMs = if (restriction != null && maxRating != null) restrictedUntil(row.channelId, row.endUtcMs, maxRating) else row.endUtcMs,
+                        endUtcMs = if (restriction != null) restrictedUntil(row.channelId, row.endUtcMs, access) else row.endUtcMs,
                         title = programTitle(title, row.showTitle),
                         detail = programDetail(title, row.showTitle, row.season, row.episode, row.year),
                         isEpisode = row.showTitle != null,
@@ -171,7 +173,7 @@ class OnDemandRepository @Inject constructor(
      * [channelId]'s page at [atUtcMs]: the program on now, or the next one while the channel
      * is off air. Null when the channel is gone or has nothing scheduled.
      */
-    suspend fun channelPage(channelId: Long, atUtcMs: Long, maxRating: Int?): ChannelPage? = withContext(io) {
+    suspend fun channelPage(channelId: Long, atUtcMs: Long, access: ProfileAccess): ChannelPage? = withContext(io) {
         val channel = channelDao.byId(channelId)?.toModel() ?: return@withContext null
         val current = scheduleDao.slotAt(channelId, atUtcMs)?.takeIf { atUtcMs < it.endUtcMs }
         val onNow = current?.mediaItemId != null
@@ -183,12 +185,12 @@ class OnDemandRepository @Inject constructor(
         val entity = itemDao.byId(slot.mediaItemId ?: return@withContext null) ?: return@withContext null
         val base = serverDao.byId(entity.serverId)?.baseUrl
         val series = entity.seriesRemoteId?.let { itemDao.byRemoteId(entity.serverId, it) }
-        val episodes = entity.seriesRemoteId?.let { itemDao.episodes(entity.serverId, it, MediaType.EPISODE, maxRating) }.orEmpty()
-        val restriction = AgeRestriction.of(entity.officialRating, entity.ratingScore, maxRating, limitName(maxRating))
+        val episodes = showEpisodes(entity, access)
+        val restriction = Restriction.of(entity.id, entity.officialRating, entity.ratingScore, access, limitName(access.limit))
         ChannelPage(
             channel = channel,
             startUtcMs = slot.startUtcMs,
-            endUtcMs = if (restriction != null && maxRating != null) restrictedUntil(channelId, slot.endUtcMs, maxRating) else slot.endUtcMs,
+            endUtcMs = if (restriction != null) restrictedUntil(channelId, slot.endUtcMs, access) else slot.endUtcMs,
             onNow = onNow,
             item = itemPage(entity, series, base).let { page ->
                 if (restriction == null) page else page.copy(overview = null, imageUrl = null, artwork = page.artwork.copy(backdropUrl = null))
@@ -211,8 +213,8 @@ class OnDemandRepository @Inject constructor(
     }
 
     /** Where the run of restricted programs ending one at [fromUtcMs] on [channelId] ends. */
-    private suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, maxRating: Int): Long =
-        scheduleDao.restrictedUntil(channelId, fromUtcMs, maxRating)?.coerceAtLeast(fromUtcMs) ?: fromUtcMs
+    private suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, access: ProfileAccess): Long =
+        scheduleDao.restrictedUntil(channelId, fromUtcMs, access.limit, access.profileId)?.coerceAtLeast(fromUtcMs) ?: fromUtcMs
 
     /** [maxRating] named as the library names ratings; empty without a limit, which restricts nothing. */
     private suspend fun limitName(maxRating: Int?): String =
@@ -220,7 +222,8 @@ class OnDemandRepository @Inject constructor(
 
     /**
      * Where [profileId]'s Jellyfin user stopped in the page's program and, for a show, in each
-     * of its episodes, by local item id. Empty when the server can't be reached.
+     * of its episodes, by local item id. Empty when the server can't be reached, or when the
+     * profile keeps no watch history there.
      */
     suspend fun resumePoints(page: ChannelPage, profileId: Long): Map<Long, Long> = withContext(io) {
         try {
@@ -254,16 +257,17 @@ class OnDemandRepository @Inject constructor(
         }
     }
 
-    /** Every episode of [item]'s show within [maxRating], in order, [item] among them; empty for a movie. */
-    suspend fun showEpisodes(item: MediaItemEntity, maxRating: Int?): List<MediaItemEntity> = withContext(io) {
+    /** Every episode of [item]'s show the profile may watch, in order, [item] among them when allowed; empty for a movie. */
+    suspend fun showEpisodes(item: MediaItemEntity, access: ProfileAccess): List<MediaItemEntity> = withContext(io) {
         val series = item.seriesRemoteId ?: return@withContext emptyList()
-        itemDao.episodes(item.serverId, series, MediaType.EPISODE, maxRating)
+        itemDao.episodes(item.serverId, series, MediaType.EPISODE, access.limit).filter { !access.isHidden(it.id) }
     }
 
+    /** The profile's Jellyfin user on the server, when its watch history goes there. */
     private suspend fun playstate(serverId: Long, profileId: Long): Playstate? {
         val server = serverDao.byId(serverId) ?: return null
         val token = tokens.get(server.jellyfinServerId) ?: return null
-        val account = profiles.watchAccount(profileId, server, token) ?: return null
+        val account = profiles.watchAccount(profileId, server, token)?.takeIf { it.keepsHistory } ?: return null
         return playstates.create(server.baseUrl, account.accessToken, account.userId, account.device)
     }
 

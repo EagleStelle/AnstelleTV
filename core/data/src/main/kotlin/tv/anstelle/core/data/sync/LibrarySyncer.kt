@@ -54,6 +54,8 @@ data class SyncOptions(
  * - **Reconciliation:** deletions and box-set membership don't touch `DateLastSaved`, so
  *   an ID-only listing (cheap: no metadata) runs every few hours. Deleted
  *   items are removed and the schedules that air them are marked for regeneration.
+ * - **Profiles:** every sync lists, ID-only, what each profile's own Jellyfin user can see; the
+ *   rest is hidden from that profile.
  */
 @Singleton
 class LibrarySyncer @Inject constructor(
@@ -131,8 +133,38 @@ class LibrarySyncer @Inject constructor(
 
         val reconcileDue = server.lastReconcileUtcMs.let { it == null || time.nowUtcMs() - it >= RECONCILE_INTERVAL_MS }
         if (options.forceReconcile || options.fullRefresh || reconcileDue) reconcile(server, libraries, source)
+        findHidden(server, libraries)
         // Profiles are Jellyfin users: names and pictures changed there follow.
         profiles.refreshFromJellyfin(server, token)
+    }
+
+    /**
+     * The library is synced as the server's own sign-in, but a profile signed in as a user of
+     * its own sees only what Jellyfin shows that user: its libraries, within its parental
+     * controls. An ID-only listing as each such user finds the synced items it can't see,
+     * which the profile then never plays. A user that can't be read keeps what was found before.
+     */
+    private suspend fun findHidden(server: MediaServerEntity, libraries: List<LibraryEntity>) {
+        val sessions = profiles.sessionsOn(server)
+        if (sessions.isEmpty()) return
+        val synced = libraries.filter { it.syncedKinds().isNotEmpty() }
+        val items = itemDao.allIds(server.id)
+        for (session in sessions) {
+            status.update(server.id, "Checking what each profile can see…")
+            try {
+                val source = sources.create(server.baseUrl, session.accessToken, session.userId, session.device)
+                val seen = source.libraries().mapTo(HashSet()) { it.id }
+                val visible = HashSet<String>()
+                for (library in synced) {
+                    if (library.remoteId in seen) visible += source.itemIds(library.remoteId, library.syncedKinds())
+                }
+                val hidden = items.filter { it.remoteId !in visible }.map { it.id }
+                profiles.setHidden(session.profileId, server.id, hidden)
+                AppLog.i(TAG, "${server.name}: profile ${session.profileId} can't see ${hidden.size} of ${items.size} items")
+            } catch (e: ServerConnectException) {
+                AppLog.w(TAG, "${server.name}: couldn't read profile ${session.profileId}'s libraries: ${e.message}")
+            }
+        }
     }
 
     /** Stores newly found libraries (on when their type can air) and drops the ones that are gone. */

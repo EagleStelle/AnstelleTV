@@ -3,12 +3,13 @@ package tv.anstelle.core.data.guide
 import tv.anstelle.core.data.programDetail
 import tv.anstelle.core.data.programTitle
 import tv.anstelle.core.database.dao.GuideAiring
+import tv.anstelle.core.model.ProfileAccess
 
 /**
  * One channel's guide cells over the loaded hours, as parallel arrays sorted by start time.
  * There is no object per cell, so a guide row lays out and scrolls without allocating.
  * [items] and [shows] are 0 for an off-air stretch. Immutable once built, and the same for
- * every profile: [isRestricted] applies a profile's maturity rating.
+ * every profile: [isRestricted] applies what a profile may watch.
  */
 class ProgramStrip(
     val starts: LongArray,
@@ -26,11 +27,14 @@ class ProgramStrip(
 
     fun isOffAir(index: Int): Boolean = items[index] == 0L
 
-    /** True when a profile limited to [limit] (null: no limit) may not watch the program. Unrated programs never pass a limit. */
-    fun isRestricted(index: Int, limit: Int?): Boolean {
-        if (limit == null || isOffAir(index)) return false
+    /**
+     * True when a profile with [access] may not watch the program: it is over the profile's
+     * limit (unrated programs never pass one), or the profile's Jellyfin user can't see it.
+     */
+    fun isRestricted(index: Int, access: ProfileAccess): Boolean {
+        if (access.isOpen || isOffAir(index)) return false
         val score = scores[index]
-        return score == UNRATED || score > limit
+        return !access.allows(items[index], if (score == UNRATED) null else score)
     }
 
     /** The cell airing at [timeMs], or -1. */
@@ -72,22 +76,22 @@ class ProgramStrip(
     }
 
     /**
-     * This strip for a profile limited to [limit]: back-to-back programs the profile may not
-     * watch become one cell spanning them all, taking the first one's item, title and rating,
-     * so the guide shows one blacked-out stretch and when it ends. The same strip without a
-     * limit, or with nothing restricted next to each other.
+     * This strip for a profile with [access]: back-to-back programs the profile may not watch
+     * become one cell spanning them all, taking the first one's item, title and rating, so the
+     * guide shows one blacked-out stretch and when it ends. The same strip when nothing is kept
+     * from the profile, or nothing restricted is next to each other.
      */
-    fun mergeRestricted(limit: Int?): ProgramStrip {
-        if (limit == null || size < 2) return this
+    fun mergeRestricted(access: ProfileAccess): ProgramStrip {
+        if (access.isOpen || size < 2) return this
         var merges = false
         for (i in 1 until size) {
-            if (joins(i, limit)) {
+            if (joins(i, access)) {
                 merges = true
                 break
             }
         }
         if (!merges) return this
-        val keep = BooleanArray(size) { i -> i == 0 || !joins(i, limit) }
+        val keep = BooleanArray(size) { i -> i == 0 || !joins(i, access) }
         val count = keep.count { it }
         val newStarts = LongArray(count)
         val newEnds = LongArray(count)
@@ -114,7 +118,7 @@ class ProgramStrip(
     }
 
     /** Cell [i] carries on the restricted stretch the cell before it is part of. */
-    private fun joins(i: Int, limit: Int): Boolean = isRestricted(i, limit) && isRestricted(i - 1, limit) && starts[i] == ends[i - 1]
+    private fun joins(i: Int, access: ProfileAccess): Boolean = isRestricted(i, access) && isRestricted(i - 1, access) && starts[i] == ends[i - 1]
 
     /** One past the last cell that starts before [timeMs]. */
     fun endOfStartsBefore(timeMs: Long): Int {

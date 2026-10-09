@@ -2,7 +2,6 @@ package tv.anstelle.feature.ondemand
 
 import tv.anstelle.core.theme.components.obscured
 import androidx.compose.material.icons.filled.Lock
-import tv.anstelle.core.data.profiles.AgeRestriction
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.indication
@@ -122,9 +121,9 @@ class ChannelViewModel @Inject constructor(
         viewModelScope.launch {
             val profile = profiles.ensureActiveProfile()
             profileId = profile.id
-            val limit = profile.maxRatingScore
+            val access = profiles.access(profile.id)
             val now = time.nowUtcMs()
-            _state.value = ChannelUiState(repository.channelPage(channelId, now, limit), loaded = true, openedAtMs = now)
+            _state.value = ChannelUiState(repository.channelPage(channelId, now, access), loaded = true, openedAtMs = now)
             refreshResume()
         }
     }
@@ -325,13 +324,13 @@ fun ChannelScreen(
 /**
  * The ways to watch the page's program, in the guide's own words: live on the channel, the
  * channel from the program's start, on demand from the start or from where the channel is.
- * A program over the profile's maturity rating only offers the channel, which stays dark.
+ * A program the profile may not watch only offers the channel, which stays dark.
  */
 private fun topicChoices(page: ChannelPage, nowMs: Long): List<WatchChoice> {
     val item = page.item
     val tense = if (page.onNow) AiringTense.of(page.startUtcMs, page.endUtcMs, nowMs) else AiringTense.LATER
-    if (page.restriction != null) {
-        return listOfNotNull(WatchChoices.liveRestricted(page.endUtcMs).takeIf { tense == AiringTense.ON_NOW })
+    page.restriction?.let { restriction ->
+        return listOfNotNull(WatchChoices.liveRestricted(page.endUtcMs, restriction.title).takeIf { tense == AiringTense.ON_NOW })
     }
     return if (tense == AiringTense.ON_NOW) {
         WatchChoices.onNow(page.channel.number, page.channel.name, page.startUtcMs, page.endUtcMs, nowMs, item.isEpisode)
@@ -434,12 +433,12 @@ private fun ColumnScope.Hero(page: ChannelPage, nowMs: Long) {
         val restricted = page.restriction != null
         Poster(
             item.imageUrl,
-            // An age-restricted program's placeholder shows no letter of its title.
+            // A restricted program's placeholder shows no letter of its title.
             item.title.takeUnless { restricted }.orEmpty(),
             Modifier.width(if (wide) (if (isTv) 240.dp else 160.dp) else (if (isTv) 120.dp else 104.dp)).aspectRatio(if (wide) 16f / 9f else 2f / 3f),
         )
         Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
-            // An age-restricted program's title, logo and episode are blurred.
+            // A restricted program's title, logo and episode are blurred.
             HeroTitle(item.artwork.logoUrl, item.title, Modifier.obscured(restricted, theme.textMuted, radius = 12.dp))
             lineUnderLogo(item.detail, item.title, item.isEpisode, item.artwork.logoUrl != null)?.let {
                 androidx.compose.material3.Text(it, style = typography.titleLarge, color = theme.text, modifier = Modifier.obscured(restricted, theme.textMuted, radius = 6.dp))
@@ -456,12 +455,12 @@ private fun ColumnScope.Hero(page: ChannelPage, nowMs: Long) {
             SegmentLadder(progress(page.startUtcMs, page.endUtcMs, nowMs), Modifier.width(if (isTv) 240.dp else 120.dp), segments = if (isTv) 24 else 12)
         }
     }
-    // Over the profile's maturity rating the overview is blacked out with the pictures.
+    // For a program the profile may not watch, the overview is blacked out with the pictures.
     page.restriction?.let { restriction ->
         Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             androidx.compose.material3.Icon(Icons.Filled.Lock, contentDescription = null, tint = theme.textMuted, modifier = Modifier.size(18.dp))
             androidx.compose.material3.Text(
-                "${AgeRestriction.TITLE.uppercase()}  ·  ${restriction.detail.uppercase()}",
+                "${restriction.title.uppercase()}  ·  ${restriction.detail.uppercase()}",
                 style = typography.labelMedium,
                 color = theme.textMuted,
             )

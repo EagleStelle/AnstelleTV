@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withContext
@@ -13,19 +15,25 @@ import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.common.TimeSource
+import tv.anstelle.core.data.channels.ChannelSummary
 import tv.anstelle.core.data.profiles.PinHash
 import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.database.dao.ProfileDao
+import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.database.dao.SettingDao
 import tv.anstelle.core.database.entity.MediaServerEntity
+import tv.anstelle.core.database.entity.ProfileAccountEntity
 import tv.anstelle.core.database.entity.ProfileEntity
 import tv.anstelle.core.jellyfin.auth.AuthSession
 import tv.anstelle.core.jellyfin.auth.JellyfinAuth
 import tv.anstelle.core.jellyfin.auth.JellyfinUser
 import tv.anstelle.core.jellyfin.auth.TokenStore
 import tv.anstelle.core.model.CarriedRating
+import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.Profile
+import tv.anstelle.core.model.ProfileAccess
+import tv.anstelle.core.model.ProfileAccount
 import tv.anstelle.core.model.ProfileRights
 import tv.anstelle.core.model.ProfileRole
 import tv.anstelle.core.model.RatingLevel
@@ -44,8 +52,14 @@ sealed interface PinCheck {
     data class LockedOut(val untilUtcMs: Long) : PinCheck
 }
 
-/** Who a profile's watch history goes to on a server, and the device it speaks as. */
-data class WatchAccount(val userId: String, val accessToken: String, val device: String?)
+/**
+ * Who a profile is on a server: the Jellyfin user it plays as, the device it speaks as, and
+ * whether its watched marks and resume points go to that user ([keepsHistory]).
+ */
+data class WatchAccount(val userId: String, val accessToken: String, val device: String?, val keepsHistory: Boolean)
+
+/** A profile's own sign-in on a server, for calls made as that user. */
+data class ProfileSession(val profileId: Long, val userId: String, val accessToken: String, val device: String)
 
 /**
  * Profiles: who is watching, as Jellyfin users. Each has a role (owner, admin or member), a
@@ -57,6 +71,7 @@ class ProfileRepository @Inject constructor(
     private val itemDao: MediaItemDao,
     private val settingDao: SettingDao,
     private val serverDao: MediaServerDao,
+    private val scheduleDao: ScheduleDao,
     private val settings: SettingsRepository,
     private val tokens: TokenStore,
     private val auth: JellyfinAuth,
@@ -102,6 +117,27 @@ class ProfileRepository @Inject constructor(
     }
 
     suspend fun setActive(profileId: Long) = settings.set(Settings.ActiveProfileId, profileId)
+
+    /** What [profileId] may watch: its parental rating limit and what its Jellyfin users can't see. */
+    fun observeAccess(profileId: Long): Flow<ProfileAccess> =
+        combine(dao.observe(profileId), dao.observeHidden(profileId)) { profile, hidden ->
+            ProfileAccess(profileId, profile?.maxRatingScore, hidden)
+        }.distinctUntilChanged()
+
+    suspend fun access(profileId: Long): ProfileAccess = observeAccess(profileId).first()
+
+    /**
+     * The channels a profile tunes through, in [channels]' order: shown and in season, without
+     * those whose every upcoming program the profile's Jellyfin users can't see.
+     */
+    suspend fun tunable(channels: List<ChannelSummary>, access: ProfileAccess): List<Channel> {
+        val hidden = if (access.hidesItems) {
+            withContext(io) { scheduleDao.hiddenChannels(access.profileId, time.nowUtcMs()) }.toHashSet()
+        } else {
+            emptySet()
+        }
+        return channels.filter { !it.channel.isHidden && it.inSeason && it.channel.id !in hidden }.map { it.channel }
+    }
 
     /**
      * The parental rating levels a limit can be set to: the servers' own rating tables, kept
@@ -180,7 +216,7 @@ class ProfileRepository @Inject constructor(
         val all = dao.all()
         val profile = all.firstOrNull { it.id == profileId } ?: return@withContext false
         if (profile.role == ProfileRole.OWNER) return@withContext false
-        forgetAccount(profile)
+        for (account in dao.accounts(profileId)) serverDao.byId(account.serverId)?.let { forget(account, it) }
         dao.delete(profileId)
         settingDao.removeForProfile(profileId)
         if (settings.get(Settings.ActiveProfileId) == profileId) settings.set(Settings.ActiveProfileId, all.first { it.id != profileId }.id)
@@ -188,16 +224,29 @@ class ProfileRepository @Inject constructor(
         true
     }
 
+    /** The profile's own Jellyfin users, one per server it signed in to, first server first. */
+    fun observeAccounts(profileId: Long): Flow<List<ProfileAccount>> =
+        dao.observeAccounts(profileId).map { list ->
+            list.mapNotNull { account ->
+                val server = serverDao.byId(account.serverId) ?: return@mapNotNull null
+                val signedIn = tokens.get(tokenKey(server.jellyfinServerId, account.device)) != null
+                ProfileAccount(account.serverId, account.userId, account.userName, signedIn)
+            }
+        }.flowOn(io)
+
     /**
-     * Makes [session]'s user, signed in as [device], the profile's own on [serverId]: its watch
-     * history goes there, and it mirrors the user's name and picture.
+     * Makes [session]'s user, signed in as [device], the profile's own on [serverId]: the profile
+     * plays as that user there and its watch history goes to it. The profile mirrors the user's
+     * name and picture when it is its user on the first server it has one on.
      */
     suspend fun linkAccount(profileId: Long, serverId: Long, session: AuthSession, device: String) = withContext(io) {
         val server = serverDao.byId(serverId) ?: return@withContext
-        dao.byId(profileId)?.let { forgetAccount(it) }
-        tokens.put(tokenKey(server.jellyfinServerId, session.userId), session.accessToken)
-        dao.setAccount(profileId, serverId, session.userId, session.userName, device)
-        mirror(profileId, server, JellyfinUser(session.userId, session.userName, session.imageTag))
+        dao.account(profileId, serverId)?.let { forget(it, server) }
+        tokens.put(tokenKey(server.jellyfinServerId, device), session.accessToken)
+        dao.upsertAccount(ProfileAccountEntity(profileId, serverId, session.userId, session.userName, device))
+        // What the last user couldn't see says nothing about this one; the next sync looks again.
+        dao.replaceHidden(profileId, serverId, emptyList())
+        if (isFirstAccount(profileId, serverId)) mirror(profileId, server, JellyfinUser(session.userId, session.userName, session.imageTag))
         AppLog.i(TAG, "Profile $profileId is now ${session.userName} on ${server.name}")
     }
 
@@ -209,14 +258,14 @@ class ProfileRepository @Inject constructor(
     }
 
     /**
-     * The server's own sign-in is the user of every profile without one of its own (the first
-     * profile, made at launch): those take that user's name and picture. Only the first server
-     * connected names them.
+     * The server's own sign-in is the user of every profile without one of its own anywhere
+     * (the first profile, made at launch): those take that user's name and picture. Only the
+     * first server connected names them.
      */
     suspend fun adoptServerUser(serverId: Long, user: JellyfinUser) = withContext(io) {
         val server = serverDao.byId(serverId) ?: return@withContext
         if (serverDao.all().minOf { it.id } != serverId) return@withContext
-        dao.all().filter { it.jellyfinUserId == null }.forEach { mirror(it.id, server, user) }
+        dao.withoutAccounts().forEach { mirror(it.id, server, user) }
     }
 
     /**
@@ -230,44 +279,59 @@ class ProfileRepository @Inject constructor(
         } catch (e: ServerConnectException) {
             AppLog.w(TAG, "${server.name}: couldn't read the signed-in user: ${e.message}")
         }
-        for (profile in dao.linkedTo(server.id)) {
-            val token = tokens.get(tokenKey(server.jellyfinServerId, profile.jellyfinUserId ?: continue)) ?: continue
+        for (account in dao.accountsOn(server.id)) {
+            val token = tokens.get(tokenKey(server.jellyfinServerId, account.device)) ?: continue
             try {
-                mirror(profile.id, server, auth.currentUser(server.baseUrl, token, profile.jellyfinDevice))
+                val user = auth.currentUser(server.baseUrl, token, account.device)
+                if (user.name.isNotBlank() && user.name != account.userName) dao.setAccountName(account.profileId, server.id, user.name)
+                if (isFirstAccount(account.profileId, server.id)) mirror(account.profileId, server, user)
             } catch (e: ServerConnectException) {
-                AppLog.w(TAG, "${server.name}: couldn't read profile ${profile.id}'s user: ${e.message}")
+                AppLog.w(TAG, "${server.name}: couldn't read profile ${account.profileId}'s user: ${e.message}")
             }
         }
     }
 
     /** A server is going away: its profile sign-ins go with it. */
     suspend fun forgetAccountsOn(serverId: Long) = withContext(io) {
-        for (profile in dao.linkedTo(serverId)) {
-            forgetAccount(profile)
-            dao.setAccount(profile.id, null, null, null, null)
+        val server = serverDao.byId(serverId) ?: return@withContext
+        for (account in dao.accountsOn(serverId)) {
+            forget(account, server)
+            dao.deleteAccount(account.profileId, serverId)
         }
     }
 
-    /** Whether the profile's own sign-in on its server still has a token. */
-    suspend fun isAccountSignedIn(profile: Profile): Boolean = withContext(io) {
-        val server = profile.serverId?.let { serverDao.byId(it) } ?: return@withContext false
-        val user = profile.jellyfinUserId ?: return@withContext false
-        tokens.get(tokenKey(server.jellyfinServerId, user)) != null
+    /** The profiles signed in on [server] as users of their own, with their tokens. */
+    suspend fun sessionsOn(server: MediaServerEntity): List<ProfileSession> = withContext(io) {
+        dao.accountsOn(server.id).mapNotNull { account ->
+            tokens.get(tokenKey(server.jellyfinServerId, account.device))?.let { ProfileSession(account.profileId, account.userId, it, account.device) }
+        }
+    }
+
+    /** What the profile's own user on [serverId] can't see, found by a library sync. */
+    suspend fun setHidden(profileId: Long, serverId: Long, itemIds: List<Long>) = withContext(io) {
+        dao.replaceHidden(profileId, serverId, itemIds)
     }
 
     /**
-     * Who [profileId]'s watch history goes to on [server]: the profile's own user when it has
-     * one there, else the server's sign-in with [serverToken]. Null when that user's token is
-     * gone, so nothing is reported to the wrong account.
+     * Who [profileId] is on [server]. With a Jellyfin user of its own there, the profile plays
+     * as that user and its watch history goes to it; null when that user's token is gone, so
+     * nothing plays or is reported as someone else. A profile with no user of its own anywhere
+     * (the first profile) is the server's sign-in ([serverToken]), watch history and all; one
+     * with users on other servers only plays as the server's sign-in here, and keeps no history.
      */
-    suspend fun watchAccount(profileId: Long, server: MediaServerEntity, serverToken: String): WatchAccount? {
-        val profile = withContext(io) { dao.byId(profileId) }
-        val own = profile?.jellyfinUserId?.takeIf { profile.serverId == server.id }
-        if (own == null) return server.userId?.let { WatchAccount(it, serverToken, device = null) }
-        val token = withContext(io) { tokens.get(tokenKey(server.jellyfinServerId, own)) }
-        if (token == null) AppLog.w(TAG, "Profile $profileId's sign-in on ${server.name} is gone; nothing reported")
-        return token?.let { WatchAccount(own, it, profile.jellyfinDevice) }
+    suspend fun watchAccount(profileId: Long, server: MediaServerEntity, serverToken: String): WatchAccount? = withContext(io) {
+        val accounts = dao.accounts(profileId)
+        val own = accounts.firstOrNull { it.serverId == server.id }
+        if (own == null) {
+            return@withContext server.userId?.let { WatchAccount(it, serverToken, device = null, keepsHistory = accounts.isEmpty()) }
+        }
+        val token = tokens.get(tokenKey(server.jellyfinServerId, own.device))
+        if (token == null) AppLog.w(TAG, "Profile $profileId's sign-in on ${server.name} is gone; nothing plays as it")
+        token?.let { WatchAccount(own.userId, it, own.device, keepsHistory = true) }
     }
+
+    /** Whether [serverId] is the first server the profile has a user of its own on: that user names the profile. */
+    private suspend fun isFirstAccount(profileId: Long, serverId: Long) = dao.accounts(profileId).firstOrNull()?.serverId == serverId
 
     /** Copies [user]'s name and picture onto the profile. */
     private suspend fun mirror(profileId: Long, server: MediaServerEntity, user: JellyfinUser) {
@@ -277,17 +341,15 @@ class ProfileRepository @Inject constructor(
         edit(profileId) { profile ->
             profile.copy(
                 name = user.name.trim().takeIf { it.isNotEmpty() }?.take(MAX_NAME) ?: profile.name,
-                jellyfinUserName = if (profile.jellyfinUserId != null) user.name else profile.jellyfinUserName,
                 pictureUrl = picture,
             )
         }
     }
 
-    private suspend fun forgetAccount(profile: ProfileEntity) {
-        val user = profile.jellyfinUserId ?: return
-        val server = profile.serverId?.let { serverDao.byId(it) } ?: return
-        val key = tokenKey(server.jellyfinServerId, user)
-        tokens.get(key)?.let { token -> withTimeoutOrNull(SIGN_OUT_TIMEOUT_MS) { auth.signOut(server.baseUrl, token, profile.jellyfinDevice) } }
+    /** Signs [account] out on [server] and forgets its token. */
+    private suspend fun forget(account: ProfileAccountEntity, server: MediaServerEntity) {
+        val key = tokenKey(server.jellyfinServerId, account.device)
+        tokens.get(key)?.let { token -> withTimeoutOrNull(SIGN_OUT_TIMEOUT_MS) { auth.signOut(server.baseUrl, token, account.device) } }
         tokens.remove(key)
     }
 
@@ -298,10 +360,6 @@ class ProfileRepository @Inject constructor(
                 role = role,
                 maxRatingScore = null,
                 pinHash = null,
-                serverId = null,
-                jellyfinUserId = null,
-                jellyfinUserName = null,
-                jellyfinDevice = null,
                 pictureUrl = null,
                 themeId = null,
                 sortOrder = dao.maxSortOrder() + 1,
@@ -328,8 +386,11 @@ class ProfileRepository @Inject constructor(
         /** A device for a profile's own Jellyfin sign-in, apart from the server's and every other profile's. */
         fun newDevice() = "profile-" + java.util.UUID.randomUUID().toString().take(8)
 
-        /** Profile sign-ins sit in the token store beside the servers', keyed by server and user. */
-        fun tokenKey(jellyfinServerId: String, userId: String) = "$jellyfinServerId/$userId"
+        /**
+         * Profile sign-ins sit in the token store beside the servers', keyed by server and the
+         * sign-in's own device, so two profiles signed in as one user never share a token.
+         */
+        fun tokenKey(jellyfinServerId: String, device: String) = "$jellyfinServerId/$device"
     }
 }
 
@@ -340,9 +401,6 @@ internal fun ProfileEntity.toModel() = Profile(
     role = role,
     maxRatingScore = maxRatingScore,
     hasPin = pinHash != null,
-    serverId = serverId,
-    jellyfinUserId = jellyfinUserId,
-    jellyfinUserName = jellyfinUserName,
     themeId = themeId,
 )
 

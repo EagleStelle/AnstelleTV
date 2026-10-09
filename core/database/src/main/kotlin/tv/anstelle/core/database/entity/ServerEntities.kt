@@ -139,18 +139,7 @@ data class MediaItemEntity(
     val updatedAtUtcMs: Long,
 )
 
-@Entity(
-    tableName = "profile",
-    foreignKeys = [
-        ForeignKey(
-            entity = MediaServerEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["serverId"],
-            onDelete = ForeignKey.SET_NULL,
-        ),
-    ],
-    indices = [Index(value = ["serverId"])],
-)
+@Entity(tableName = "profile")
 data class ProfileEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     /** The Jellyfin user's name, read again at every library sync. */
@@ -160,19 +149,51 @@ data class ProfileEntity(
     @ColumnInfo(name = "maxRating") val maxRatingScore: Int?,
     /** `pbkdf2$iterations$salt$hash`, or null when the profile has no PIN. */
     val pinHash: String?,
-    /**
-     * The Jellyfin user this profile's watch history goes to on server [serverId], signed in
-     * for the profile alone; null leaves it to the server's own sign-in. The token is in the
-     * token store, never here.
-     */
-    val serverId: Long?,
-    val jellyfinUserId: String?,
-    val jellyfinUserName: String?,
-    /** The device that sign-in speaks as, so it never replaces the server's own session. */
-    val jellyfinDevice: String?,
     /** The Jellyfin user's picture, read again at every library sync. */
     val pictureUrl: String?,
     val themeId: Long?,
     val sortOrder: Int,
     val createdAtUtcMs: Long,
+)
+
+/**
+ * A profile's own Jellyfin user on one server, signed in for the profile alone: the profile
+ * plays as that user there and its watch history goes to it. The token is in the token store,
+ * never here.
+ */
+@Entity(
+    tableName = "profile_account",
+    primaryKeys = ["profileId", "serverId"],
+    foreignKeys = [
+        ForeignKey(entity = ProfileEntity::class, parentColumns = ["id"], childColumns = ["profileId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = MediaServerEntity::class, parentColumns = ["id"], childColumns = ["serverId"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index(value = ["serverId"])],
+)
+data class ProfileAccountEntity(
+    val profileId: Long,
+    val serverId: Long,
+    val userId: String,
+    /** The user's name, read again at every library sync. */
+    val userName: String,
+    /** The device the sign-in speaks as, so it never replaces the server's own session or another profile's. */
+    val device: String,
+)
+
+/**
+ * An item the profile's own Jellyfin user can't see (a library it has no access to, or what the
+ * user's parental controls block). Found at every library sync; the profile never plays it.
+ */
+@Entity(
+    tableName = "profile_hidden_item",
+    primaryKeys = ["profileId", "mediaItemId"],
+    foreignKeys = [
+        ForeignKey(entity = ProfileEntity::class, parentColumns = ["id"], childColumns = ["profileId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = MediaItemEntity::class, parentColumns = ["id"], childColumns = ["mediaItemId"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index(value = ["mediaItemId"])],
+)
+data class HiddenItemEntity(
+    val profileId: Long,
+    val mediaItemId: Long,
 )

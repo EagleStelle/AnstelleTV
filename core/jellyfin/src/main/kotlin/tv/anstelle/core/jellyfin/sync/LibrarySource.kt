@@ -67,8 +67,9 @@ interface LibrarySource {
 class LibrarySourceFactory @Inject constructor(
     private val clients: JellyfinClients,
 ) {
-    fun create(baseUrl: String, accessToken: String, userId: String): LibrarySource =
-        JellyfinLibrarySource(clients.api(baseUrl, accessToken), userId)
+    /** [device] is a profile's own device when the user is a profile's (see [JellyfinClients.api]). */
+    fun create(baseUrl: String, accessToken: String, userId: String, device: String? = null): LibrarySource =
+        JellyfinLibrarySource(clients.api(baseUrl, accessToken, device), userId)
 }
 
 internal class JellyfinLibrarySource(

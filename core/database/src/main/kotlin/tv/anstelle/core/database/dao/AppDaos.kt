@@ -4,12 +4,15 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
+import tv.anstelle.core.database.entity.HiddenItemEntity
 import tv.anstelle.core.database.entity.LiveChannelEntity
 import tv.anstelle.core.database.entity.LiveProgramEntity
 import tv.anstelle.core.database.entity.LiveSourceEntity
 import tv.anstelle.core.database.entity.PairedClientEntity
+import tv.anstelle.core.database.entity.ProfileAccountEntity
 import tv.anstelle.core.database.entity.ProfileEntity
 import tv.anstelle.core.database.entity.SettingEntity
 import tv.anstelle.core.database.entity.ThemeEntity
@@ -39,16 +42,53 @@ interface ProfileDao {
     @Query("DELETE FROM profile WHERE id = :id")
     suspend fun delete(id: Long)
 
-    /** Profiles whose watch history goes to a user of their own on [serverId]. */
-    @Query("SELECT * FROM profile WHERE serverId = :serverId AND jellyfinUserId IS NOT NULL")
-    suspend fun linkedTo(serverId: Long): List<ProfileEntity>
-
-    @Query("UPDATE profile SET serverId = :serverId, jellyfinUserId = :userId, jellyfinUserName = :userName, jellyfinDevice = :device WHERE id = :id")
-    suspend fun setAccount(id: Long, serverId: Long?, userId: String?, userName: String?, device: String?)
-
     /** Profiles on a theme that is going away fall back to the default. */
     @Query("UPDATE profile SET themeId = NULL WHERE themeId = :themeId")
     suspend fun clearTheme(themeId: Long)
+
+    /** The profile's own Jellyfin users, first server first. */
+    @Query("SELECT * FROM profile_account WHERE profileId = :profileId ORDER BY serverId")
+    suspend fun accounts(profileId: Long): List<ProfileAccountEntity>
+
+    @Query("SELECT * FROM profile_account WHERE profileId = :profileId ORDER BY serverId")
+    fun observeAccounts(profileId: Long): Flow<List<ProfileAccountEntity>>
+
+    /** Every profile's own user on [serverId]. */
+    @Query("SELECT * FROM profile_account WHERE serverId = :serverId")
+    suspend fun accountsOn(serverId: Long): List<ProfileAccountEntity>
+
+    @Query("SELECT * FROM profile_account WHERE profileId = :profileId AND serverId = :serverId")
+    suspend fun account(profileId: Long, serverId: Long): ProfileAccountEntity?
+
+    /** Profiles with no Jellyfin user of their own anywhere: they are the servers' own sign-ins. */
+    @Query("SELECT * FROM profile WHERE id NOT IN (SELECT profileId FROM profile_account)")
+    suspend fun withoutAccounts(): List<ProfileEntity>
+
+    @Upsert
+    suspend fun upsertAccount(account: ProfileAccountEntity)
+
+    @Query("UPDATE profile_account SET userName = :userName WHERE profileId = :profileId AND serverId = :serverId")
+    suspend fun setAccountName(profileId: Long, serverId: Long, userName: String)
+
+    @Query("DELETE FROM profile_account WHERE profileId = :profileId AND serverId = :serverId")
+    suspend fun deleteAccount(profileId: Long, serverId: Long)
+
+    /** What the profile's own Jellyfin users can't see, on every server. */
+    @Query("SELECT mediaItemId FROM profile_hidden_item WHERE profileId = :profileId")
+    fun observeHidden(profileId: Long): Flow<List<Long>>
+
+    @Query("DELETE FROM profile_hidden_item WHERE profileId = :profileId AND mediaItemId IN (SELECT id FROM media_item WHERE serverId = :serverId)")
+    suspend fun clearHidden(profileId: Long, serverId: Long)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertHidden(rows: List<HiddenItemEntity>)
+
+    /** Replaces what the profile can't see on [serverId] with [itemIds]. */
+    @Transaction
+    suspend fun replaceHidden(profileId: Long, serverId: Long, itemIds: List<Long>) {
+        clearHidden(profileId, serverId)
+        insertHidden(itemIds.map { HiddenItemEntity(profileId, it) })
+    }
 }
 
 @Dao

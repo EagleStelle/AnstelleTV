@@ -13,14 +13,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Blurs a title, logo or episode line of an age-restricted program when [enabled], keeping its
- * size so nothing around it moves (user decision: the one blur in the design). Blur needs API
- * 31; older devices (Fire OS) get a [bar] in its place instead. Screen readers hear "Age
- * restricted", not the title.
+ * Blurs a title, logo or episode line of a program the profile may not watch when [enabled],
+ * keeping its size so nothing around it moves (user decision: the one blur in the design). Blur
+ * needs API 31; older devices (Fire OS) get a [bar] in its place instead. Screen readers hear
+ * "Restricted", not the title.
  */
 fun Modifier.obscured(enabled: Boolean, bar: Color, radius: Dp = 8.dp): Modifier {
     if (!enabled) return this
-    val hidden = clearAndSetSemantics { contentDescription = "Age restricted" }
+    val hidden = clearAndSetSemantics { contentDescription = "Restricted" }
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         hidden.blur(radius, BlurredEdgeTreatment.Unbounded)
     } else {

@@ -23,6 +23,8 @@ import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.data.Artwork
+import tv.anstelle.core.data.ProfileRepository
+import tv.anstelle.core.data.WatchAccount
 import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.programDetail
 import tv.anstelle.core.data.programTitle
@@ -31,7 +33,7 @@ import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.jellyfin.auth.TokenStore
-import tv.anstelle.core.model.RatingLimits
+import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.player.CapabilityProbe
 import tv.anstelle.core.player.FontCache
@@ -86,6 +88,7 @@ class OnDemandPlayer @Inject constructor(
     private val probe: CapabilityProbe,
     private val streams: JellyfinStreams,
     private val repository: OnDemandRepository,
+    private val profiles: ProfileRepository,
     private val itemDao: MediaItemDao,
     private val serverDao: MediaServerDao,
     private val tokens: TokenStore,
@@ -110,7 +113,7 @@ class OnDemandPlayer @Inject constructor(
         pooled = it
     }
 
-    private class Entry(val item: MediaItemEntity, val server: MediaServerEntity, val token: String, val stream: ProgramStream, val logoUrl: String?) {
+    private class Entry(val item: MediaItemEntity, val server: MediaServerEntity, val account: WatchAccount, val stream: ProgramStream, val logoUrl: String?) {
         val mediaItem: MediaItem = stream.mediaItem("demand@${item.id}")
         val facts: StreamFacts = StreamFacts.of(item, server.name, stream.transcoded)
     }
@@ -132,22 +135,30 @@ class OnDemandPlayer @Inject constructor(
     private var retried = false
     private var tickJob: Job? = null
 
-    /** Plays [itemId] from [positionMs]; an episode continues with the show's next ones. */
-    fun play(itemId: Long, positionMs: Long, profileId: Long, maxRating: Int?) {
-        this.profileId = profileId
+    /**
+     * Plays [itemId] from [positionMs] as the profile's Jellyfin user, when [access] lets the
+     * profile watch it; an episode continues with the show's next ones.
+     */
+    fun play(itemId: Long, positionMs: Long, access: ProfileAccess) {
+        profileId = access.profileId
         scope.launch {
             prefs = tracks.prefs(profileId)
             val item = itemDao.byId(itemId)
-            if (item != null && !RatingLimits.allows(maxRating, item.ratingScore)) {
-                _state.update { it.copy(status = OnDemandStatus.ERROR, message = "Age restricted. This is over the profile's maturity rating.") }
+            if (item != null && !access.allows(item.id, item.ratingScore)) {
+                val message = if (access.isHidden(item.id)) {
+                    "No access. Jellyfin doesn't share this with the profile."
+                } else {
+                    "Age restricted. This is over the profile's maturity rating."
+                }
+                _state.update { it.copy(status = OnDemandStatus.ERROR, message = message) }
                 return@launch
             }
             val entry = item?.let { resolve(it, forceTranscode = false) }
             if (entry == null) {
-                _state.update { it.copy(status = OnDemandStatus.ERROR, message = "This can't be played. Is the server signed in?") }
+                _state.update { it.copy(status = OnDemandStatus.ERROR, message = "This can't be played. Check the server's and the profile's sign-in.") }
                 return@launch
             }
-            episodes = repository.showEpisodes(entry.item, maxRating)
+            episodes = repository.showEpisodes(entry.item, access)
             follow(entry.item)
             start(entry, positionMs)
             startTicker()
@@ -255,9 +266,11 @@ class OnDemandPlayer @Inject constructor(
         scope.cancel()
     }
 
+    /** [item], streaming as the profile's Jellyfin user; null when no one is signed in to play it as. */
     private suspend fun resolve(item: MediaItemEntity, forceTranscode: Boolean): Entry? {
         val server = serverDao.byId(item.serverId) ?: return null
         val token = withContext(io) { tokens.get(server.jellyfinServerId) } ?: return null
+        val account = profiles.watchAccount(profileId, server, token) ?: return null
         val decision = if (forceTranscode) {
             StreamDecision.Transcode(listOf("direct play failed"))
         } else {
@@ -265,11 +278,11 @@ class OnDemandPlayer @Inject constructor(
         }
         if (decision is StreamDecision.Transcode) AppLog.i(TAG, "Transcoding item ${item.id}: ${decision.reasons.joinToString()}")
         val stream = streams.stream(
-            server.baseUrl, token, item.remoteId, item.mediaSourceId,
+            server.baseUrl, account.accessToken, account.device, item.remoteId, item.mediaSourceId,
             transcode = decision is StreamDecision.Transcode, tracks = item.tracks, prefs = prefs,
         )
         val series = item.seriesRemoteId?.let { itemDao.byRemoteId(item.serverId, it) }
-        return Entry(item, server, token, stream, Artwork.of(server.baseUrl, item, series).logoUrl)
+        return Entry(item, server, account, stream, Artwork.of(server.baseUrl, item, series).logoUrl)
     }
 
     /**
@@ -324,7 +337,7 @@ class OnDemandPlayer @Inject constructor(
         session = reporter.start(
             item = entry.item,
             server = entry.server,
-            accessToken = entry.token,
+            account = entry.account,
             playSessionId = entry.stream.playSessionId,
             transcoded = entry.stream.transcoded,
             channelId = null,

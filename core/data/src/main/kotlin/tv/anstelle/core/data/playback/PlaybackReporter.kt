@@ -10,6 +10,7 @@ import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
+import tv.anstelle.core.data.WatchAccount
 import tv.anstelle.core.database.dao.WatchEventDao
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
@@ -28,7 +29,7 @@ class ReportSession internal constructor(
     internal val item: MediaItemEntity,
     internal val playstateItem: PlaystateItem,
     internal val server: MediaServerEntity,
-    internal val accessToken: String,
+    internal val account: WatchAccount,
     /** The channel it aired on, or null when it was played on demand. */
     internal val channelId: Long?,
     internal val profileId: Long,
@@ -46,8 +47,9 @@ class ReportSession internal constructor(
 
 /**
  * Tells Jellyfin about playback after the first frame, in the background, so tuning never
- * waits for the server, to the user the profile watches as ([ProfileRepository.watchAccount]).
- * Live TV and On demand each have their own [WatchSync] setting: only
+ * waits for the server, as the user the profile plays as ([ProfileRepository.watchAccount]);
+ * nothing goes to a user that keeps no history for the profile. Live TV and On demand each
+ * have their own [WatchSync] setting: only
  * a setting that saves progress reports playback (start, progress every 10 s, stop);
  * watched marks are set or put back after it stops. Calls run one at a time in order, and a
  * failed one is logged and dropped. Every view of 30 seconds or more is also kept as a local
@@ -57,7 +59,6 @@ class ReportSession internal constructor(
 class PlaybackReporter @Inject constructor(
     @ApplicationScope scope: CoroutineScope,
     private val settings: SettingsRepository,
-    private val profiles: ProfileRepository,
     private val playstates: PlaystateFactory,
     private val watchEventDao: WatchEventDao,
     private val time: TimeSource,
@@ -78,10 +79,11 @@ class PlaybackReporter @Inject constructor(
         }
     }
 
+    /** [account] is who the item plays as (see [ProfileRepository.watchAccount]). */
     fun start(
         item: MediaItemEntity,
         server: MediaServerEntity,
-        accessToken: String,
+        account: WatchAccount,
         playSessionId: String,
         transcoded: Boolean,
         channelId: Long?,
@@ -92,16 +94,16 @@ class PlaybackReporter @Inject constructor(
             item = item,
             playstateItem = PlaystateItem(item.remoteId, item.mediaSourceId, playSessionId, transcoded),
             server = server,
-            accessToken = accessToken,
+            account = account,
             channelId = channelId,
             profileId = profileId,
             startedUtcMs = time.nowUtcMs(),
         )
         calls.trySend {
+            if (!account.keepsHistory) return@trySend
             val sync = codeOf<WatchSync>(settings.get(if (session.onDemand) Settings.onDemandSync(profileId) else Settings.liveTvSync(profileId)))
             session.sync = sync
             if (sync == WatchSync.OFF) return@trySend
-            val account = profiles.watchAccount(profileId, server, accessToken) ?: return@trySend
             val playstate = playstates.create(server.baseUrl, account.accessToken, account.userId, account.device).also { session.playstate = it }
             // Read before the start report, which can change it.
             if (WatchRules.needsPlayedBefore(sync, session.onDemand)) session.playedBefore = playstate.isPlayed(item.remoteId)

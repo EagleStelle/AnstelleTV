@@ -136,21 +136,39 @@ interface ScheduleDao {
     suspend fun airingsAt(channelIds: List<Long>, atUtcMs: Long, maxSlotMs: Long): List<ChannelAiring>
 
     /**
-     * Where a run of programs a profile limited to [maxRating] may not watch ends on [channelId],
-     * from [fromUtcMs] (the end of the restricted program on now): the start of the first slot
-     * from there that is off air or rated at or under the limit, else the end of the schedule.
-     * Unrated programs never pass a limit. Null when the channel has no schedule.
+     * Where a run of programs profile [profileId] may not watch ends on [channelId], from
+     * [fromUtcMs] (the end of the restricted program on now): the start of the first slot from
+     * there that is off air, or rated within [maxRating] (null: no limit) and not hidden from the
+     * profile, else the end of the schedule. Unrated programs never pass a limit. Null when the
+     * channel has no schedule.
      */
     @Query(
         """
         SELECT COALESCE(
             (SELECT MIN(s.startUtcMs) FROM schedule_slot s LEFT JOIN media_item m ON m.id = s.mediaItemId
              WHERE s.channelId = :channelId AND s.startUtcMs >= :fromUtcMs
-               AND (s.mediaItemId IS NULL OR (m.ratingScore IS NOT NULL AND m.ratingScore <= :maxRating))),
+               AND (s.mediaItemId IS NULL OR (
+                   (:maxRating IS NULL OR (m.ratingScore IS NOT NULL AND m.ratingScore <= :maxRating))
+                   AND NOT EXISTS (SELECT 1 FROM profile_hidden_item h WHERE h.profileId = :profileId AND h.mediaItemId = s.mediaItemId)))),
             (SELECT MAX(endUtcMs) FROM schedule_slot WHERE channelId = :channelId))
         """,
     )
-    suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, maxRating: Int): Long?
+    suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, maxRating: Int?, profileId: Long): Long?
+
+    /**
+     * Channels whose every program from [nowUtcMs] on is hidden from profile [profileId]: what
+     * they air comes from libraries the profile's Jellyfin users can't see.
+     */
+    @Query(
+        """
+        SELECT s.channelId FROM schedule_slot s
+        LEFT JOIN profile_hidden_item h ON h.profileId = :profileId AND h.mediaItemId = s.mediaItemId
+        WHERE s.endUtcMs > :nowUtcMs AND s.mediaItemId IS NOT NULL
+        GROUP BY s.channelId
+        HAVING COUNT(h.mediaItemId) = COUNT(*)
+        """,
+    )
+    suspend fun hiddenChannels(profileId: Long, nowUtcMs: Long): List<Long>
 
     /** The longest slot, which bounds [guideWindow]'s range scan. */
     @Query("SELECT COALESCE(MAX(endUtcMs - startUtcMs), 0) FROM schedule_slot")

@@ -126,11 +126,27 @@ class FakeScheduleDao : ScheduleDao {
                 )
             }
 
-    /** Items are unrated here, so every program is restricted under any limit: the stretch runs to the next off-air slot. */
-    override suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, maxRating: Int): Long? {
+    /** Item ids each profile can't see, by profile id. */
+    val hidden = HashMap<Long, Set<Long>>()
+
+    /**
+     * Items are unrated here, so under a limit every program is restricted and the stretch runs
+     * to the next off-air slot; without one, only the profile's [hidden] items are.
+     */
+    override suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, maxRating: Int?, profileId: Long): Long? {
         val rows = slots.values.filter { it.channelId == channelId }
         if (rows.isEmpty()) return null
-        return rows.filter { it.startUtcMs >= fromUtcMs && it.mediaItemId == null }.minOfOrNull { it.startUtcMs } ?: rows.maxOf { it.endUtcMs }
+        val kept = hidden[profileId].orEmpty()
+        return rows.filter { it.startUtcMs >= fromUtcMs && (it.mediaItemId == null || (maxRating == null && it.mediaItemId !in kept)) }
+            .minOfOrNull { it.startUtcMs } ?: rows.maxOf { it.endUtcMs }
+    }
+
+    override suspend fun hiddenChannels(profileId: Long, nowUtcMs: Long): List<Long> {
+        val kept = hidden[profileId].orEmpty()
+        return slots.values.filter { it.endUtcMs > nowUtcMs && it.mediaItemId != null }
+            .groupBy { it.channelId }
+            .filterValues { airings -> airings.all { it.mediaItemId in kept } }
+            .keys.toList()
     }
 
     override suspend fun maxSlotMs(): Long = slots.values.maxOfOrNull { it.endUtcMs - it.startUtcMs } ?: 0

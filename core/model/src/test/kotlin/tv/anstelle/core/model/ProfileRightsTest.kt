@@ -7,8 +7,7 @@ import kotlin.test.assertTrue
 
 class ProfileRightsTest {
     private fun profile(id: Long, role: ProfileRole, pin: Boolean = false) = Profile(
-        id = id, name = "P$id", pictureUrl = null, role = role, maxRatingScore = null, hasPin = pin,
-        serverId = null, jellyfinUserId = null, jellyfinUserName = null, themeId = null,
+        id = id, name = "P$id", pictureUrl = null, role = role, maxRatingScore = null, hasPin = pin, themeId = null,
     )
 
     private val owner = profile(1, ProfileRole.OWNER, pin = true)

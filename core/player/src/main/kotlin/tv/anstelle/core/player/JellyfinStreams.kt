@@ -99,6 +99,9 @@ class StreamAuth @Inject constructor() {
  * The server sends a transcoded stream with one audio track and no subtitles, so the
  * profile's [TrackPrefs] pick both here: the audio stream is requested by index, and the
  * subtitle (text only) is loaded next to it as a file, ASS as ASS for libass.
+ *
+ * Streams are opened as the watching profile's Jellyfin user ([accessToken], speaking as
+ * [device] when the user is the profile's own), so the server's access rules apply to them.
  */
 @Singleton
 class JellyfinStreams @Inject constructor(
@@ -108,13 +111,14 @@ class JellyfinStreams @Inject constructor(
     fun stream(
         baseUrl: String,
         accessToken: String,
+        device: String?,
         itemId: String,
         mediaSourceId: String?,
         transcode: Boolean,
         tracks: MediaTracks,
         prefs: TrackPrefs,
     ): ProgramStream {
-        val api = clients.api(baseUrl, accessToken)
+        val api = clients.api(baseUrl, accessToken, device)
         auth.register(
             baseUrl,
             AuthorizationHeaderBuilder.buildHeader(

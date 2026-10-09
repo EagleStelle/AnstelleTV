@@ -44,6 +44,7 @@ import tv.anstelle.core.data.ThemeRepository
 import tv.anstelle.core.data.profiles.PinHash
 import tv.anstelle.core.model.MediaServer
 import tv.anstelle.core.model.Profile
+import tv.anstelle.core.model.ProfileAccount
 import tv.anstelle.core.model.ProfileRights
 import tv.anstelle.core.model.ProfileRole
 import tv.anstelle.core.model.RatingLevel
@@ -75,8 +76,8 @@ data class ProfileEditUiState(
     val loaded: Boolean = false,
     val themeName: String = "",
     val servers: List<MediaServer> = emptyList(),
-    /** False when the profile's own Jellyfin sign-in lost its token. */
-    val accountSignedIn: Boolean = true,
+    /** The profile's own Jellyfin users, one per server it signed in to. */
+    val accounts: List<ProfileAccount> = emptyList(),
     /** Jellyfin's rating levels the library reaches, for the parental rating's choices. */
     val levels: List<RatingLevel> = emptyList(),
 ) {
@@ -100,12 +101,12 @@ class ProfileEditViewModel @Inject constructor(
     private val levels = MutableStateFlow<List<RatingLevel>>(emptyList())
 
     val state: StateFlow<ProfileEditUiState> = combine(
-        profiles.observeProfile(profileId),
-        profiles.observeActiveProfile(),
+        combine(profiles.observeProfile(profileId), profiles.observeActiveProfile(), ::Pair),
         themes.observeThemes(),
         servers.observeServers(),
+        profiles.observeAccounts(profileId),
         levels,
-    ) { profile, viewer, themeList, serverList, levelList ->
+    ) { (profile, viewer), themeList, serverList, accountList, levelList ->
         val theme = themeList.firstOrNull { it.id == profile?.themeId } ?: themeList.firstOrNull { it.spec.key == DEFAULT_THEME_KEY }
         ProfileEditUiState(
             profile = profile,
@@ -113,7 +114,7 @@ class ProfileEditViewModel @Inject constructor(
             loaded = true,
             themeName = theme?.spec?.name.orEmpty(),
             servers = serverList,
-            accountSignedIn = profile?.jellyfinUserId == null || profiles.isAccountSignedIn(profile),
+            accounts = accountList,
             levels = levelList,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProfileEditUiState())
@@ -271,8 +272,6 @@ fun ProfileEditScreen(
     val firstFocus = rememberInitialFocus()
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmOwner by remember { mutableStateOf(false) }
-    // A profile signs in as a Jellyfin user of its own, or else uses the server's own sign-in (the first profile).
-    val server = state.servers.firstOrNull { it.id == profile.serverId } ?: state.servers.firstOrNull()
     MenuPage(title = profile.name, modifier = modifier) {
         // Profile: what the profile itself sets, the same rows for everyone who may edit it.
         item(key = "profile") { SectionLabel("Profile") }
@@ -286,17 +285,20 @@ fun ProfileEditScreen(
                 modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
             )
         }
-        if (server != null) {
-            val own = profile.jellyfinUserId != null && profile.serverId == server.id
-            item(key = "user") {
+        // One sign-in per server: the Jellyfin user the profile plays as there. With one server the
+        // row is plain Authentication; with more, each row is named after its server.
+        for (server in state.servers) {
+            val account = state.accounts.firstOrNull { it.serverId == server.id }
+            item(key = "user-${server.id}") {
                 FocusTile(
-                    title = "Authentication",
+                    title = if (state.servers.size == 1) "Authentication" else server.name,
                     icon = Icons.Filled.Key,
-                    // The Jellyfin user the profile signs in as, or that the sign-in is gone.
                     value = when {
-                        own && !state.accountSignedIn -> "Signed out"
-                        own -> profile.jellyfinUserName
-                        else -> server.userName
+                        account != null && !account.signedIn -> "Signed out"
+                        account != null -> account.userName
+                        // A profile with no user of its own anywhere is the servers' own sign-in.
+                        state.accounts.isEmpty() -> server.userName
+                        else -> "Not signed in"
                     },
                     trailing = TileTrailing.Chevron,
                     onClick = { onLinkAccount(profile.id, server.id) },

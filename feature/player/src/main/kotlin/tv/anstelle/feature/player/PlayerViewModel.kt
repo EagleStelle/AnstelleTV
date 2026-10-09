@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import tv.anstelle.core.data.ProfileRepository
@@ -58,8 +59,8 @@ class PlayerViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val profile = profiles.ensureActiveProfile()
-            channels.observeChannels().collect { list ->
-                val tunable = list.filter { !it.channel.isHidden && it.inSeason }.map { it.channel }
+            combine(channels.observeChannels(), profiles.observeAccess(profile.id)) { list, access -> list to access }.collect { (list, access) ->
+                val tunable = profiles.tunable(list, access)
                 playback.setLineup(tunable)
                 if (lineup == null) {
                     val last = settings.get(Settings.lastChannel(profile.id))

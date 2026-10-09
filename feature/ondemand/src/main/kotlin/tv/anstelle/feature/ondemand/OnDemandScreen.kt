@@ -1,7 +1,7 @@
 package tv.anstelle.feature.ondemand
 
 import tv.anstelle.core.theme.components.obscured
-import tv.anstelle.core.theme.components.AgeRestrictedMark
+import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.RestrictedSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -72,11 +72,14 @@ import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.channels.ChannelRepository
+import tv.anstelle.core.data.channels.ChannelSummary
 import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.data.ondemand.ChannelNow
 import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.model.Channel
+import tv.anstelle.core.model.ChannelGroup
+import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
@@ -99,6 +102,9 @@ import kotlin.random.Random
 /** One channel in a row: what it airs now, or null before it has a schedule. */
 @Immutable
 data class ChannelTile(val channel: Channel, val now: ChannelNow?)
+
+/** What On demand deals its rows and banner from. */
+private data class Deal(val channels: List<ChannelSummary>, val groups: List<ChannelGroup>, val bannerSize: Int, val access: ProfileAccess)
 
 /** A guide group as a row of channels. */
 @Immutable
@@ -143,11 +149,12 @@ class OnDemandViewModel @Inject constructor(
                 channels.observeChannels(),
                 channels.observeGroups(),
                 settings.observe(Settings.OnDemandBanner),
+                profiles.observeAccess(profile.id),
                 tick,
-            ) { list, groups, bannerSize, _ -> Triple(list, groups, bannerSize) }
-                .collect { (list, groups, bannerSize) ->
-                    val tunable = list.filter { !it.channel.isHidden && it.inSeason }.map { it.channel }
-                    val now = repository.nowOn(tunable, time.nowUtcMs(), profile.maxRatingScore)
+            ) { list, groups, bannerSize, access, _ -> Deal(list, groups, bannerSize, access) }
+                .collect { (list, groups, bannerSize, access) ->
+                    val tunable = profiles.tunable(list, access)
+                    val now = repository.nowOn(tunable, time.nowUtcMs(), access)
                     val tiles = tunable.map { ChannelTile(it, now[it.id]) }
                     val rows = buildList {
                         tiles.filter { it.channel.isFavorite }.takeIf { it.isNotEmpty() }?.let { add(row("favorites", "Favorites", it)) }
@@ -457,11 +464,12 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                 if (now == null || now.offAir) {
                     OffAir(now, Modifier.align(Alignment.Center))
                 } else if (restriction != null) {
-                    // Over the profile's maturity rating: the picture is blacked out, the logo or title
+                    // Something the profile may not watch: the picture is blacked out, the logo or title
                     // blurred, and the ladder runs over the whole restricted stretch.
                     Box(Modifier.fillMaxSize().background(theme.background)) {
-                        AgeRestrictedMark(
-                            detail = restriction.rating?.let { "Rated $it" } ?: "Not rated",
+                        RestrictedMark(
+                            title = restriction.title,
+                            detail = restriction.short,
                             size = RestrictedSize.TILE,
                             modifier = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 8.dp),
                             alignStart = true,
@@ -513,7 +521,7 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                 val line = when {
                     now == null -> "Nothing scheduled"
                     now.offAir -> "Back at ${WatchChoices.clockTime(now.endUtcMs)}"
-                    now.restriction != null -> "Age restricted until ${WatchChoices.clockTime(now.endUtcMs)}"
+                    now.restriction != null -> "${now.restriction?.title} until ${WatchChoices.clockTime(now.endUtcMs)}"
                     // Time left first: a long episode title is what gets cut.
                     else -> listOfNotNull("${WatchChoices.span(now.endUtcMs - nowMs, roundUp = true)} left", now.detail.takeIf { now.isEpisode }).joinToString(" · ")
                 }

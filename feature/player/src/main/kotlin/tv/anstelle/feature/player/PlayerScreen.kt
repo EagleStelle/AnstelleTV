@@ -80,12 +80,13 @@ import tv.anstelle.core.data.playback.ProgramInfo
 import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.data.playback.TuneStatus
 import tv.anstelle.core.data.lineUnderLogo
+import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.PanelShape
-import tv.anstelle.core.theme.components.AgeRestrictedMark
+import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.RestrictedSize
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.NumberBlock
@@ -375,7 +376,7 @@ private fun InfoBanner(
                     height = if (isTv) 56.dp else 28.dp,
                     maxLogoWidth = if (isTv) 360.dp else 220.dp,
                     style = if (isTv) typography.headlineMedium else typography.headlineSmall,
-                    // An age-restricted program's title and logo are blurred.
+                    // A restricted program's title and logo are blurred.
                     modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp).obscured(program?.restricted == true, theme.textMuted, radius = 10.dp),
                 )
                 program?.let { lineUnderLogo(it.detail, it.title, it.isEpisode, it.logoUrl != null) }?.let {
@@ -533,12 +534,13 @@ private fun OffAir(state: PlaybackState) {
     }
 }
 
-/** A program over the profile's maturity rating: the picture stays dark until the next one. */
+/** A program the profile may not watch: the picture stays dark until the next one. */
 @Composable
 private fun Restricted(state: PlaybackState) {
     val theme = LocalAnstelleTheme.current
     Box(Modifier.fillMaxSize().background(theme.background), contentAlignment = Alignment.Center) {
-        AgeRestrictedMark(
+        RestrictedMark(
+            title = state.restriction?.title ?: Restriction.AGE_TITLE,
             detail = state.restriction?.detail,
             size = RestrictedSize.SCREEN,
             extra = state.now?.let { "UNTIL ${time(it.endUtcMs)}" },

@@ -105,7 +105,7 @@ class OnDemandPlayerViewModel @Inject constructor(
         channels.stop()
         viewModelScope.launch {
             val profile = profiles.ensureActiveProfile()
-            playback.play(itemId, startMs, profile.id, profile.maxRatingScore)
+            playback.play(itemId, startMs, profiles.access(profile.id))
         }
     }
 

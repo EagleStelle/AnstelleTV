@@ -22,11 +22,14 @@ import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.channels.ChannelRepository
+import tv.anstelle.core.data.channels.ChannelSummary
 import tv.anstelle.core.data.guide.GuideRepository
 import tv.anstelle.core.data.guide.ProgramDetails
 import tv.anstelle.core.data.guide.ProgramStrip
 import tv.anstelle.core.data.playback.ChannelPlayer
 import tv.anstelle.core.model.Channel
+import tv.anstelle.core.model.ChannelGroup
+import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.model.RatingLimits
 import javax.inject.Inject
 
@@ -53,9 +56,9 @@ data class GuideUiState(
     val tab: String = GuideViewModel.TAB_ALL,
     /** False when there is no channel to watch at all. */
     val hasChannels: Boolean = false,
-    /** The profile's maturity rating limit, null for none: programs over it are blacked out. */
-    val ratingLimit: Int? = null,
-    /** [ratingLimit] as the library names ratings ("PG-13"). */
+    /** What the profile may watch: programs beyond it are blacked out. */
+    val access: ProfileAccess = ProfileAccess.OPEN,
+    /** The profile's rating limit as the library names ratings ("PG-13"). */
     val limitName: String = "",
 )
 
@@ -105,8 +108,8 @@ class GuideViewModel @Inject constructor(
 
     private val tab = MutableStateFlow<String?>(null)
     private var profileId = 0L
-    /** The profile's maturity rating: back-to-back programs over it show as one cell. */
-    private var ratingLimit: Int? = null
+    /** What the profile may watch: back-to-back programs beyond it show as one cell. */
+    private var access = ProfileAccess.OPEN
     private var tunable: List<Channel> = emptyList()
     private var previewWanted = false
     private var previewStarted = false
@@ -130,14 +133,20 @@ class GuideViewModel @Inject constructor(
         viewModelScope.launch {
             val profile = profiles.ensureActiveProfile()
             profileId = profile.id
-            val limit = profile.maxRatingScore
-            ratingLimit = limit
-            val limitName = if (limit == null) "" else RatingLimits.label(limit, profiles.ratingLevels())
+            val levels = profiles.ratingLevels()
             tab.value = settings.get(Settings.guideTab(profile.id))
-            combine(channelRepository.observeChannels(), channelRepository.observeGroups(), tab) { channels, groups, open ->
-                Triple(channels, groups, open ?: TAB_ALL)
-            }.collect { (channels, groups, open) ->
-                tunable = channels.filter { !it.channel.isHidden && it.inSeason }.map { it.channel }
+            combine(
+                channelRepository.observeChannels(),
+                channelRepository.observeGroups(),
+                tab,
+                profiles.observeAccess(profile.id),
+            ) { channels, groups, open, profileAccess ->
+                Lineup(channels, groups, open ?: TAB_ALL, profileAccess)
+            }.collect { (channels, groups, open, profileAccess) ->
+                val accessChanged = profileAccess != access
+                access = profileAccess
+                val limitName = profileAccess.limit?.let { RatingLimits.label(it, levels) }.orEmpty()
+                tunable = profiles.tunable(channels, profileAccess)
                 playback.setLineup(tunable)
                 val tabs = buildList {
                     add(GuideTab(TAB_ALL, "All channels"))
@@ -158,11 +167,15 @@ class GuideViewModel @Inject constructor(
                     tabs = tabs,
                     tab = key,
                     hasChannels = tunable.isNotEmpty(),
-                    ratingLimit = limit,
+                    access = profileAccess,
                     limitName = limitName,
                 )
                 // New or changed channels: their cells load with the next window read.
-                if (windows.isNotEmpty() && windows.values.first().keys != tunable.mapTo(HashSet()) { it.id }) reload()
+                if (windows.isNotEmpty() && windows.values.first().keys != tunable.mapTo(HashSet()) { it.id }) {
+                    reload()
+                } else if (accessChanged && windows.isNotEmpty()) {
+                    publish()
+                }
                 if (previewWanted && !previewStarted) startPreview()
             }
         }
@@ -224,7 +237,7 @@ class GuideViewModel @Inject constructor(
     private fun publish() {
         val ordered = windows.entries.sortedBy { it.key }.map { it.value }
         _strips.value = tunable.associate { channel ->
-            channel.id to ProgramStrip.merge(ordered.mapNotNull { it[channel.id] }).mergeRestricted(ratingLimit)
+            channel.id to ProgramStrip.merge(ordered.mapNotNull { it[channel.id] }).mergeRestricted(access)
         }
     }
 
@@ -332,3 +345,11 @@ class GuideViewModel @Inject constructor(
         private fun groupTab(groupId: Long) = "$GROUP_PREFIX$groupId"
     }
 }
+
+/** What the guide's rows are made from. */
+private data class Lineup(
+    val channels: List<ChannelSummary>,
+    val groups: List<ChannelGroup>,
+    val tab: String,
+    val access: ProfileAccess,
+)

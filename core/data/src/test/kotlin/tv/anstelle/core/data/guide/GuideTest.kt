@@ -11,6 +11,7 @@ import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.model.HdrType
+import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.model.SlotKind
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -22,6 +23,8 @@ import kotlin.test.assertTrue
 class GuideTest {
     private val minute = 60_000L
     private val hour = 60 * minute
+
+    private fun limit(score: Int?) = ProfileAccess(1, score)
 
     private fun airing(
         channel: Long,
@@ -63,13 +66,13 @@ class GuideTest {
             ),
             offAirTitle = "Off air",
         ).getValue(1)
-        val merged = strip.mergeRestricted(13)
+        val merged = strip.mergeRestricted(limit(13))
         assertContentEquals(longArrayOf(0, 3 * hour, 4 * hour, 5 * hour, 6 * hour), merged.starts)
         assertContentEquals(longArrayOf(3 * hour, 4 * hour, 5 * hour, 6 * hour, 7 * hour), merged.ends)
         assertContentEquals(longArrayOf(10, 13, 14, 0, 15), merged.items)
-        assertEquals(listOf(true, false, true, false, true), (0 until merged.size).map { merged.isRestricted(it, 13) })
-        assertSame(strip, strip.mergeRestricted(null))
-        assertSame(strip, strip.mergeRestricted(18))
+        assertEquals(listOf(true, false, true, false, true), (0 until merged.size).map { merged.isRestricted(it, limit(13)) })
+        assertSame(strip, strip.mergeRestricted(limit(null)))
+        assertSame(strip, strip.mergeRestricted(limit(18)))
     }
 
     @Test
@@ -83,10 +86,29 @@ class GuideTest {
             ),
             offAirTitle = "Off air",
         ).getValue(1)
-        assertEquals(listOf(false, true, true, false), (0 until strip.size).map { strip.isRestricted(it, 13) })
-        assertEquals(listOf(false, false, false, false), (0 until strip.size).map { strip.isRestricted(it, null) })
+        assertEquals(listOf(false, true, true, false), (0 until strip.size).map { strip.isRestricted(it, limit(13)) })
+        assertEquals(listOf(false, false, false, false), (0 until strip.size).map { strip.isRestricted(it, limit(null)) })
         val merged = ProgramStrip.merge(listOf(strip, ProgramStrip.fromRows(listOf(airing(1, 4 * hour, 5 * hour, 13, score = 18)), "Off air").getValue(1)))
-        assertEquals(listOf(false, true, true, false, true), (0 until merged.size).map { merged.isRestricted(it, 13) })
+        assertEquals(listOf(false, true, true, false, true), (0 until merged.size).map { merged.isRestricted(it, limit(13)) })
+    }
+
+    @Test
+    fun `what the profile's Jellyfin user can't see is restricted at any rating, and joins a restricted stretch`() {
+        val strip = ProgramStrip.fromRows(
+            listOf(
+                airing(1, 0, hour, 10, score = 7),
+                airing(1, hour, 2 * hour, 11, score = 7),
+                airing(1, 2 * hour, 3 * hour, 12, score = 16),
+                airing(1, 3 * hour, 4 * hour, null),
+            ),
+            offAirTitle = "Off air",
+        ).getValue(1)
+        val hidden = ProfileAccess(1, null, listOf(11L))
+        assertEquals(listOf(false, true, false, false), (0 until strip.size).map { strip.isRestricted(it, hidden) })
+        val limited = ProfileAccess(1, 13, listOf(11L))
+        val merged = strip.mergeRestricted(limited)
+        assertContentEquals(longArrayOf(10, 11, 0), merged.items)
+        assertContentEquals(longArrayOf(hour, 3 * hour, 4 * hour), merged.ends)
     }
 
     @Test

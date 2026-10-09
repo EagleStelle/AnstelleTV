@@ -16,15 +16,46 @@ data class Profile(
      */
     val maxRatingScore: Int?,
     val hasPin: Boolean,
-    /**
-     * The server whose user [jellyfinUserName] this profile is. Null: the profile is the
-     * server's own sign-in (the first profile), named after it all the same.
-     */
-    val serverId: Long?,
-    val jellyfinUserId: String?,
-    val jellyfinUserName: String?,
     val themeId: Long?,
 )
+
+/**
+ * A profile's own Jellyfin user on one server: the profile plays as that user there, and its
+ * watched marks and resume points go to it. [signedIn] is false once the token is gone.
+ */
+data class ProfileAccount(val serverId: Long, val userId: String, val userName: String, val signedIn: Boolean)
+
+/**
+ * What profile [profileId] may watch: up to its parental rating [limit] (null: no limit), and
+ * nothing its own Jellyfin users can't see there ([hidden], local item ids). Channels are the
+ * same for every profile, so what this keeps from the profile still airs, blacked out.
+ */
+class ProfileAccess(val profileId: Long, val limit: Int?, hidden: Collection<Long> = emptyList()) {
+    /** Sorted, for a lookup that allocates nothing (the guide asks for every cell it draws). */
+    private val hidden: LongArray = hidden.toLongArray().apply { sort() }
+
+    /** Nothing is kept from the profile. */
+    val isOpen: Boolean get() = limit == null && hidden.isEmpty()
+
+    /** The profile's Jellyfin users can't see some items. */
+    val hidesItems: Boolean get() = hidden.isNotEmpty()
+
+    /** Whether Jellyfin keeps item [itemId] from the profile's own user. */
+    fun isHidden(itemId: Long): Boolean = hidden.isNotEmpty() && hidden.binarySearch(itemId) >= 0
+
+    /** Whether the profile may watch item [itemId], rated [score]. */
+    fun allows(itemId: Long, score: Int?): Boolean = RatingLimits.allows(limit, score) && !isHidden(itemId)
+
+    override fun equals(other: Any?): Boolean =
+        other is ProfileAccess && other.profileId == profileId && other.limit == limit && other.hidden.contentEquals(hidden)
+
+    override fun hashCode(): Int = (profileId.hashCode() * 31 + (limit ?: -1)) * 31 + hidden.contentHashCode()
+
+    companion object {
+        /** Before the profile is read: nothing kept back. */
+        val OPEN = ProfileAccess(0, null)
+    }
+}
 
 /**
  * A parental rating level: its name ("PG-13", or "R / TV-MA" for two ratings of one score)

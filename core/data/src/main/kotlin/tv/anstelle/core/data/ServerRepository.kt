@@ -58,7 +58,7 @@ sealed interface SignInFor {
     /** The server's own sign-in: it syncs the library. */
     data object Server : SignInFor
 
-    /** A profile's own Jellyfin user, for its watch history, name and picture. */
+    /** A profile's own Jellyfin user on the server: the profile plays as it and keeps its watch history there. */
     data class Profile(val profileId: Long) : SignInFor
 
     /** A new profile made from the user. */
@@ -118,8 +118,8 @@ class ServerRepository @Inject constructor(
     }
 
     /**
-     * Signs in with a password. For a profile, the user is that profile's own instead of the
-     * server's, signed in as a device of its own: only the profile's watch history goes to it.
+     * Signs in with a password. For a profile, the user is that profile's own on the server
+     * instead of the server's, signed in as a device of its own: the profile plays as it there.
      */
     suspend fun signInWithPassword(
         candidate: ServerCandidate,
@@ -191,6 +191,8 @@ class ServerRepository @Inject constructor(
                 is SignInFor.Profile -> target.profileId.also { profiles.linkAccount(it, server.id, session, requireNotNull(device)) }
                 else -> profiles.createLinked(server.id, session, requireNotNull(device))
             }
+            // The sync finds what the profile's user can't see.
+            syncNow(server.id)
             return@withContext QuickConnectState.SignedIn(server.id, profileId)
         }
         val userChanged = existing != null && existing.userId != session.userId
