@@ -26,8 +26,9 @@ import tv.anstelle.core.theme.LocalIsTv
 class DialogAction(val title: String, val detail: String, val icon: ImageVector, val onClick: () -> Unit)
 
 /**
- * The choices for one program, in an OSD panel over the washed screen: [header] says what and
- * when, then one row per action. Back or a tap outside closes it. The first action is the
+ * A short list of choices (the ways to watch a program, the server a new profile signs in on)
+ * in an OSD panel over the washed screen: [header] says what it is about, then one row per
+ * action. Back or a tap outside closes it. The first action is the
  * likeliest: focus starts on it on TV, and touch screens fill it rose as the primary.
  */
 @Composable
