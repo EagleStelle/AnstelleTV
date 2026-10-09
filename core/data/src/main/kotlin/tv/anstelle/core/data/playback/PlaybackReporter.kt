@@ -11,16 +11,18 @@ import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.WatchAccount
-import tv.anstelle.core.database.dao.WatchEventDao
+import tv.anstelle.core.data.stats.DashboardHistory
+import tv.anstelle.core.data.stats.FinishedView
+import tv.anstelle.core.data.stats.PlayClock
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
-import tv.anstelle.core.database.entity.WatchEventEntity
 import tv.anstelle.core.jellyfin.Playstate
 import tv.anstelle.core.jellyfin.PlaystateFactory
 import tv.anstelle.core.jellyfin.PlaystateItem
 import tv.anstelle.core.model.WatchSource
 import tv.anstelle.core.model.WatchSync
 import tv.anstelle.core.model.codeOf
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,10 +35,12 @@ class ReportSession internal constructor(
     /** The channel it aired on, or null when it was played on demand. */
     internal val channelId: Long?,
     internal val profileId: Long,
-    internal val startedUtcMs: Long,
 ) {
     internal val onDemand get() = channelId == null
     internal val coverage = WatchCoverage(item.durationMs)
+
+    /** When it actually played, for the dashboard. */
+    internal val clock = PlayClock()
     internal var sync = WatchSync.OFF
     internal var playstate: Playstate? = null
 
@@ -52,15 +56,15 @@ class ReportSession internal constructor(
  * have their own [WatchSync] setting: only
  * a setting that saves progress reports playback (start, progress every 10 s, stop);
  * watched marks are set or put back after it stops. Calls run one at a time in order, and a
- * failed one is logged and dropped. Every view of 30 seconds or more is also kept as a local
- * watch event.
+ * failed one is logged and dropped. Every view is also handed to the profile's dashboard
+ * ([DashboardHistory]) when it stops.
  */
 @Singleton
 class PlaybackReporter @Inject constructor(
     @ApplicationScope scope: CoroutineScope,
     private val settings: SettingsRepository,
     private val playstates: PlaystateFactory,
-    private val watchEventDao: WatchEventDao,
+    private val history: DashboardHistory,
     private val time: TimeSource,
 ) {
     private val calls = Channel<suspend () -> Unit>(Channel.UNLIMITED)
@@ -79,7 +83,10 @@ class PlaybackReporter @Inject constructor(
         }
     }
 
-    /** [account] is who the item plays as (see [ProfileRepository.watchAccount]). */
+    /**
+     * [account] is who the item plays as (see [ProfileRepository.watchAccount]); [playing] says
+     * whether the player is already playing, after which [playingChanged] follows its edges.
+     */
     fun start(
         item: MediaItemEntity,
         server: MediaServerEntity,
@@ -89,6 +96,7 @@ class PlaybackReporter @Inject constructor(
         channelId: Long?,
         profileId: Long,
         positionMs: Long,
+        playing: Boolean,
     ): ReportSession {
         val session = ReportSession(
             item = item,
@@ -97,8 +105,8 @@ class PlaybackReporter @Inject constructor(
             account = account,
             channelId = channelId,
             profileId = profileId,
-            startedUtcMs = time.nowUtcMs(),
         )
+        session.clock.set(playing, time.nowUtcMs())
         calls.trySend {
             if (!account.keepsHistory) return@trySend
             val sync = codeOf<WatchSync>(settings.get(if (session.onDemand) Settings.onDemandSync(profileId) else Settings.liveTvSync(profileId)))
@@ -110,6 +118,11 @@ class PlaybackReporter @Inject constructor(
             if (sync.savesProgress) playstate.started(session.playstateItem, positionMs)
         }
         return session
+    }
+
+    /** The player started or stopped playing (a pause, buffering). Main thread. */
+    fun playingChanged(session: ReportSession, playing: Boolean) {
+        if (!session.stopped) session.clock.set(playing, time.nowUtcMs())
     }
 
     /** The player is playing at [positionMs]; called about once a second. Main thread. */
@@ -129,17 +142,29 @@ class PlaybackReporter @Inject constructor(
         session.stopped = true
         val stoppedUtcMs = time.nowUtcMs()
         val coveredMs = session.coverage.coveredMs
+        val item = session.item
+        val watched = if (session.onDemand) {
+            WatchRules.reachedEnd(positionMs, item.durationMs)
+        } else {
+            WatchRules.watchedThrough(coveredMs, item.durationMs)
+        }
+        session.clock.stop(stoppedUtcMs)
+        val view = FinishedView(
+            profileId = session.profileId,
+            source = if (session.onDemand) WatchSource.ON_DEMAND else WatchSource.CHANNEL,
+            channelId = session.channelId,
+            mediaItemId = item.id,
+            title = item.title,
+            showTitle = item.showTitle,
+            mediaType = item.type,
+            days = session.clock.byDay(ZoneId.systemDefault()),
+            completed = watched,
+        )
+        calls.trySend { history.record(view) }
         calls.trySend {
-            recordWatchEvent(session, stoppedUtcMs)
             val playstate = session.playstate ?: return@trySend
             val sync = session.sync
-            val item = session.item
             if (sync.savesProgress) playstate.stopped(session.playstateItem, positionMs)
-            val watched = if (session.onDemand) {
-                WatchRules.reachedEnd(positionMs, item.durationMs)
-            } else {
-                WatchRules.watchedThrough(coveredMs, item.durationMs)
-            }
             when (WatchRules.afterStop(sync, watched, session.onDemand)) {
                 AfterStop.NOTHING -> Unit
                 AfterStop.MARK_WATCHED -> if (!sync.savesProgress || !playstate.isPlayed(item.remoteId)) {
@@ -158,28 +183,9 @@ class PlaybackReporter @Inject constructor(
         }
     }
 
-    private suspend fun recordWatchEvent(session: ReportSession, stoppedUtcMs: Long) {
-        val watched = stoppedUtcMs - session.startedUtcMs
-        if (watched < MIN_WATCH_EVENT_MS) return
-        watchEventDao.insert(
-            WatchEventEntity(
-                profileId = session.profileId,
-                source = if (session.onDemand) WatchSource.ON_DEMAND else WatchSource.CHANNEL,
-                channelId = session.channelId,
-                liveChannelId = null,
-                mediaItemId = session.item.id,
-                title = session.item.title,
-                showTitle = session.item.showTitle,
-                startUtcMs = session.startedUtcMs,
-                durationMs = watched,
-            ),
-        )
-    }
-
     private fun describe(item: MediaItemEntity) = listOfNotNull(item.showTitle, item.title).joinToString(" · ")
 
     private companion object {
         const val TAG = "Reporting"
-        const val MIN_WATCH_EVENT_MS = 30_000L
     }
 }

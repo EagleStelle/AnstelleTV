@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.WatchSource
 
 /** A guide theme stored as JSON. Built-in themes are re-seeded from assets by [builtInKey]. */
@@ -20,6 +21,10 @@ data class ThemeEntity(
     val updatedAtUtcMs: Long,
 )
 
+/**
+ * One view of an item on one local day, for the profile's dashboard. A view that runs past
+ * local midnight is one row per day it played on.
+ */
 @Entity(
     tableName = "watch_event",
     foreignKeys = [
@@ -31,7 +36,7 @@ data class ThemeEntity(
         ),
     ],
     indices = [
-        Index(value = ["profileId", "startUtcMs"]),
+        Index(value = ["profileId", "localDay"]),
         Index(value = ["channelId"]),
     ],
 )
@@ -45,8 +50,16 @@ data class WatchEventEntity(
     /** Denormalized so stats survive library changes. */
     val title: String,
     val showTitle: String?,
+    /** Episode or movie, kept after the item leaves the library. */
+    val mediaType: MediaType,
+    /** The first moment that played on [localDay]. */
     val startUtcMs: Long,
+    /** How long it played on [localDay]; pauses and buffering don't count. */
     val durationMs: Long,
+    /** The epoch day in the device's zone. */
+    val localDay: Long,
+    /** The view watched the item through (see `WatchRules`); set on its last day only. */
+    val completed: Boolean,
 )
 
 /** A browser paired with the web UI. Only the SHA-256 of the token is stored. */

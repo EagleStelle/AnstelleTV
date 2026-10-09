@@ -110,6 +110,7 @@ fun AnstelleApp(isTv: Boolean, onLightTheme: (Boolean) -> Unit) {
     val startup: StartupViewModel = hiltViewModel()
     val session by startup.session.collectAsStateWithLifecycle()
     val needsServer by startup.needsServer.collectAsStateWithLifecycle()
+    val dashboard by startup.dashboard.collectAsStateWithLifecycle()
     val theme by startup.theme.collectAsStateWithLifecycle()
     LaunchedEffect(theme.spec.isLight) { onLightTheme(theme.spec.isLight) }
     AnstelleTheme(isTv = isTv, theme = theme) {
@@ -139,8 +140,8 @@ fun AnstelleApp(isTv: Boolean, onLightTheme: (Boolean) -> Unit) {
                     destination?.hasRoute(OnDemandPlayRoute::class) == true ||
                     (destination?.hasRoute(ProfilesRoute::class) == true && current.launchPicker)
 
-                // The dashboard is app-wide: members don't see it.
-                val destinations = TopLevelDestination.entries.filter { it != TopLevelDestination.Dashboard || current.canManageApp }
+                // Each profile's own dashboard, unless it turned it off.
+                val destinations = TopLevelDestination.entries.filter { it != TopLevelDestination.Dashboard || dashboard }
                 val content: @Composable (Modifier) -> Unit = { modifier ->
                     AppNavHost(navController, startDestination, current.canManageApp, onLaunchPickerDone = startup::pickerDone, modifier = modifier)
                 }
@@ -169,8 +170,8 @@ private fun FirstServer(modifier: Modifier) {
 }
 
 /**
- * An app-wide destination (media servers, channels, web control, the dashboard): only the owner
- * and admins see a way in. A member who lands on one anyway goes back.
+ * An app-wide destination (media servers, channels, web control): only the owner and admins see
+ * a way in. A member who lands on one anyway goes back.
  */
 private inline fun <reified T : Any> NavGraphBuilder.adminOnly(
     navController: NavHostController,
@@ -233,7 +234,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         }
         composable<OnDemandPlayRoute> { OnDemandPlayerScreen() }
         adminOnly<AddToChannelRoute>(navController) { AddToChannelScreen(onGone = { navController.popBackStack() }) }
-        adminOnly<DashboardRoute>(navController) { DashboardScreen() }
+        composable<DashboardRoute> { DashboardScreen(onTurnedOff = { navController.navigateTopLevel(TopLevelDestination.Guide) }) }
         navigation<SettingsGraph>(startDestination = SettingsRoute) {
             // Each profile's own: theme, languages, watch history. The settings menu locks the shared rows itself.
             composable<ThemesRoute> { ThemesScreen(onEdit = { navController.navigate(ThemeEditorRoute(it)) }) }

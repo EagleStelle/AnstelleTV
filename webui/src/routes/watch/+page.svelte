@@ -22,7 +22,7 @@
 <div class="stack">
 	<div class="heading">
 		<h1>Watch</h1>
-		<p class="muted">The live guide and in-browser playback arrive in development phase 10.</p>
+		<p class="muted">The live guide and in-browser playback arrive in development phase 11.</p>
 	</div>
 
 	{#if loaded && channels.length === 0}

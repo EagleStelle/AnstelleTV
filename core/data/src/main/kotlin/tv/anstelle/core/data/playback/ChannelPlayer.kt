@@ -634,6 +634,7 @@ class ChannelPlayer @Inject constructor(
             channelId = program.slot.channelId,
             profileId = profileId,
             positionMs = positionMs,
+            playing = _player.value?.isPlaying == true,
         )
     }
 
@@ -701,6 +702,10 @@ class ChannelPlayer @Inject constructor(
                     if (buffering != _state.value.buffering) _state.update { it.copy(buffering = buffering) }
                 }
             }
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            session?.let { reporter.playingChanged(it, isPlaying) }
         }
 
         override fun onRenderedFirstFrame() {

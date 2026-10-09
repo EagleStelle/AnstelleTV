@@ -17,6 +17,8 @@ import tv.anstelle.core.database.entity.ProfileEntity
 import tv.anstelle.core.database.entity.SettingEntity
 import tv.anstelle.core.database.entity.ThemeEntity
 import tv.anstelle.core.database.entity.WatchEventEntity
+import tv.anstelle.core.model.MediaType
+import tv.anstelle.core.model.WatchSource
 
 @Dao
 interface ProfileDao {
@@ -151,13 +153,144 @@ interface ThemeDao {
     suspend fun delete(id: Long)
 }
 
+/** One row's time on its day, for the dashboard's charts and habits. */
+data class ViewTime(
+    val startUtcMs: Long,
+    val durationMs: Long,
+    val localDay: Long,
+    val source: WatchSource,
+    val completed: Boolean,
+    val mediaType: MediaType,
+)
+
+/** How long the profile watched on [localDay]. */
+data class DayTotal(val localDay: Long, val playedMs: Long)
+
+/** A dashboard list entry: what it is, the time watched, and the item watched last for its artwork. */
+data class TopRow(
+    val title: String,
+    val playedMs: Long,
+    val itemId: Long?,
+    val lastUtcMs: Long,
+    /** A channel's number; null for anything else. */
+    val number: Int? = null,
+)
+
+/** The time one item was watched, with its genres (`|Comedy|Drama|`) while it is still synced. */
+data class GenreRow(val itemId: Long, val genres: String, val playedMs: Long)
+
+/** An item's artwork tags, with its series' and its server's address. */
+data class ArtworkRow(
+    val id: Long,
+    val baseUrl: String,
+    val remoteId: String,
+    val backdropTag: String?,
+    val logoTag: String?,
+    val seriesRemoteId: String?,
+    val seriesBackdropTag: String?,
+    val seriesLogoTag: String?,
+)
+
+/**
+ * The time a row played between [fromUtcMs] and [toUtcMs]: all of it when the bounds are open, a
+ * clipped share when the dashboard looks at one hour.
+ */
+private const val PLAYED = "MAX(0, MIN(w.startUtcMs + w.durationMs, :toUtcMs) - MAX(w.startUtcMs, :fromUtcMs))"
+
+/** The profile's rows on [fromDay]..[toDay] that played between [fromUtcMs] and [toUtcMs]. */
+private const val IN_RANGE = """
+    w.profileId = :profileId AND w.localDay BETWEEN :fromDay AND :toDay
+      AND w.startUtcMs < :toUtcMs AND w.startUtcMs + w.durationMs > :fromUtcMs
+"""
+
+/**
+ * The dashboard's history. Every read is one profile's indexed `localDay` range. In the list
+ * queries a bare `mediaItemId` beside `MAX(startUtcMs)` is SQLite's value from the row watched
+ * last, whose artwork the entry shows.
+ */
 @Dao
 interface WatchEventDao {
     @Insert
-    suspend fun insert(event: WatchEventEntity): Long
+    suspend fun insertAll(events: List<WatchEventEntity>)
 
-    @Query("SELECT * FROM watch_event WHERE profileId = :profileId AND startUtcMs >= :sinceUtcMs ORDER BY startUtcMs DESC")
-    suspend fun since(profileId: Long, sinceUtcMs: Long): List<WatchEventEntity>
+    @Query("SELECT startUtcMs, durationMs, localDay, source, completed, mediaType FROM watch_event WHERE profileId = :profileId AND localDay BETWEEN :fromDay AND :toDay ORDER BY startUtcMs")
+    suspend fun views(profileId: Long, fromDay: Long, toDay: Long): List<ViewTime>
+
+    /** Every day the profile watched something, oldest first. */
+    @Query("SELECT DISTINCT localDay FROM watch_event WHERE profileId = :profileId ORDER BY localDay")
+    suspend fun watchedDays(profileId: Long): List<Long>
+
+    @Query("SELECT localDay, SUM(durationMs) AS playedMs FROM watch_event WHERE profileId = :profileId AND localDay BETWEEN :fromDay AND :toDay GROUP BY localDay")
+    suspend fun dayTotals(profileId: Long, fromDay: Long, toDay: Long): List<DayTotal>
+
+    @Query("SELECT COALESCE(SUM($PLAYED), 0) FROM watch_event w WHERE $IN_RANGE")
+    suspend fun playedTotal(profileId: Long, fromDay: Long, toDay: Long, fromUtcMs: Long, toUtcMs: Long): Long
+
+    /** Channels that still exist, most watched first. */
+    @Query(
+        """
+        SELECT c.name AS title, SUM($PLAYED) AS playedMs, w.mediaItemId AS itemId, MAX(w.startUtcMs) AS lastUtcMs, c.number AS number
+        FROM watch_event w JOIN channel c ON c.id = w.channelId
+        WHERE $IN_RANGE
+        GROUP BY w.channelId ORDER BY playedMs DESC LIMIT :limit
+        """,
+    )
+    suspend fun topChannels(profileId: Long, fromDay: Long, toDay: Long, fromUtcMs: Long, toUtcMs: Long, limit: Int): List<TopRow>
+
+    /** Series by their title, most watched first. */
+    @Query(
+        """
+        SELECT w.showTitle AS title, SUM($PLAYED) AS playedMs, w.mediaItemId AS itemId, MAX(w.startUtcMs) AS lastUtcMs, NULL AS number
+        FROM watch_event w
+        WHERE $IN_RANGE AND w.mediaType = :episode AND w.showTitle IS NOT NULL
+        GROUP BY w.showTitle ORDER BY playedMs DESC LIMIT :limit
+        """,
+    )
+    suspend fun topSeries(profileId: Long, fromDay: Long, toDay: Long, fromUtcMs: Long, toUtcMs: Long, limit: Int, episode: MediaType): List<TopRow>
+
+    /** Movies by their title, most watched first. */
+    @Query(
+        """
+        SELECT w.title AS title, SUM($PLAYED) AS playedMs, w.mediaItemId AS itemId, MAX(w.startUtcMs) AS lastUtcMs, NULL AS number
+        FROM watch_event w
+        WHERE $IN_RANGE AND w.mediaType = :movie
+        GROUP BY w.title ORDER BY playedMs DESC LIMIT :limit
+        """,
+    )
+    suspend fun topMovies(profileId: Long, fromDay: Long, toDay: Long, fromUtcMs: Long, toUtcMs: Long, limit: Int, movie: MediaType): List<TopRow>
+
+    /**
+     * Each item watched that is still in the library (its title must match, since a removed
+     * item's id can be taken again), with its genres.
+     */
+    @Query(
+        """
+        SELECT w.mediaItemId AS itemId, m.genres AS genres, SUM($PLAYED) AS playedMs
+        FROM watch_event w JOIN media_item m ON m.id = w.mediaItemId AND m.title = w.title
+        WHERE $IN_RANGE
+        GROUP BY w.mediaItemId
+        """,
+    )
+    suspend fun genreRows(profileId: Long, fromDay: Long, toDay: Long, fromUtcMs: Long, toUtcMs: Long): List<GenreRow>
+
+    @Query(
+        """
+        SELECT m.id AS id, s.baseUrl AS baseUrl, m.remoteId AS remoteId, m.backdropImageTag AS backdropTag,
+               m.logoImageTag AS logoTag, m.seriesRemoteId AS seriesRemoteId,
+               p.backdropImageTag AS seriesBackdropTag, p.logoImageTag AS seriesLogoTag
+        FROM media_item m JOIN media_server s ON s.id = m.serverId
+        LEFT JOIN media_item p ON p.serverId = m.serverId AND p.remoteId = m.seriesRemoteId
+        WHERE m.id IN (:ids)
+        """,
+    )
+    suspend fun artwork(ids: List<Long>): List<ArtworkRow>
+
+    @Query("DELETE FROM watch_event WHERE profileId = :profileId")
+    suspend fun deleteForProfile(profileId: Long)
+
+    /** Drops every profile's rows from before [beforeDay]; the `IN` keeps the delete on the index. */
+    @Query("DELETE FROM watch_event WHERE profileId IN (SELECT id FROM profile) AND localDay < :beforeDay")
+    suspend fun deleteBefore(beforeDay: Long): Int
 }
 
 @Dao

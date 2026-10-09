@@ -3,17 +3,23 @@ package tv.anstelle.app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ThemeRepository
 import tv.anstelle.core.data.playback.ChannelPlayer
+import tv.anstelle.core.data.stats.DashboardHistory
 import tv.anstelle.core.model.ProfileRights
 import tv.anstelle.core.theme.DefaultTheme
 import tv.anstelle.core.theme.ResolvedTheme
@@ -27,16 +33,28 @@ import javax.inject.Inject
  */
 data class AppSession(val profileId: Long, val launchPicker: Boolean, val canManageApp: Boolean)
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class StartupViewModel @Inject constructor(
     private val profiles: ProfileRepository,
     themes: ThemeRepository,
     channelPlayer: ChannelPlayer,
+    history: DashboardHistory,
 ) : ViewModel() {
     private val _session = MutableStateFlow<AppSession?>(null)
 
     /** Null until the profile and its theme are known. */
     val session: StateFlow<AppSession?> = _session.asStateFlow()
+
+    /**
+     * Whether the watching profile has its dashboard on, which shows the Dashboard tab. Apart
+     * from [session], so turning it off doesn't rebuild the screens.
+     */
+    val dashboard: StateFlow<Boolean> = _session.filterNotNull()
+        .map { it.profileId }
+        .distinctUntilChanged()
+        .flatMapLatest { history.observeEnabled(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
     private val _needsServer = MutableStateFlow(false)
 

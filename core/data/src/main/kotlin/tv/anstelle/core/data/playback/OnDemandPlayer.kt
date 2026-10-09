@@ -343,6 +343,7 @@ class OnDemandPlayer @Inject constructor(
             channelId = null,
             profileId = profileId,
             positionMs = positionMs,
+            playing = exo?.isPlaying == true,
         )
     }
 
@@ -402,6 +403,7 @@ class OnDemandPlayer @Inject constructor(
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _state.update { it.copy(playing = isPlaying) }
+            session?.let { reporter.playingChanged(it, isPlaying) }
         }
 
         override fun onRenderedFirstFrame() {

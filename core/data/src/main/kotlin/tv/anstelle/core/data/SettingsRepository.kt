@@ -64,6 +64,9 @@ object Settings {
     /** A [tv.anstelle.core.model.SubtitleMode] code: when the profile's subtitles show. */
     fun subtitleMode(profileId: Long) = SettingKey.IntKey("playback.subtitles.mode.$profileId", tv.anstelle.core.model.SubtitleMode.OFF.code)
 
+    /** Whether the profile keeps what it watches for its dashboard; off hides the Dashboard tab. */
+    fun dashboard(profileId: Long) = SettingKey.BoolKey("dashboard.$profileId", true)
+
     /** The channel the profile watched last, for resuming; 0 when none. */
     fun lastChannel(profileId: Long) = SettingKey.LongKey("playback.channel.$profileId", 0L)
 

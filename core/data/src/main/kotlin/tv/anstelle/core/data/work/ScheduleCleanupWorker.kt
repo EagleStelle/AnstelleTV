@@ -11,17 +11,22 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.TimeSource
+import tv.anstelle.core.data.stats.DashboardHistory
 import tv.anstelle.core.database.dao.LiveTvDao
 import tv.anstelle.core.database.dao.ScheduleDao
 import java.util.concurrent.TimeUnit
 
-/** Drops schedule slots and guide data that ended more than a day ago, keeping the database small. */
+/**
+ * Drops schedule slots and guide data that ended more than a day ago, and dashboard history past
+ * [DashboardHistory.KEEP_DAYS], keeping the database small.
+ */
 @HiltWorker
 class ScheduleCleanupWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val scheduleDao: ScheduleDao,
     private val liveTvDao: LiveTvDao,
+    private val history: DashboardHistory,
     private val time: TimeSource,
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
@@ -29,6 +34,7 @@ class ScheduleCleanupWorker @AssistedInject constructor(
         val slots = scheduleDao.deleteEndedBefore(cutoff)
         val programs = liveTvDao.deleteProgramsEndedBefore(cutoff)
         AppLog.i(TAG, "Removed $slots old schedule slots and $programs old guide entries")
+        history.prune()
         return Result.success()
     }
 

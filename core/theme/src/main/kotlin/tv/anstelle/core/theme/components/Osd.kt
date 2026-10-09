@@ -110,10 +110,9 @@ fun BackBar(onBack: () -> Unit, modifier: Modifier = Modifier, title: String? = 
                 color = theme.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 4.dp).weight(1f, fill = false),
+                modifier = Modifier.padding(start = 4.dp).weight(1f),
             )
         }
-        Spacer(Modifier.weight(1f))
         actions()
     }
 }
