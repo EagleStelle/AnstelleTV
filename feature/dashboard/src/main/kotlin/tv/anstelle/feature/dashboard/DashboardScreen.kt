@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -24,12 +25,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,7 +56,6 @@ import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.Backdrop
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdTab
-import tv.anstelle.core.theme.components.PlaceholderAction
 import tv.anstelle.core.theme.components.PlaceholderScreen
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.TitleLogo
@@ -82,9 +80,10 @@ private fun TopLists.of(ranking: Ranking): List<TopEntry> = when (ranking) {
 /**
  * The watching profile's own watch stats as a two-pane console, the Settings menu's own split:
  * what was watched most, ranked, on the ground; the meter on coal beside it (today against the
- * daily average, the period's chart, habits, and Turn off at its foot). Picking a bar on the
- * chart re-deals the ranks for that hour, day or month. Phones stack the meter under the ranks.
- * The page has no title while there is something to show, like Live TV and On Demand.
+ * daily average, the period's chart and the habits). On TV both panes fit the screen at once,
+ * so nothing scrolls. Picking a bar on the chart re-deals the ranks for that hour, day or month.
+ * Phones stack the meter under the ranks. The page has no title while there is something to
+ * show, like Live TV and On Demand. Turning it off lives on the Watch history page.
  */
 @Composable
 fun DashboardScreen(
@@ -95,7 +94,6 @@ fun DashboardScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
-    var asking by remember { mutableStateOf(false) }
     var ranking by rememberSaveable { mutableStateOf(Ranking.CHANNELS) }
     if (state.enabled == false) LaunchedEffect(Unit) { onTurnedOff() }
 
@@ -106,28 +104,28 @@ fun DashboardScreen(
             screen.firstDay == null -> PlaceholderScreen(
                 title = "Dashboard",
                 description = "Nothing watched yet. Your watch time and most watched show here once a program plays for 30 seconds.",
-                actions = listOf(PlaceholderAction("Turn off", "Stop keeping what this profile watches", Icons.Filled.PowerSettingsNew) { asking = true }),
+                actions = emptyList(),
             )
             isTv || LocalConfiguration.current.screenWidthDp >= SPLIT_DP -> Row(Modifier.fillMaxSize()) {
                 Column(
                     Modifier
-                        .weight(0.56f)
+                        .weight(RANKS_SHARE)
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState())
-                        .padding(start = pagePadding, end = 28.dp, top = if (isTv) 28.dp else 20.dp, bottom = 24.dp),
+                        .padding(start = pagePadding, end = 24.dp, top = PANE_EDGE, bottom = PANE_EDGE),
                 ) {
                     RankingHeader(ranking, { ranking = it }, spanName(state, screen))
-                    Ranks(ranking, state.lists, Modifier.padding(top = 14.dp))
+                    Ranks(ranking, state.lists, Modifier.padding(top = 12.dp))
                 }
                 Box(Modifier.width(1.dp).fillMaxHeight().background(theme.line))
                 Meter(
-                    state, screen, viewModel, onTurnOff = { asking = true },
+                    state, screen, viewModel,
                     Modifier
-                        .weight(0.44f)
+                        .weight(1f - RANKS_SHARE)
                         .fillMaxHeight()
                         .background(theme.surface)
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = if (isTv) 28.dp else 24.dp, vertical = if (isTv) 28.dp else 20.dp),
+                        .padding(horizontal = 24.dp, vertical = PANE_EDGE),
                 )
             }
             else -> LazyColumn(Modifier.fillMaxSize()) {
@@ -139,18 +137,11 @@ fun DashboardScreen(
                 }
                 item(key = "meter") {
                     Meter(
-                        state, screen, viewModel, onTurnOff = { asking = true },
-                        Modifier.fillMaxWidth().background(theme.surface).padding(horizontal = pagePadding, vertical = 20.dp),
+                        state, screen, viewModel,
+                        Modifier.fillMaxWidth().background(theme.surface).padding(horizontal = pagePadding, vertical = PANE_EDGE),
                     )
                 }
             }
-        }
-        if (asking) {
-            DashboardOffDialog(
-                onKeep = { asking = false; viewModel.turnOff(keepHistory = true) },
-                onDelete = { asking = false; viewModel.turnOff(keepHistory = false) },
-                onDismiss = { asking = false },
-            )
         }
     }
 }
@@ -210,7 +201,7 @@ private fun Ranks(ranking: Ranking, lists: TopLists?, modifier: Modifier) {
                 LeadRank(entries.first(), share(entries.first(), total), ranking)
                 entries.drop(1).forEachIndexed { i, entry ->
                     if (i > 0) Hairline(Modifier.padding(start = 8.dp))
-                    RankRow(rank = i + 2, entry = entry, share = share(entry, total))
+                    RankRow(rank = i + 2, entry = entry, share = share(entry, total), ranking = ranking)
                 }
             }
         }
@@ -263,9 +254,13 @@ private fun LeadRank(entry: TopEntry, share: Float, ranking: Ranking) {
     }
 }
 
-/** Ranks two to five: the rank figure, a still, the name over its share, the time. Focus fills it. */
+/**
+ * Ranks two to five: the rank figure, a still, the name over its share, the time. A movie or
+ * series is named by its logo, like number one; a channel by its number block and name. Focus
+ * fills it.
+ */
 @Composable
-private fun RankRow(rank: Int, entry: TopEntry, share: Float) {
+private fun RankRow(rank: Int, entry: TopEntry, share: Float, ranking: Ranking) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
@@ -288,9 +283,21 @@ private fun RankRow(rank: Int, entry: TopEntry, share: Float) {
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    entry.number?.let { ChannelNumber(it, focused) }
-                    androidx.compose.material3.Text(entry.title, style = typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val number = entry.number
+                if (number != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ChannelNumber(number, focused)
+                        androidx.compose.material3.Text(entry.title, style = typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                } else {
+                    TitleLogo(
+                        logoUrl = entry.artwork.logoUrl.takeIf { ranking != Ranking.GENRES },
+                        title = entry.title,
+                        height = if (isTv) 28.dp else 24.dp,
+                        maxLogoWidth = 160.dp,
+                        style = typography.titleMedium,
+                        color = androidx.compose.material3.LocalContentColor.current,
+                    )
                 }
                 SegmentLadder(share, segments = 16, color = if (focused) theme.onAccent else theme.accent, modifier = Modifier.width(if (isTv) 136.dp else 112.dp))
             }
@@ -338,11 +345,12 @@ private fun ChannelNumber(number: Int, focused: Boolean) {
 
 /**
  * The meter on coal: today against the daily average as two ladders, the period tabs and
- * stepper with the span's total, the chart and its key, the habits as ruled readings, and Turn
- * off at the foot.
+ * stepper with the span's total, the chart and its key, and the habits as a two-column readout.
+ * Its height is budgeted to fit a TV screen whole, the longest readout (a month's or year's)
+ * included.
  */
 @Composable
-private fun Meter(state: DashboardUiState, screen: ScreenTime, viewModel: DashboardViewModel, onTurnOff: () -> Unit, modifier: Modifier) {
+private fun Meter(state: DashboardUiState, screen: ScreenTime, viewModel: DashboardViewModel, modifier: Modifier) {
     val theme = LocalAnstelleTheme.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     val is24Hour = DateFormat.is24HourFormat(LocalContext.current)
@@ -351,38 +359,41 @@ private fun Meter(state: DashboardUiState, screen: ScreenTime, viewModel: Dashbo
     val live = bar?.let { screen.live[it] } ?: screen.live.sum()
     val onDemand = bar?.let { screen.onDemand[it] } ?: screen.onDemand.sum()
 
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Today(screen.todayMs, screen.weekAverageMs)
         Hairline()
-        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            for (period in StatsPeriod.entries) {
-                OsdTab(periodName(period), selected = period == state.pick.window.period, onClick = { viewModel.setPeriod(period) }, compact = true)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                for (period in StatsPeriod.entries) {
+                    OsdTab(periodName(period), selected = period == state.pick.window.period, onClick = { viewModel.setPeriod(period) }, compact = true)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StepKey(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Earlier", state.canGoBack) { viewModel.step(-1) }
+                androidx.compose.material3.Text(spanName(state, screen).uppercase(), style = typography.labelMedium, color = theme.text, maxLines = 1)
+                StepKey(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Later", state.canGoForward) { viewModel.step(1) }
+                Spacer(Modifier.weight(1f))
+                androidx.compose.material3.Text(duration(live + onDemand), style = typography.headlineSmall.figures(), color = theme.text, maxLines = 1)
             }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StepKey(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Earlier", state.canGoBack) { viewModel.step(-1) }
-            androidx.compose.material3.Text(spanName(state, screen).uppercase(), style = typography.labelMedium, color = theme.text, maxLines = 1)
-            StepKey(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Later", state.canGoForward) { viewModel.step(1) }
-            Spacer(Modifier.weight(1f))
-            androidx.compose.material3.Text(duration(live + onDemand), style = typography.headlineSmall.figures(), color = theme.text, maxLines = 1)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ScreenTimeChart(
+                live = screen.live,
+                onDemand = screen.onDemand,
+                picked = bar,
+                axis = { axisName(window, it, is24Hour) },
+                axisPick = { axisPick(window, it, is24Hour) },
+                description = "${periodName(window.period)} chart, ${duration(live + onDemand)} watched",
+                onMove = viewModel::moveBar,
+                onPick = viewModel::pickBar,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                Key(theme.accent, "Live TV", duration(live))
+                Key(theme.textMuted, "On Demand", duration(onDemand))
+            }
         }
-        ScreenTimeChart(
-            live = screen.live,
-            onDemand = screen.onDemand,
-            picked = bar,
-            axis = { axisName(window, it, is24Hour) },
-            axisPick = { axisPick(window, it, is24Hour) },
-            description = "${periodName(window.period)} chart, ${duration(live + onDemand)} watched",
-            onMove = viewModel::moveBar,
-            onPick = viewModel::pickBar,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            Key(theme.accent, "Live TV", duration(live))
-            Key(theme.textMuted, "On Demand", duration(onDemand))
-        }
-        Readings(screen, Modifier.padding(top = 6.dp))
-        TurnOff(onTurnOff, Modifier.padding(top = 10.dp))
+        Readings(screen)
     }
 }
 
@@ -391,7 +402,7 @@ private fun Meter(state: DashboardUiState, screen: ScreenTime, viewModel: Dashbo
 private fun Today(todayMs: Long, averageMs: Long?) {
     val theme = LocalAnstelleTheme.current
     val scale = maxOf(todayMs, averageMs ?: 0L).coerceAtLeast(1L)
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Level("Today", todayMs, todayMs.toFloat() / scale, theme.accent, large = true)
         averageMs?.let { Level("Daily average", it, it.toFloat() / scale, theme.textMuted, large = false) }
     }
@@ -401,7 +412,7 @@ private fun Today(todayMs: Long, averageMs: Long?) {
 private fun Level(label: String, valueMs: Long, fraction: Float, color: Color, large: Boolean) {
     val theme = LocalAnstelleTheme.current
     val typography = androidx.compose.material3.MaterialTheme.typography
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.Bottom) {
             androidx.compose.material3.Text(label.uppercase(), style = typography.labelMedium, color = theme.textMuted, maxLines = 1, modifier = Modifier.weight(1f))
             androidx.compose.material3.Text(duration(valueMs), style = (if (large) typography.headlineMedium else typography.titleMedium).figures(), color = theme.text, maxLines = 1)
@@ -422,49 +433,54 @@ private fun Key(color: Color, label: String, value: String) {
     }
 }
 
-/** The period's habits as a readout: each a name and its reading on one line, ruled apart. */
+/**
+ * The period's habits as a readout in two columns, related readings side by side: the time
+ * ones, the streaks, what was finished. Each is its field label left and its value right, the
+ * pair parted by a line and the rows ruled apart. A month or year leads with its daily average
+ * across the full width.
+ */
 @Composable
-private fun Readings(screen: ScreenTime, modifier: Modifier) {
-    val theme = LocalAnstelleTheme.current
-    val typography = androidx.compose.material3.MaterialTheme.typography
+private fun Readings(screen: ScreenTime) {
     val is24Hour = DateFormat.is24HourFormat(LocalContext.current)
     val habits = screen.habits
-    val readings = buildList {
-        if (screen.window.period == StatsPeriod.MONTH || screen.window.period == StatsPeriod.YEAR) {
-            habits.dailyAverageMs?.let { add("Daily average" to duration(it)) }
-        }
-        add("Peak hour" to (habits.peakHour?.let { hourName(it, is24Hour) } ?: "None"))
-        add("Current streak" to dayCount(habits.streaks.current))
-        add("Best streak" to dayCount(habits.streaks.best))
-        add("Longest sitting" to duration(habits.longestSittingMs))
-        add("Views" to habits.views.toString())
-        add("Episodes finished" to habits.episodesFinished.toString())
-        add("Movies finished" to habits.moviesFinished.toString())
-    }
-    Column(modifier) {
+    val period = screen.window.period
+    val average = habits.dailyAverageMs?.takeIf { period == StatsPeriod.MONTH || period == StatsPeriod.YEAR }
+    Column {
         Hairline()
-        for ((label, value) in readings) {
-            Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                androidx.compose.material3.Text(label.uppercase(), style = typography.labelMedium, color = theme.textMuted, maxLines = 1, modifier = Modifier.weight(1f))
-                androidx.compose.material3.Text(value.uppercase(), style = typography.titleSmall.figures(), color = theme.text, maxLines = 1)
-            }
+        if (average != null) {
+            Reading("Daily average", duration(average), Modifier.fillMaxWidth())
             Hairline()
         }
+        ReadingPair(
+            "Peak hour", habits.peakHour?.let { hourName(it, is24Hour) } ?: "None",
+            "Longest sitting", duration(habits.longestSittingMs),
+        )
+        Hairline()
+        ReadingPair("Current streak", dayCount(habits.streaks.current), "Best streak", dayCount(habits.streaks.best))
+        Hairline()
+        ReadingPair("Episodes finished", habits.episodesFinished.toString(), "Movies finished", habits.moviesFinished.toString())
+        Hairline()
     }
 }
 
-/** Turn off, one step up from the panel's coal. */
+/** Two readings on one row, parted by a line that runs the row's height. */
 @Composable
-private fun TurnOff(onClick: () -> Unit, modifier: Modifier) {
-    FocusSurface(onClick = onClick, color = LocalAnstelleTheme.current.surfaceHigh, modifier = modifier.fillMaxWidth()) {
-        Row(
-            Modifier.height(if (LocalIsTv.current) 52.dp else 48.dp).padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            androidx.compose.material3.Icon(Icons.Filled.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(20.dp))
-            androidx.compose.material3.Text("Turn off", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
-        }
+private fun ReadingPair(startLabel: String, startValue: String, endLabel: String, endValue: String) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Reading(startLabel, startValue, Modifier.weight(1f).padding(end = READING_GUTTER))
+        Box(Modifier.width(1.dp).fillMaxHeight().background(LocalAnstelleTheme.current.line))
+        Reading(endLabel, endValue, Modifier.weight(1f).padding(start = READING_GUTTER))
+    }
+}
+
+/** A field label and its value on one line; the label takes a second line before the value gives way. */
+@Composable
+private fun Reading(label: String, value: String, modifier: Modifier) {
+    val theme = LocalAnstelleTheme.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    Row(modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        androidx.compose.material3.Text(label.uppercase(), style = typography.labelMedium, color = theme.textMuted, maxLines = 2, modifier = Modifier.weight(1f))
+        androidx.compose.material3.Text(value.uppercase(), style = typography.titleSmall.figures(), color = theme.text, maxLines = 1)
     }
 }
 
@@ -495,6 +511,15 @@ private fun percent(share: Float): String = "${(share * 100).toInt().coerceIn(0,
 
 /** From this width the dashboard splits into its two panes, as on TV. */
 private const val SPLIT_DP = 720
+
+/** The ranks' share of a split; the meter takes the rest, wide enough for its readings in pairs. */
+private const val RANKS_SHARE = 0.52f
+
+/** Each split pane's top and bottom margin: on a TV the meter fills the height to within it. */
+private val PANE_EDGE = 20.dp
+
+/** The space on either side of the line between paired readings. */
+private val READING_GUTTER = 12.dp
 
 /** The ranks re-deal in one hard snap. */
 private const val RE_DEAL_MS = 140

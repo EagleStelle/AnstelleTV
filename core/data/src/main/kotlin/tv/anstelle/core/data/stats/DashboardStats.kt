@@ -35,8 +35,6 @@ data class Habits(
     val peakHour: Int?,
     val streaks: Streaks,
     val longestSittingMs: Long,
-    /** Rows kept: a view that ran past midnight counts on both days. */
-    val views: Int,
     val episodesFinished: Int,
     val moviesFinished: Int,
 )
@@ -229,7 +227,6 @@ internal fun buildScreenTime(
             peakHour = StatsMath.peakHour(hours),
             streaks = StatsMath.streaks(days, today),
             longestSittingMs = StatsMath.longestSitting(starts, durations),
-            views = views.size,
             episodesFinished = episodes,
             moviesFinished = movies,
         ),

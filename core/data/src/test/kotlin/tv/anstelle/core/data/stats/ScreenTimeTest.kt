@@ -88,7 +88,6 @@ class ScreenTimeTest {
         assertEquals(97 * minute, habits.totalMs)
         assertEquals(52 * minute, habits.liveMs)
         assertEquals(45 * minute, habits.onDemandMs)
-        assertEquals(3, habits.views)
         assertEquals(1, habits.episodesFinished)
         assertEquals(1, habits.moviesFinished)
         // Monday to Thursday so far: 4 days.

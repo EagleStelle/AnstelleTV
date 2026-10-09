@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.stats.DashboardHistory
 import tv.anstelle.core.data.stats.DashboardStats
@@ -129,10 +128,6 @@ class DashboardViewModel @Inject constructor(
     }
 
     fun clearBar() = pick.update { it.copy(bar = null) }
-
-    fun turnOff(keepHistory: Boolean) {
-        viewModelScope.launch { history.turnOff(profileId.await(), keepHistory) }
-    }
 
     /** The bar holding now, when [window] does; later bars have nothing yet. */
     private fun currentBar(window: StatsWindow): Int? {

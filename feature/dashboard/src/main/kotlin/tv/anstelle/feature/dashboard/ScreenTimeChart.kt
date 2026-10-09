@@ -62,7 +62,8 @@ internal fun ScreenTimeChart(
     val bars = live.size
     val ticks = remember(live, onDemand) { chartTicks((0 until bars).maxOfOrNull { live[it] + onDemand[it] } ?: 0L) }
     val scale = ticks.topMs
-    val chartHeight = if (isTv) 168.dp else 160.dp
+    // On TV the meter fits the screen whole, so the chart gives up height to the readings.
+    val chartHeight = if (isTv) 108.dp else 160.dp
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val currentPick by rememberUpdatedState(picked)
