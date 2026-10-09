@@ -86,8 +86,9 @@ import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.PanelShape
+import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
-import tv.anstelle.core.theme.components.RestrictedSize
+import tv.anstelle.core.theme.components.StandInSize
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.NumberBlock
 import tv.anstelle.core.theme.components.SegmentLadder
@@ -204,8 +205,7 @@ fun PlayerScreen(
         Video(player)
 
         when (state.status) {
-            TuneStatus.OFF_AIR -> OffAir(state)
-            TuneStatus.RESTRICTED -> Restricted(state)
+            TuneStatus.OFF_AIR, TuneStatus.RESTRICTED -> StandIn(state)
             TuneStatus.NO_SCHEDULE, TuneStatus.ERROR -> Message(state.message ?: "Nothing to play.")
             else -> if (state.buffering || player == null) Message("Tuning…", subtle = true)
         }
@@ -516,35 +516,20 @@ private fun NumberEntry(entry: String, modifier: Modifier) {
     }
 }
 
+/**
+ * Off air, or a program the profile may not watch: the picture stays dark until the stretch
+ * ends, one mark saying why and until when. The banner, in on every tune, names the channel.
+ */
 @Composable
-private fun OffAir(state: PlaybackState) {
+private fun StandIn(state: PlaybackState) {
     val theme = LocalAnstelleTheme.current
-    val typography = androidx.compose.material3.MaterialTheme.typography
-    Column(
-        modifier = Modifier.fillMaxSize().background(theme.background),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-    ) {
-        state.channel?.let { NumberBlock("${it.number}", style = typography.displayMedium, modifier = Modifier.height(64.dp)) }
-        androidx.compose.material3.Text("OFF AIR", style = typography.displayLarge, color = theme.text)
-        state.now?.let {
-            androidx.compose.material3.Text("Back on the air at ${time(it.endUtcMs)}", style = typography.titleLarge, color = theme.textMuted)
-        }
-        state.channel?.let { androidx.compose.material3.Text(it.name, style = typography.labelMedium, color = theme.textMuted) }
-    }
-}
-
-/** A program the profile may not watch: the picture stays dark until the next one. */
-@Composable
-private fun Restricted(state: PlaybackState) {
-    val theme = LocalAnstelleTheme.current
+    val until = state.now?.let { time(it.endUtcMs) }
     Box(Modifier.fillMaxSize().background(theme.background), contentAlignment = Alignment.Center) {
-        RestrictedMark(
-            title = state.restriction?.title ?: Restriction.AGE_TITLE,
-            detail = state.restriction?.detail,
-            size = RestrictedSize.SCREEN,
-            extra = state.now?.let { "UNTIL ${time(it.endUtcMs)}" },
-        )
+        if (state.status == TuneStatus.OFF_AIR) {
+            OffAirMark(size = StandInSize.SCREEN, until = until)
+        } else {
+            RestrictedMark(state.restriction?.title ?: Restriction.AGE_TITLE, size = StandInSize.SCREEN, until = until)
+        }
     }
 }
 

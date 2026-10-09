@@ -46,7 +46,6 @@ data class ChannelAiring(
     val episode: Int?,
     val year: Int?,
     val overview: String?,
-    val officialRating: String?,
     val ratingScore: Int?,
     val backdropImageTag: String?,
     val logoImageTag: String?,
@@ -123,7 +122,7 @@ interface ScheduleDao {
     @Query(
         """
         SELECT s.channelId, s.mediaItemId, s.startUtcMs, s.endUtcMs, m.serverId, m.remoteId,
-               m.title, m.showTitle, m.season, m.episode, m.year, m.overview, m.officialRating, m.ratingScore,
+               m.title, m.showTitle, m.season, m.episode, m.year, m.overview, m.ratingScore,
                m.backdropImageTag, m.logoImageTag, series.remoteId AS seriesRemoteId,
                series.backdropImageTag AS seriesBackdropImageTag, series.logoImageTag AS seriesLogoImageTag
         FROM schedule_slot s LEFT JOIN media_item m ON m.id = s.mediaItemId

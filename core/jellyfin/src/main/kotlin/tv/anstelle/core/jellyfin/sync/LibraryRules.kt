@@ -9,7 +9,13 @@ object LibraryRules {
     private val Playable = setOf(BaseItemKind.MOVIE, BaseItemKind.EPISODE, BaseItemKind.VIDEO, BaseItemKind.MUSIC_VIDEO)
 
     /** Libraries that hold nothing to air. Music is on hold until music channels are built. */
-    private val NotSynced = setOf("music", "books", "photos", "boxsets", "playlists", "livetv", "trailers")
+    private val NotSynced = setOf("music", "books", "photos", "playlists", "livetv", "trailers")
+
+    /** Views Jellyfin lists beside the libraries that only gather items the libraries already hold. */
+    private val NotLibraries = setOf("boxsets")
+
+    /** False for a view that isn't a library of its own, so it is never listed. */
+    fun isLibrary(collectionType: String?): Boolean = collectionType !in NotLibraries
 
     /** Item kinds to fetch from a library of [collectionType]; empty when the library is not synced. */
     fun itemKinds(collectionType: String?): Set<BaseItemKind> = when (collectionType) {

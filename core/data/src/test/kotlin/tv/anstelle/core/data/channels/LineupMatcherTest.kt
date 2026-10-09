@@ -21,8 +21,7 @@ class LineupMatcherTest {
             item(2, title = "Christmas Party", series = "s-office", show = "The Example Office", season = 2, episode = 10, genres = listOf("Comedy"),
                  studios = listOf("NBC"), year = 2005, rating = "TV-14", score = 14, minutes = 22),
             item(3, type = MediaType.MOVIE, title = "A Christmas Story", genres = listOf("Family", "Comedy"),
-                 studios = listOf("Example Pictures"), year = 1983, rating = "PG", score = 10, minutes = 94,
-                 collections = listOf("Example Holiday Collection")),
+                 studios = listOf("Example Pictures"), year = 1983, rating = "PG", score = 10, minutes = 94),
             item(4, type = MediaType.MOVIE, title = "The Party Planner", genres = listOf("Drama"), year = null, minutes = 120,
                  tags = listOf("trick-or-treat")),
             item(5, title = "Space Cadets", series = "s-space", genres = listOf("Animation", "Kids"), studios = listOf("Cartoon Network"),
@@ -48,7 +47,6 @@ class LineupMatcherTest {
         assertEquals(listOf(4L, 5L, 6L), ids(Rule(RuleField.GENRE, RuleOp.NOT_ANY_OF, "Comedy")))
         assertEquals(listOf(1L, 2L), ids(Rule(RuleField.STUDIO, RuleOp.EQUALS, "nbc")))
         assertEquals(listOf(5L), ids(Rule(RuleField.STUDIO, RuleOp.CONTAINS, "cartoon")))
-        assertEquals(listOf(3L), ids(Rule(RuleField.COLLECTION, RuleOp.CONTAINS, "collection")))
     }
 
     @Test

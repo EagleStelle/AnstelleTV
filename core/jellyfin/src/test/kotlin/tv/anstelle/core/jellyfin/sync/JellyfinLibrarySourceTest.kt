@@ -35,7 +35,6 @@ class JellyfinLibrarySourceTest {
         assertEquals(
             listOf(
                 RemoteLibrary("fa110000000000000000000000000002", "Music", "music"),
-                RemoteLibrary("fa110000000000000000000000000006", "Collections", "boxsets"),
                 RemoteLibrary("fa11000000000000000000000000000d", "Cartoons", "tvshows"),
                 RemoteLibrary("fa11000000000000000000000000000e", "Dramas", "tvshows"),
             ),
@@ -60,25 +59,5 @@ class JellyfinLibrarySourceTest {
 
         source.items("fa11000000000000000000000000000d", setOf(BaseItemKind.EPISODE), null, startIndex = 0, limit = 150)
         assertNull(api.requests.last().query["minDateLastSaved"])
-    }
-
-    @Test
-    fun `box sets and their items`() = runBlocking {
-        val api = FixtureApiClient(mapOf("/Items" to "box_sets_derived.json"))
-        val source = JellyfinLibrarySource(api, userId)
-        assertEquals(
-            listOf(
-                RemoteBoxSet("fa110000000000000000000000000040", "Example Saga Collection"),
-                RemoteBoxSet("fa110000000000000000000000000041", "Example Cartoon Shorts"),
-            ),
-            source.boxSets(),
-        )
-        val listing = api.requests.single().query
-        assertEquals(true, listing["recursive"])
-        assertEquals(BaseItemKind.BOX_SET, (listing["includeItemTypes"] as Collection<*>).single())
-
-        val members = JellyfinLibrarySource(FixtureApiClient(mapOf("/Items" to "box_set_items_derived.json")), userId)
-            .boxSetItemIds("fa110000000000000000000000000040")
-        assertEquals(listOf("fa110000000000000000000000000042", "fa11000000000000000000000000001a"), members)
     }
 }

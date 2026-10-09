@@ -32,13 +32,8 @@ class SyncContext(
 object ItemMapper {
     private const val TICKS_PER_MS = 10_000L
 
-    /**
-     * Maps one item, or returns null when its kind can't air. [existingId] keeps the local
-     * row id of an item seen before, and [existingCollections] its box-set membership, which
-     * item pages don't carry (reconciliation fills it in). A new episode starts with its
-     * series' box sets.
-     */
-    fun map(item: BaseItemDto, context: SyncContext, existingId: Long = 0, existingCollections: String? = null): MediaItemEntity? {
+    /** Maps one item, or returns null when its kind can't air. [existingId] keeps the local row id of an item seen before. */
+    fun map(item: BaseItemDto, context: SyncContext, existingId: Long = 0): MediaItemEntity? {
         val seriesRemoteId = item.seriesId?.toJellyfinId()
         val series = seriesRemoteId?.let(context.series::get)
         val tags = pipeJoin(item.tags.orEmpty()).ifEmpty { series?.tags.orEmpty() }
@@ -70,7 +65,6 @@ object ItemMapper {
             genres = pipeJoin(item.genres.orEmpty()).ifEmpty { series?.genres.orEmpty() },
             studios = pipeJoin(item.studios.orEmpty().mapNotNull { it.name }).ifEmpty { series?.studios.orEmpty() },
             tags = tags,
-            collections = existingCollections ?: series?.collections.orEmpty(),
             year = item.productionYear ?: item.premiereDate?.year,
             premiereDateUtcMs = item.premiereDate?.toEpochMs(),
             officialRating = officialRating,

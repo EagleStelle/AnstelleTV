@@ -41,7 +41,7 @@ import javax.inject.Inject
 /** Where playback happens, each with its own [WatchSync] setting for each profile. */
 enum class SyncPlace(val title: String, val icon: ImageVector, val key: (profileId: Long) -> SettingKey.IntKey) {
     LIVE_TV("Live TV", Icons.Filled.Tv, Settings::liveTvSync),
-    ON_DEMAND("On demand", Icons.Filled.OndemandVideo, Settings::onDemandSync),
+    ON_DEMAND("On Demand", Icons.Filled.OndemandVideo, Settings::onDemandSync),
 }
 
 @Immutable
@@ -94,7 +94,7 @@ fun WatchHistoryScreen(
 
     SettingsPage(
         title = "Watch history",
-        subtitle = "Status marks what you watched. Progress saves where you stopped.",
+        subtitle = "What Live TV and On Demand save to this profile's Jellyfin user.",
         modifier = modifier,
     ) {
         for (place in SyncPlace.entries) {

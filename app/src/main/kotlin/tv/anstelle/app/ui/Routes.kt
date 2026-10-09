@@ -73,7 +73,7 @@ const val PlayerRouteNoChannel = -1
  */
 enum class TopLevelDestination(val label: String, val icon: ImageVector, val outlinedIcon: ImageVector, val route: Any) {
     Guide("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv, GuideRoute),
-    OnDemand("On demand", Icons.Filled.Movie, Icons.Outlined.Movie, OnDemandGraph),
+    OnDemand("On Demand", Icons.Filled.Movie, Icons.Outlined.Movie, OnDemandGraph),
     Dashboard("Dashboard", Icons.Filled.Dashboard, Icons.Outlined.Dashboard, DashboardRoute),
     Settings("Settings", Icons.Filled.Settings, Icons.Outlined.Settings, SettingsGraph),
     Profiles("Profiles", Icons.Filled.People, Icons.Outlined.People, ProfilesRoute()),

@@ -33,7 +33,7 @@ data class MediaServerEntity(
     val lastSyncUtcMs: Long? = null,
     /** Why the last sync failed, or null when it succeeded. */
     val lastSyncError: String? = null,
-    /** Device time of the last ID-only reconciliation (deletions and box sets). */
+    /** Device time of the last ID-only reconciliation (deletions). */
     val lastReconcileUtcMs: Long? = null,
 )
 
@@ -70,7 +70,7 @@ data class LibraryEntity(
 )
 
 /**
- * A synced Jellyfin item. Multi-valued metadata (genres, studios, tags, collections) is
+ * A synced Jellyfin item. Multi-valued metadata (genres, studios, tags) is
  * stored pipe-delimited (`|Comedy|Family|`) for compact rows and cheap `LIKE` matching;
  * rule matching happens in memory. Episodes without their own genres, studios, tags or
  * rating inherit the series' values at sync time.
@@ -108,7 +108,6 @@ data class MediaItemEntity(
     val genres: String,
     val studios: String,
     val tags: String,
-    val collections: String,
     val year: Int?,
     val premiereDateUtcMs: Long?,
     val officialRating: String?,

@@ -19,7 +19,6 @@ class CatalogItem internal constructor(
     internal val genres = tokens(row.genres)
     internal val studios = tokens(row.studios)
     internal val tags = tokens(row.tags)
-    internal val collections = tokens(row.collections)
     internal val rating: String? = row.officialRating?.lowercase(Locale.ROOT)
     internal val typeName: String = row.type.name.lowercase(Locale.ROOT)
 
@@ -81,7 +80,7 @@ class Catalog(rows: List<CatalogRow>, kinds: List<MediaKind> = emptyList()) {
     fun titleOf(remoteId: String): String? =
         seriesTitles[remoteId] ?: items.firstOrNull { it.row.remoteId == remoteId }?.row?.title
 
-    /** Distinct values of a list field (genre, studio, tag, collection, rating, kind), most common first. */
+    /** Distinct values of a list field (genre, studio, tag, rating, kind), most common first. */
     fun values(field: RuleField): List<ValueCount> {
         if (field == RuleField.KIND) {
             return items.groupingBy { it.kind }.eachCount().entries
@@ -95,7 +94,6 @@ class Catalog(rows: List<CatalogRow>, kinds: List<MediaKind> = emptyList()) {
                 RuleField.GENRE -> item.row.genres
                 RuleField.STUDIO -> item.row.studios
                 RuleField.TAG -> item.row.tags
-                RuleField.COLLECTION -> item.row.collections
                 RuleField.OFFICIAL_RATING -> item.row.officialRating?.let { "|$it|" }.orEmpty()
                 else -> return emptyList()
             }

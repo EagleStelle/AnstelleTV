@@ -160,15 +160,10 @@ class ServerRepository @Inject constructor(
     }
 
     /**
-     * Turns syncing a library on or off. A library turned on is fetched in full; a library
-     * turned off loses its items right away.
+     * Turns syncing a library on or off. Nothing changes until the next sync: it fetches a
+     * library turned on in full and removes the items of one turned off.
      */
-    suspend fun setLibraryEnabled(libraryId: Long, enabled: Boolean) {
-        val library = libraryDao.byId(libraryId) ?: return
-        libraryDao.setEnabled(libraryId, enabled)
-        if (!enabled) syncer.removeItems(itemDao.idsInLibrary(libraryId))
-        syncNow(library.serverId, forceReconcile = true)
-    }
+    suspend fun setLibraryEnabled(libraryId: Long, enabled: Boolean) = libraryDao.setEnabled(libraryId, enabled)
 
     fun syncNow(serverId: Long, fullRefresh: Boolean = false, forceReconcile: Boolean = false) {
         syncStatus.update(serverId, "Waiting for network…")

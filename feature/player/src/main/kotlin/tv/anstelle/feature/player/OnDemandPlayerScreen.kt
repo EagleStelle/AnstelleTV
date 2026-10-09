@@ -77,11 +77,14 @@ import tv.anstelle.core.data.playback.OnDemandStatus
 import tv.anstelle.core.data.playback.TRACK_TYPE_AUDIO
 import tv.anstelle.core.data.playback.TRACK_TYPE_TEXT
 import tv.anstelle.core.data.playback.TrackOption
+import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.PanelShape
 import tv.anstelle.core.theme.components.AirMarker
+import tv.anstelle.core.theme.components.RestrictedMark
+import tv.anstelle.core.theme.components.StandInSize
 import tv.anstelle.core.theme.components.TitleLogo
 
 import javax.inject.Inject
@@ -229,6 +232,10 @@ fun OnDemandPlayerScreen(
     ) {
         Video(viewModel.player)
         when (state.status) {
+            // The same dark screen as a restricted channel's, with no stretch to wait out.
+            OnDemandStatus.RESTRICTED -> Box(Modifier.fillMaxSize().background(LocalAnstelleTheme.current.background), contentAlignment = Alignment.Center) {
+                RestrictedMark(state.restriction?.title ?: Restriction.AGE_TITLE, size = StandInSize.SCREEN)
+            }
             OnDemandStatus.ERROR -> Message(state.message ?: "This can't be played.")
             OnDemandStatus.LOADING -> Message("Loading…")
             else -> if (state.buffering) Message("Loading…")

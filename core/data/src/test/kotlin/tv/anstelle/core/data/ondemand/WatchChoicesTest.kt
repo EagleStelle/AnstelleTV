@@ -38,7 +38,7 @@ class WatchChoicesTest {
         assertEquals(0L, start.positionMs)
         assertEquals("From the start, off the schedule.", WatchChoices.onDemand(isEpisode = false).detail)
         val point = WatchChoices.resumeOnDemand(12 * 60_000 + 4_000, isEpisode = true)
-        assertEquals("Resume on demand", point.title)
+        assertEquals("Resume on Demand", point.title)
         assertEquals("From 12 min in, then the next episodes.", point.detail)
         assertEquals(12 * 60_000L + 4_000, point.positionMs)
     }
@@ -46,9 +46,9 @@ class WatchChoicesTest {
     @Test
     fun `resume on demand waits until it differs from starting on demand`() {
         val early = WatchChoices.onNow(1001, "ABC", startUtcMs = 0, endUtcMs = 30 * 60_000, nowUtcMs = 20_000, isEpisode = true)
-        assertEquals(listOf("Watch live", "Start over", "Watch on demand"), early.map { it.title })
+        assertEquals(listOf("Watch live", "Start over", "Watch on Demand"), early.map { it.title })
         val later = WatchChoices.onNow(1001, "ABC", startUtcMs = 0, endUtcMs = 30 * 60_000, nowUtcMs = 5 * 60_000, isEpisode = true)
-        assertEquals(listOf("Watch live", "Start over", "Watch on demand", "Resume on demand"), later.map { it.title })
+        assertEquals(listOf("Watch live", "Start over", "Watch on Demand", "Resume on Demand"), later.map { it.title })
     }
 
     @Test

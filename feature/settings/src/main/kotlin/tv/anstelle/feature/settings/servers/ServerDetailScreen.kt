@@ -1,10 +1,33 @@
 package tv.anstelle.feature.settings.servers
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -16,10 +39,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -36,8 +68,12 @@ import tv.anstelle.core.data.ServerRepository
 import tv.anstelle.core.database.dao.TypeCount
 import tv.anstelle.core.database.entity.LibraryEntity
 import tv.anstelle.core.model.MediaServer
+import tv.anstelle.core.model.MediaType
+import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
+import tv.anstelle.core.theme.PanelShape
 import tv.anstelle.core.theme.components.FocusTile
+import tv.anstelle.core.theme.components.StatusLine
 import javax.inject.Inject
 
 @Immutable
@@ -98,19 +134,8 @@ fun ServerDetailScreen(
     // Removing everything synced from a server is destructive, so it takes a second press.
     var confirmRemove by remember { mutableStateOf(false) }
 
-    SettingsPage(
-        title = server.name,
-        subtitle = listOfNotNull(
-            server.serverVersion?.let { "Jellyfin $it" },
-            server.userName?.let { "signed in as $it" },
-            server.baseUrl,
-        ).joinToString(" · "),
-        modifier = modifier,
-    ) {
-        item(key = "status") {
-            MessageText(server.statusLine(state.progress, state.nowUtcMs), isError = server.lastSyncError != null && state.progress == null)
-            MessageText(countsLine(state.counts))
-        }
+    SettingsPage(title = server.name, modifier = modifier) {
+        item(key = "readout") { ServerReadout(server, state.progress, state.counts, state.nowUtcMs) }
         item(key = "sync") {
             FocusTile(
                 title = if (server.isSignedIn) "Sync now" else "Sign in again",
@@ -164,5 +189,201 @@ fun ServerDetailScreen(
                 modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) confirmRemove = false },
             )
         }
+    }
+}
+
+/**
+ * What the server is and how its sync stands, read like a set's system-information panel. It
+ * is a hairline frame with no fill, the way the OSD draws facts (badges, empty slots), so it
+ * never reads as a row to press: everything that acts is a filled row under it, Sync now first.
+ * The sync state leads, set like the banner's NOW line; then what the library holds in tabular
+ * figures; then the connection's facts, each behind the icon that names it.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ServerReadout(server: MediaServer, progress: String?, counts: List<TypeCount>, nowUtcMs: Long) {
+    val theme = LocalAnstelleTheme.current
+    val isTv = LocalIsTv.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = if (isTv) 10.dp else 8.dp)
+            .border(1.dp, theme.line, PanelShape)
+            .padding(if (isTv) 24.dp else 18.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isTv) 20.dp else 16.dp),
+    ) {
+        SyncState(server, progress, nowUtcMs)
+
+        val held = counts.filter { it.count > 0 }.associate { it.type to it.count }
+        if (held.isEmpty()) {
+            androidx.compose.material3.Text("No items yet", style = typography.bodyMedium, color = theme.textMuted)
+        } else {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(if (isTv) 48.dp else 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // Movies, then series joined to their episodes, then anything else.
+                held[MediaType.MOVIE]?.let { CountReadout(it, MediaType.MOVIE) }
+                val series = held[MediaType.SERIES]
+                val episodes = held[MediaType.EPISODE]
+                when {
+                    series != null && episodes != null -> SeriesReadout(series, episodes)
+                    series != null -> CountReadout(series, MediaType.SERIES)
+                    episodes != null -> CountReadout(episodes, MediaType.EPISODE)
+                }
+                for ((type, count) in held) {
+                    if (type !in TopLevelKinds) CountReadout(count, type)
+                }
+            }
+        }
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(theme.line))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(if (isTv) 32.dp else 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            server.serverVersion?.let { ServerFact(Icons.Filled.Dns, "Server version", "Jellyfin $it") }
+            server.userName?.let { ServerFact(Icons.Filled.Person, "Signed in as", it) }
+            ServerFact(Icons.Filled.Public, "Address", server.baseUrl)
+        }
+    }
+}
+
+/** The kinds the readout places itself, in its own order; any other kind follows them. */
+private val TopLevelKinds = setOf(MediaType.MOVIE, MediaType.SERIES, MediaType.EPISODE)
+
+/** One count of what the library holds: the number in tabular figures over its kind. */
+@Composable
+private fun CountReadout(count: Int, type: MediaType, numberStyle: TextStyle = countStyle(), modifier: Modifier = Modifier) {
+    val theme = LocalAnstelleTheme.current
+    Column(modifier.semantics(mergeDescendants = true) {}) {
+        androidx.compose.material3.Text("%,d".format(count), style = numberStyle, color = theme.text, maxLines = 1)
+        androidx.compose.material3.Text(
+            type.label(count).uppercase(),
+            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+            color = theme.textMuted,
+            maxLines = 1,
+        )
+    }
+}
+
+/** A count's number: the readout's figure size. */
+@Composable
+private fun countStyle(): TextStyle {
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    return if (LocalIsTv.current) typography.headlineMedium else typography.headlineSmall
+}
+
+/**
+ * Series and their episodes as one figure: the series count, then the episodes a size smaller,
+ * joined by a rose crossbar that runs from one number into the other the way the mark's
+ * crossbar runs on past the A. Episodes belong to series, so they never stand beside movies as
+ * a count of their own. Labels share a baseline at the foot; the bar sits at the middle of the
+ * episodes' digits, which lie inside the series' digits too.
+ */
+@Composable
+private fun SeriesReadout(series: Int, episodes: Int) {
+    val theme = LocalAnstelleTheme.current
+    val isTv = LocalIsTv.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    val episodeStyle = if (isTv) {
+        typography.headlineSmall
+    } else {
+        typography.titleLarge.merge(TextStyle(fontFamily = theme.displayFont, fontFeatureSettings = "tnum"))
+    }
+    val density = LocalDensity.current
+    val barLine = with(density) { episodeStyle.lineHeight.toDp() }
+    val labelLine = with(density) { typography.labelSmall.lineHeight.toDp() }
+    Row(verticalAlignment = Alignment.Bottom) {
+        CountReadout(series, MediaType.SERIES)
+        Column(Modifier.width(if (isTv) 40.dp else 28.dp).padding(horizontal = if (isTv) 8.dp else 6.dp)) {
+            Box(Modifier.fillMaxWidth().height(barLine), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().height(2.dp).background(theme.accent))
+            }
+            Spacer(Modifier.height(labelLine))
+        }
+        CountReadout(episodes, MediaType.EPISODE, numberStyle = episodeStyle)
+    }
+}
+
+/**
+ * The sync state as a status line: a solid square once synced, a hollow one before the first
+ * sync and while one runs (with the ladder scanning under it), a warning mark when it failed or
+ * the sign-in is gone, so each reads by its form as well as its color.
+ */
+@Composable
+private fun SyncState(server: MediaServer, progress: String?, nowUtcMs: Long) {
+    val theme = LocalAnstelleTheme.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    val problem = when {
+        progress != null -> null
+        !server.isSignedIn -> "Signed out" to null
+        server.lastSyncError != null -> "Sync failed" to server.lastSyncError
+        else -> null
+    }
+    if (problem != null) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.Icon(Icons.Filled.ErrorOutline, contentDescription = "Problem", tint = theme.accent, modifier = Modifier.size(16.dp))
+                androidx.compose.material3.Text(problem.first.uppercase(), style = typography.labelMedium, color = theme.accent, maxLines = 1)
+            }
+            problem.second?.let { androidx.compose.material3.Text(it, style = typography.bodyMedium, color = theme.text) }
+        }
+        return
+    }
+    if (progress != null) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatusLine(onAir = false, label = "Syncing", text = progress)
+            ScanLadder()
+        }
+        return
+    }
+    val ago = server.syncedAgo(nowUtcMs)
+    StatusLine(onAir = ago != null, label = if (ago != null) "Synced" else "Not synced yet", text = ago.orEmpty())
+}
+
+/** A sync running: a lit run of segments stepping along the ladder, the way a set scans for channels. */
+@Composable
+private fun ScanLadder(modifier: Modifier = Modifier, segments: Int = 24, run: Int = 4) {
+    val theme = LocalAnstelleTheme.current
+    val sweep by rememberInfiniteTransition(label = "scan").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(durationMillis = 1_800, easing = LinearEasing)),
+        label = "sweep",
+    )
+    Canvas(modifier.fillMaxWidth().height(6.dp)) {
+        val gap = 2.dp.toPx()
+        val width = (size.width - gap * (segments - 1)) / segments
+        // Whole segments only, so the run snaps from one to the next instead of gliding.
+        val head = (sweep * (segments + run)).toInt()
+        for (i in 0 until segments) {
+            drawRect(
+                if (i in head - run until head) theme.accent else theme.line,
+                topLeft = Offset(i * (width + gap), 0f),
+                size = Size(width, size.height),
+            )
+        }
+    }
+}
+
+/** One fact about the connection: the icon names it, so the value stands without a label. */
+@Composable
+private fun ServerFact(icon: ImageVector, name: String, value: String) {
+    val theme = LocalAnstelleTheme.current
+    Row(
+        Modifier.semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        androidx.compose.material3.Icon(icon, contentDescription = name, tint = theme.textMuted, modifier = Modifier.size(18.dp))
+        androidx.compose.material3.Text(
+            value,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            color = theme.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

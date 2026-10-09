@@ -43,7 +43,7 @@ The sections below record what is built and how. Product-level constraints:
 
 - Nothing plays filler: no commercials, bumpers, station IDs or breaks. Programs run back to back.
 - Phase 8 ships 16 user-selectable themes (user decision: at least 16), Rose the default. The UI has to stay themeable.
-- The web UI reaches parity with the app in Phase 10.
+- The web UI reaches parity with the app in Phase 11.
 - Music libraries and music channels are on hold.
 - Live TV (Phase 7) is skipped for now.
 
@@ -57,7 +57,7 @@ The sections below record what is built and how. Product-level constraints:
 ## Evidence on Hand
 
 - The owner's Jellyfin library is the only real content. It is private: its address, titles and contents never appear in the repo, screenshots meant for others, or store copy.
-- Verification numbers come from emulators (see the verification sections below). Real-device numbers wait for the Fire TV Stick in Phase 11.
+- Verification numbers come from emulators (see *Verification log* below). Real-device numbers wait for the Fire TV Stick in Phase 12.
 - There are no outside users, testimonials, reviews or store listing yet. Don't invent any.
 
 ## Product Principles
@@ -85,7 +85,9 @@ The sections below record what is built and how. Product-level constraints:
 | 7 | Live TV | Skipped for now |
 | — | Android UI redesign: new brand, bundled type, flat on-screen-display look on every screen, settings menu, tablet rail | Done |
 | 8 | Profiles as Jellyfin users with roles, PINs and maturity ratings; shared channels with age-restricted blackouts; 16 themes, the theme designer, import and export | Done |
-| 9–11 | Dashboard/backup, web UI parity, performance | Planned |
+| 9 | Dashboard: each profile's own watch stats with daily charts, opt-out per profile | Planned |
+| 10 | Settings redesign, then backup and LAN transfer | Planned |
+| 11–12 | Web UI parity, performance | Planned |
 
 The full plan, with key designs for every phase, lives in `C:\Users\Impulsor\.claude\plans\the-name-of-the-kind-shell.md`.
 
@@ -113,7 +115,7 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 ./gradlew testDebugUnitTest :core:model:test :core:common:test :core:scheduler:test :core:livetv:test
 ./gradlew lintDebug
 ./gradlew assembleRelease                # R8 full mode; needs pnpm; signed with the debug key unless keystore.properties exists
-./gradlew :app:generateBaselineProfile   # on a connected device (Phase 11: Fire TV Stick)
+./gradlew :app:generateBaselineProfile   # on a connected device (Phase 12: Fire TV Stick)
 ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest
 ```
 
@@ -187,7 +189,7 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - **Fields:** `MediaSources` (source id, container, streams) cost about 8 KB per item, so pages hold 150 items.
 - **Artwork:** item pages ask for one image of each kind: the poster (`Primary`), the first backdrop and the title logo. Their tags are stored (`primaryImageTag`, `backdropImageTag`, `logoImageTag`) and the URLs are built locally with the tag (`Artwork`, `jellyfinImageUrl`), so no page asks the server whether art exists. Episodes rarely have a backdrop or logo of their own; they use their series'.
 - **Ratings:** `/Localization/ParentalRatings` only lists the server's metadata country, while real items carry "12", "NC16", "M18", "PG13" or "6+". `RatingScores` falls back to a punctuation-insensitive match, then to the age written in the rating.
-- **Libraries:** movies, shows, music videos, home videos and mixed libraries are synced. Music, books, photos, collections, playlists and live TV are not (music is on hold). Each library can be turned off on the server screen: its items are deleted at once, and turning it back on fetches it in full.
+- **Libraries:** movies, series, music videos, home videos and mixed libraries are synced. Music, books, photos, playlists and live TV are listed but not synced (music is on hold). Jellyfin's Collections view only gathers items the libraries already hold, so it isn't listed as a library. Each library can be turned on or off on the server screen. The choice takes effect at the next sync, never at once and with no sync of its own: the sync deletes a library's items once it is off, and fetches it in full once it is back on.
 - **Logging:** the SDK logs through kotlin-logging. On Android that maps to logcat; JVM unit tests need `slf4j-nop` on the test runtime classpath.
 
 ### Scheduler (learned in Phase 3)
@@ -209,7 +211,6 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - **Schedules follow the channel.** `ScheduleUpdater` keeps every visible channel 30 days ahead (it tops up once a schedule is 12 hours short). A new channel starts at the current hour. When the inputs hash changes (rules, playback order, matched items, the device zone) or sync marks the schedule stale, the airing on now and the next one stay and the rest is regenerated; an off-air stretch or an airing whose item was deleted is not kept. A schedule that ran out while the app was unused restarts at the current hour instead of filling the past. Hidden channels are not scheduled. Edits in the channel screens reschedule that channel right away.
 - **Channel numbers** are 0–9999 and unique: giving a channel a taken number swaps the two. The player's route uses -1 for "no channel asked for", since 0 is a real number.
 - **Logos** are decoded, scaled to at most 256 px and stored as PNG in `files/logos`, with a new file name per upload so cached copies refresh. Phones pick one with the system picker; any device can upload over the web API (`PUT /api/channels/{id}/logo` with the image bytes, at most 4 MB; `GET` serves it, `DELETE` removes it). `/api/channels` reports a versioned `logoUrl`.
-- **Collections** (box sets) aren't part of item pages, so reconciliation lists the box sets, reads each one's items and writes their names into `collections`; episodes get their series' box sets. Incremental sync keeps the stored value.
 
 ### Library channels
 
@@ -282,14 +283,14 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 
 - **Profiles are Jellyfin users.** A profile shows its Jellyfin user's name and picture, read again at every library sync; nothing local names it. *Add a profile* signs in (Quick Connect or password) and makes a profile from that user: on the only server signed in, or, with more than one, on the one picked first from a short list (user decision). A profile has **one Jellyfin user per server** (`profile_account`; user decision): the profile page has a sign-in row for each connected server. Each sign-in uses a device id of its own (`profile-xxxxxxxx`), so it never replaces the server's session or another profile's, and its token sits in the Keystore token store keyed `<server id>/<device>`. The profile is named after its user on the first server it has one on. The library and its sync stay on the server's own sign-in (user decision).
 - **Who a profile is on a server** (`ProfileRepository.watchAccount`, user decision): with a user of its own there, the profile **plays as that user** (streams open with that user's token and device, so the server's own access rules apply and Jellyfin's dashboard shows who is watching) and its watched marks and resume points go there. Once that sign-in's token is gone, nothing plays as anyone else: the player asks to check the sign-in. A profile with no user of its own anywhere (the first profile, made at first launch) is each server's own sign-in, watch history and all. A profile with users on other servers only plays as the server's own sign-in on a server it has none on, keeps no watch history there, and its parental rating still applies.
-- **Library access** (user decision): channels are shared, but a profile sees only what its own Jellyfin user may. Every library sync lists, ID-only, what each profile's user can see in the synced libraries (`LibrarySyncer.findHidden`: the user's own views, then each one's item ids, so Jellyfin applies the user's folders, parental rating and tags), and the rest is kept for the profile in `profile_hidden_item`. Such a program still airs, blacked out like an age-restricted one but as **No access** ("Not shared on Jellyfin"; `Restriction.NoAccess`, `ProfileAccess`), joins the restricted stretch around it, never plays on demand and drops out of a show's episode list. A channel whose every upcoming program is hidden from the profile leaves its guide, On demand and surfing altogether (`ProfileRepository.tunable`, `ScheduleDao.hiddenChannels`; user decision: what a profile can't use isn't shown). A new sign-in clears what was hidden from the user before and syncs the server to look again. A library the server's own sign-in can't see never reaches any channel, so that sign-in wants the widest access.
+- **Library access** (user decision): channels are shared, but a profile sees only what its own Jellyfin user may. Every library sync lists, ID-only, what each profile's user can see in the synced libraries (`LibrarySyncer.findHidden`: the user's own views, then each one's item ids, so Jellyfin applies the user's folders, parental rating and tags), and the rest is kept for the profile in `profile_hidden_item`. Such a program still airs, blacked out like an age-restricted one but as **No access** (`Restriction.NoAccess`, `ProfileAccess`), joins the restricted stretch around it, never plays on demand and drops out of a show's episode list. A channel whose every upcoming program is hidden from the profile leaves its guide, On demand and surfing altogether (`ProfileRepository.tunable`, `ScheduleDao.hiddenChannels`; user decision: what a profile can't use isn't shown). A new sign-in clears what was hidden from the user before and syncs the server to look again. A library the server's own sign-in can't see never reaches any channel, so that sign-in wants the widest access.
 - **Roles** (user decision, `ProfileRights`, unit-tested). The first profile set up is the **owner**, the root admin; there is always exactly one. The owner makes other profiles **admins** and back, edits every profile without its PIN, can't be deleted, and can hand the owner role to another profile (*Transfer ownership*, select twice), staying an admin. An admin edits members' profiles without their PINs and the admin's own, never another admin's or the owner's. A **member** edits only the member's own profile. Only the owner and admins add profiles.
 - **No access means not shown** (user decision): a profile never sees a setting it can't change. *Manage profiles* lists only the profiles the one watching may edit; on the profile page, *Parental Rating* shows only to the owner or an admin editing a member, *Set Admin* and *Transfer ownership* only to the owner editing someone else, and the *Permissions* heading only when one of them shows.
 - **PINs.** 4 digits, stored as `pbkdf2$20000$salt$hash` (PBKDF2-HMAC-SHA256 written over `Mac`, since `PBKDF2WithHmacSHA256` arrived in API 26). A profile's PIN is asked when switching to it (always at launch) and before editing one's own profile (user decision). Five wrong PINs in a row block PIN checks for 30 seconds.
 - **App-wide settings are the owner's and admins'** (user decision): media servers, channels (lineups, numbers, groups, segments, Add to channel, logos), web control and the dashboard. A member doesn't see them at all: Settings shows only Playback and Appearance, the Dashboard tab is gone, the guide and On demand offer no *Add to a channel*, and the empty-guide page has no Settings link. A member who lands on one of those routes anyway (a restored back stack) is sent back (`AdminOnly`). Pairing a browser is app-wide too: on a member's profile the pairing overlay doesn't show.
 - **Per profile** (user decision): watch history (*Live TV* and *On demand*, stored as `sync.live.<profile>` and `sync.ondemand.<profile>`), the theme, audio and subtitles, the guide's open tab and the last channel. Deleting a profile signs its Jellyfin user out and removes its settings.
 - **Channels are shared** (user decision): every profile sees every channel, group, number and schedule; channel tables carry no profile. The library's channels are made once from the whole library.
-- **Parental Rating** (Permissions on the profile page, user decision): members only, set by the owner or an admin. The choices are Jellyfin's own ratings (user decision): the server's `/Localization/ParentalRatings` table, kept at every sync (`ratings.table.<server>`), one level per score, from *No limit* down. A level shows only when some item in the library scores above the level under it and up to it, so every step changes what plays; items rated in another country's system ("NC16", "12+") count by their score. A level is named with the table's ratings the library carries most, at most two ("TV-MA / R"), else the table's first for that score (`RatingLimits.levels`, unit-tested). Before the first sync stores a table, the library's own ratings stand in. A program rated over the limit, or unrated under a limit, still airs on its channel but is **age restricted** for the profile (`Restriction.Age`): its picture and backdrop are blacked out, its overview is dropped, and its title, logo and episode are blurred wherever they show (user decision; `Modifier.obscured`, a real blur from API 31, a solid bar on older devices such as Fire OS, and screen readers hear "Restricted"). Back-to-back restricted programs count as **one stretch** (user decision): the guide merges them into one cell (`ProgramStrip.mergeRestricted`, unit-tested), and every "until" (the player's, the guide's cell and actions, On demand's tile and channel page) is the end of the whole stretch (`ScheduleDao.restrictedUntil`: the first slot from there that is off air, or within the limit and not hidden from the profile). The channel player keeps the screen dark with a lock, AGE RESTRICTED, the rating against the limit and UNTIL the stretch's end, then tunes itself again; a restricted program is never queued behind another or pre-warmed, and nothing is reported. The guide's cells lie on the ground with a lock and *Age restricted · until …*, and its actions offer only *Watch live* (dark) while the stretch airs. On demand never deals a restricted channel to the banner, its tile says *Age restricted until …* over a black picture, the channel page offers only *Watch live*, nothing over the limit plays on demand, and a show's episode list keeps to the limit.
+- **Parental Rating** (Permissions on the profile page, user decision): members only, set by the owner or an admin. The choices are Jellyfin's own ratings (user decision): the server's `/Localization/ParentalRatings` table, kept at every sync (`ratings.table.<server>`), one level per score, from *No limit* down. A level shows only when some item in the library scores above the level under it and up to it, so every step changes what plays; items rated in another country's system ("NC16", "12+") count by their score. A level is named with the table's ratings the library carries most, at most two ("TV-MA / R"), else the table's first for that score (`RatingLimits.levels`, unit-tested). Before the first sync stores a table, the library's own ratings stand in. A program rated over the limit, or unrated under a limit, still airs on its channel but is **age restricted** for the profile (`Restriction.Age`): its picture and backdrop are blacked out, its overview is dropped, and its title, logo and episode are blurred wherever they show (user decision; `Modifier.obscured`, a real blur from API 31, a solid bar on older devices such as Fire OS, and screen readers hear "Restricted"). Back-to-back restricted programs count as **one stretch** (user decision): the guide merges them into one cell (`ProgramStrip.mergeRestricted`, unit-tested), and every "until" (the player's, the guide's cell and actions, On demand's tile and channel page) is the end of the whole stretch (`ScheduleDao.restrictedUntil`: the first slot from there that is off air, or within the limit and not hidden from the profile). The channel player keeps the screen dark with a lock, AGE RESTRICTED and UNTIL the stretch's end, then tunes itself again (the program's rating, the profile's limit and where a hidden program comes from are never shown; user decision: a child watching needn't know; the off-air screen takes the same mark, see `DESIGN.md`, Stand-in Mark); a restricted program is never queued behind another or pre-warmed, and nothing is reported. The guide's cells lie on the ground with a lock and AGE RESTRICTED  UNTIL …, and its actions offer only *Watch live* (dark) while the stretch airs. On demand never deals a restricted channel to the banner, its tile shows the lock and AGE RESTRICTED over a black picture and UNTIL … under it, the channel page offers only *Watch live*, nothing over the limit plays on demand (the on-demand player shows the same dark screen), and a show's episode list keeps to the limit.
 - **Wording and grouping** (user decision): the profile page never calls a profile "it" or uses a personal pronoun, and repeats no profile name in a row (the page title carries it). It has two groups, the way account pages group settings: *Profile* (Theme; the sign-in, *Authentication* with one server or one row named after each server when there are more, showing the Jellyfin user the profile plays as there, or *Not signed in*; Set PIN or Change PIN; Remove PIN), the same for everyone who may edit the profile, then *Permissions* (Set Admin, Parental Rating, Transfer ownership), what the owner or an admin sets. Row titles are two words at most (user decision). *Delete profile* (select twice) stands apart at the foot under no heading.
 
 ### Themes (Phase 8)
@@ -318,127 +319,24 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - **Banner ends are squares** (user decision): the channel number block and the NEXT block are squares of one size, as tall as the banner (`SquareEnds` settles the side by asking the middle column its height at the width left over). NEXT shows the next program's logo or title, then S#E# and the episode title. Under a logo, a movie's line puts its title beside its year, 2025 · Title, in NEXT, both banners and the guide's details (user decision); without a logo the title is set above and the year stands alone. In the guide a movie's year leads its line, so its facts keep only the rating.
 - **Guide grid layout is unchanged.** The redesign only restyled it: the program on air carries a small square drawn from the clock without recomposing rows; the now line runs over the cells down from a playhead in the time header (user decision: on the blocks, not behind them); the focused cell's detail text is full ink so it stays legible under the past shade; cells too narrow for a word show only their fill. On phones the channel column stacks the number above the name.
 
-## UI redesign verification (2026-10-07)
+## Verification log
 
-- **Gradle:** `assembleDebug testDebugUnitTest lintDebug` passes, including the JVM module tests (`ThemeSpecTest` checks `rose.json` against `DefaultTheme`).
-- **Devices:** Google TV AVD (1920×1080), Pixel 8 AVD and the same AVD resized to a 2560×1600 tablet. Every top-level screen, the player banner, number entry, program actions, settings (TV setup menu with info panel, phone switch and choice list), show page and dashboard were captured on the shipped device classes.
-- **Review:** a separate design review asked for eight fixes (touch controls in settings, focused-cell contrast under the past shade, the phone details line, phone back bars, a solid banner, pinned settings headers, bare narrow guide cells, the nav). After two rounds it passed them. The now line stays over the cells by user decision.
-- Not checked: hardware (Fire TV Stick waits for Phase 11), the launcher icon on a real launcher, 1.3× font scale, and the profile picker with more than one profile.
+Every milestone passed `assembleDebug testDebugUnitTest lintDebug` (most also `assembleRelease`). Lint stays clean in the library modules; the app module keeps two old warnings (`DataExtractionRules`, `IconMissingDensityFolder`). Device checks ran on the `atv` (Google TV) and `phone` (Pixel 8) AVDs against the real server, debug builds unless noted. The AVD numbers are the baselines for Phase 12. Items not yet checked on a device are under *Known follow-ups*.
 
-## Library channels verification (2026-10-07)
-
-- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 169 unit tests, 0 failures (generator names, segments, mixing rules, anime and cartoon decisions, thresholds, duplicates, order, rating limits, determinism, lineups matching exactly what was counted; the sync's add, refresh, remove and segment numbering; the word list and its 1,400 names; audio languages from the mapper). Lint shows no issues in any library module; the app module keeps its two earlier warnings.
-- **Speed:** 50,000 items generate in about 150–220 ms on a warm JVM. Reading each show's genre, tag and studio lists once instead of once per episode made it about three times faster.
-- **Google TV AVD, real server** (276 shows, 3,749 items, mostly anime; TVDB and TMDB metadata):
-  - The first rules made 185 channels: TMDB's mood, time-setting and meta keywords became themes, and anime lists every regional station that carried a show. With ignored tags, an 8-show bar for themes and the rule that drops a studio inside a bigger one, the library gets 106 channels: Productions 32 (1000–1031), Decades 7 (2000–2006), Genres 30 (3000–3029), Themes 37 (4000–4036), scheduled 30 days ahead in about 9 s (debug build).
-  - Of 276 shows, 221 are anime, 10 cartoons, 42 neither and 3 unclear (an untagged anime film with Japanese audio, a western cartoon whose files default to a Japanese dub, and one more). A check of every scheduled airing found no genre or decade channel mixing series and movies or kinds, or airing unclear animation.
-  - Following the library: new rules installed over existing channels removed and added channels at the next sync and renamed others in place. Changing a channel's playback order stopped it being managed while the rest moved around it. Deleting a managed channel recorded it and renumbered the rest; *Removed channels* listed it and *Bring back* restored it in its place.
-  - *Channel numbers*: setting Productions to 100 renumbered them 100–130 at once, and back to 1000–1030. *Add a segment* made a named group starting at the next free thousand.
-- Not checked on a device: the phone layouts of the new screens, kid profiles (the AVD has one profile), putting a channel into a segment, and the last change to where a segment or a channel built outside one starts (5000 with the defaults; covered by the build only).
-
-## Audio and subtitles verification (2026-10-07)
-
-- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, with new JVM tests for language codes, the track rules, track storage and the mapper (`items_subtitles_derived.json`). libass adds 2–3 MB of native code per ABI (about 11 MB in the universal APK).
-- **Google TV AVD, real server**, after a full sync of a library where most episodes carry ASS with embedded fonts and many have more than one audio language. Defaults: audio Japanese, Korean, English; subtitles in English when audio is in another language.
-  - The settings screens work with the D-pad: numbered lists, the picker and its filter, the mode tile.
-  - Direct play: Japanese audio wins over English, and the English ASS is drawn by libass with the file's fonts, full screen and in the guide's preview.
-  - A Korean and English item without Japanese (transcoded): Korean audio is requested by `audioStreamIndex`, and the full English subtitle is side-loaded instead of the forced one; the player offers just that one.
-  - A transcoded ASS episode on demand: the side-loaded ASS and its 18 fonts (cached) are drawn as authored. The next episode, also ASS, isn't queued and starts on its own with its subtitles.
-- Not checked on a device: the settings screens on the phone, and a channel moving from a program to an unqueued ASS program at its scheduled end.
-
-## Phase 6 verification (2026-10-07)
-
-- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 133 unit tests, 0 failures (guide strips, window reads and merges, badges, program text, grid navigation and paging, on-demand reporting rules). Lint shows no issues in any library module; the app module keeps its two earlier warnings.
-- **Google TV AVD, real server:** the preview plays the last channel; D-pad moves cell to cell, pages the hours, scrolls rows and hands focus to the drawer (landing on Guide) and the tabs; details and badges follow the selection; OK previews, OK again goes full screen (from the pre-warmed standby), and Back returns to the guide still playing, with the selection kept. Program actions, on-demand show and item pages, *Watch from here* from Jellyfin's resume point, pause and seeking, the next episode queued, the resume point updated after stopping, and Add to channel all work.
-- **Phone AVD** (a copy of the TV's database, no sign-in): tap to select and preview, fling sideways, vertical scrolling, on-demand pages.
-- **100 channels** (58 copies added to the TV AVD's database for the test, scheduled 30 days ahead in 11 s), release build, `dumpsys gfxinfo`:
-  - Phone AVD, flinging up, down and sideways: 2.9% of 961 frames missed their deadline, 14 with a slow UI thread.
-  - Google TV AVD, D-pad down 60 rows, right 12, back up and left with the preview playing: 8.4% missed. UI-thread work stayed within budget (p99 15.5 ms, 1 of 120 frames over 16 ms); the misses come from render-thread time, since both AVDs draw with the software GPU and decode the preview in software. Clipping every cell to a rounded path cost render time and was replaced with shaped backgrounds. The real numbers come from the Fire TV Stick in Phase 11.
-
-## Phase 5 verification (2026-10-06)
-
-- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 120 unit tests, 0 failures (stream decisions, watch rules and the earlier suites). Lint shows no issues in any library module; the app module keeps its two earlier warnings.
-- **FFmpeg smoke test** on the Google TV AVD: the extension loads into `DefaultRenderersFactory` and decodes all four samples.
-- **Google TV AVD, real server** (debug build):
-  - Library sync is now about 20 s for 3.7k items (it was 77 s while media segments were fetched).
-  - Tune to first frame: 1.0–1.8 s cold with direct play, 1.0 s when swapping from the standby, 9.2 s for HLS (a 10-bit HEVC episode the emulator can't decode; the server starts transcoding mid-file). The `Tune` trace section and log line report each one.
-  - The info banner, number entry (two digits), up/down surfing, the controls panel and the audio picker work with the D-pad.
-  - Gapless hand-off: the next program started 2.0 s behind the schedule (the tune latency), under the 3 s threshold, and the banner moved on to it.
-
-## Phase 4 verification (2026-10-06)
-
-- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 117 unit tests, 0 failures. Lint shows no issues in any library module; the app module keeps its two earlier warnings.
-- **Unit tests:**
-  - Matcher: every field and operator, case-insensitive lists, whole-word keywords, rating text and scores, missing values, AND within a group and OR across groups, weights, includes and excludes; 50,000 items match in under 50 ms.
-  - Rule rows round-trip, including picks, weights and groups kept for dayparts.
-  - Inputs: base pool, rating limit, override seasons as seasonal pools, daypart rule groups only inside their window, fingerprints.
-  - `ScheduleUpdater`: a new schedule starts at the current hour and reaches 30 days; unchanged inputs are left alone; extension keeps every existing row and stays contiguous; a new lineup keeps the airing on now and the next one; an airing whose item was deleted is replaced from its start; hidden channels get nothing; a schedule that ran out restarts at the current hour.
-  - Box-set membership changes (own and series box sets, removals), box-set reading through the SDK, logo upload routes (401, 404, 400 for non-images, 413, versioned caching).
-- **Google TV AVD, real server:**
-  - After a full sync, 42 channels in 8 groups were scheduled in 4.7 s (debug build); 73k rows, all contiguous, every program exactly its item's length, 30 days ahead, starting at the current hour. App restarts and later syncs report every schedule up to date.
-  - Channel list, detail (now and next airings at back-to-back times), lineup editor with live match counts, a new channel built with the D-pad (genre filter, multi-pick, a second rule), playback order, favorite, group, rename and renumber (swapping two channels), and delete all work; edits reschedule the channel at once.
-  - A 512 px PNG uploaded over `PUT /api/channels/1/logo` was stored as 256 px, served with a versioned immutable URL and shown on the channel page.
-
-## Phase 3 verification (2026-10-05)
-
-- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 84 unit tests, 0 failures. Lint shows no issues in any library module; the app module keeps its two earlier warnings.
-- **Scheduler tests (JVM):**
-  - Determinism: the same inputs give identical slots and state bytes; another seed gives another schedule; input order doesn't matter.
-  - Splitting: 30 days at once equals 10 days, then `encode`/`decode` of the state, then 20 more, for all three orders, with a seasonal lineup and a daypart.
-  - Back to back: in Manila, Kathmandu (+05:45) and New York across the November DST change, rows are contiguous and every program row lasts exactly as long as its item.
-  - `nowPlaying` at a program start, inside it, exactly where the next episode starts, off air, and just outside the schedule.
-  - Orders: shuffle decks hold every item once with no repeat across decks; episode order plays each show in order and wraps; block runs have the block length; show weights 1:2:5 air within 2 percentage points of 1/8, 2/8 and 5/8 over about 5,700 programs.
-  - A Dec 20 – Jan 5 lineup switches by local date across the new year; dayparts (one wrapping midnight) hold across both US DST changes; an empty window goes off air and returns exactly at the window's end; an empty pool is off air until each local midnight.
-  - Performance: 100 channels × 30 days (pool building included, about 93k slots) take about 0.2 s on the JVM; the limit is 5 s.
-- **`ScheduleRepository`:** saving a generated schedule and resolving `nowPlaying` through the DAO gives the same answer as the engine; the stored state resumes; an unreadable state counts as missing.
-- No device check this phase: nothing on screen uses the scheduler until channels exist (Phase 4).
-
-## Phase 2 verification (2026-10-05)
-
-- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, plus the JVM module tests: 58 unit tests, 0 failures. The new tests run the mapper and the real SDK request/decoding path (through a fixture-backed `ApiClient`) against anonymized JSON recorded from a Jellyfin 12.1.0 server. `items_movie_page_derived.json` is built from a recorded episode because the test account has no movie library. Lint shows no issues in any library module; the app module keeps its two earlier warnings (`DataExtractionRules`, `IconMissingDensityFolder`).
-- **Google TV AVD:**
-  - Adding a server by bare domain resolved to its `https://` URL; adding it by bare IP resolved to `http://<ip>:8096`.
-  - Sign-in worked both times. Adding the server again by IP kept a single entry.
-  - The token survived an app restart (Keystore decrypt).
-  - First sync: show and episode counts equal `/Items/Counts` for the user exactly. About 3.7k items took about 77 s on the emulator.
-  - Second sync: `incremental since …, 0 items fetched` for both libraries, then the reconcile pass; 2.9 s in total.
-
-## Phase 1 verification (2026-10-05)
-
-- **Gradle:** `assembleDebug testDebugUnitTest lintDebug assembleRelease` passes, along with the JVM module tests and both test modules. That is 38 unit tests with 0 failures, and lint reports no issues in any library module.
-- **Web UI:** `pnpm check` reports 0 errors; `pnpm build` passes.
-- **Google TV AVD:**
-  - Launch goes straight to the guide when there is one profile.
-  - The first tile has focus, and D-pad works through the guide, player (channel up/down), drawer, settings and profiles.
-  - The PIN overlay appears with Cancel focused.
-- **Phone AVD:** the notification permission prompt, bottom navigation, Settings with the LAN URLs, and light status bar icons all work.
-- **Web server** (debug and R8 release builds):
-  - `/api/health` is open.
-  - `/api/*` and `/ws` return 401 when unpaired; cross-origin POST returns 403.
-  - A wrong PIN is rejected; the right PIN sets an HttpOnly cookie, after which `/api/session`, `/api/channels`, `/api/profiles` and `/ws` (101) work.
-  - The SPA is served gzipped with immutable caching for hashed assets.
-- **Cold start on AVDs:** about 1.8 s for debug (unoptimized) and 0.69 s for release on the phone AVD. The real target is measured on a Fire TV Stick in Phase 11.
-
-## Artwork, stream facts and channel seeking verification (2026-10-08)
-
-- **Gradle:** `assembleDebug` passes; new JVM tests for `Artwork` (series fallback, own art first, none), `StreamFacts` (quality, codecs, audio layouts), `ScheduleRepository.shift` (seeking back keeps the shown part as history and merges repeats; seeking ahead cuts or drops what it overlaps; engine state and `generatedUntil` move) and the mapper's backdrop and logo tags.
-- **Database:** version 5 (two artwork columns); version 4 is dropped like every pre-release schema, so the server is added again and the library re-synced.
-- **Google TV AVD, real server:** nearly every show and movie has a backdrop and a logo. The guide's details show the logo over the washed backdrop with five overview lines; show pages open on the hero. In the player, the tech line read "<server> | DIRECT PLAY 1080P H.264 OPUS STEREO"; 30 s ahead moved the airing 27 s earlier and *Start from beginning* 679 s later, with the guide showing the shown part as its own airing. On the device's SQLite, the channel's 1,838 slots stayed back to back with no gaps and the last one ended at the stored `generatedUntil`. Audio choices opened inside the banner.
-- **Phone AVD** (the TV's database; its own sign-in is rejected by the server, so nothing plays there): the guide stacks a full-width preview over the details, the player turns sideways and hides the bars and Back restores portrait, the show page's hero runs under the back arrow, and the banner's keys sit under the program like on TV.
-- Not checked: transcoding's label on a device, a phone that can play, tablets, seeking across a program's end on a channel with ASS subtitles, and contrast over every backdrop.
-
-## On demand by channel verification (2026-10-08)
-
-- **Gradle:** `assembleDebug testDebugUnitTest lintDebug` passes, with new JVM tests for track names (`TrackLabels`: a language alone, only the facts that differ, numbering, no language) and the watch choices (tense, minutes, wording by when it airs). Lint shows no new issues; `SettingsScreen` and the app module keep their earlier warnings.
-- **Google TV AVD, real server:** the banner deals ten airing channels and holds while focused; rows follow the group order with the time left and ladders; Back from a channel page lands on the tile it came from. A channel's page shows the program and its choices on the first screen; down from the last choice lands on the episode on the channel; Menu on it offers the page's choices, live included. The guide's actions read by tense (on now, later; a movie offers *Add movie to a channel*). In the player, *Previous* stepped from an episode to the one before it and NEXT followed; on a first episode *Previous* stays dimmed in place; the audio list showed languages only.
-- **Phone AVD** (the TV's database; nothing plays there): banner, rows, channel page with *Watch live* as the rose primary, a held episode's dialog, and the banner size row with its list.
-- A finish design review asked for five fixes (a status label above the on-air episode, a primary choice on touch, the phone ladder's pitch, the banner row's wording, a recorded direction); all were made.
-- Not checked: an off-air channel's page (no channel was off air), two subtitle tracks in one language on a device, tablets.
-
-## Profile accounts and library access verification (2026-10-09)
-
-- Built (`:app:compileDebugKotlin`, schema 7 exported) and unit-tested: `ProfileAccessTest`, the guide's restricted stretches with hidden items (`GuideTest`), and every other module's tests.
-- Not checked on a device (both AVDs were offline): a member signed in on a second server, playing as a profile's own user (Jellyfin's dashboard should show that user), a library the profile's user can't see blacked out as No access, a channel made only from such a library leaving the guide, and a profile whose token is gone.
+| Date | Milestone | Tests | Key results |
+|---|---|---|---|
+| 10-05 | Phase 1 | 38 | Unpaired `/api` and `/ws` get 401, cross-origin POST 403; the right PIN sets an HttpOnly cookie; SPA served gzipped. Cold start 1.8 s debug, 0.69 s release (phone AVD) |
+| 10-05 | Phase 2 | 58 | Sign-in by domain and by IP keeps one entry; token survives a restart; first sync matches `/Items/Counts`; second sync fetches 0 items in 2.9 s |
+| 10-05 | Phase 3 | 84 | Determinism, 30 days = 10 + 20, back to back across DST and +05:45, weights within 2 points. 100 channels × 30 days in 0.2 s on the JVM (limit 5 s) |
+| 10-06 | Phase 4 | 117 | Matcher: 50k items under 50 ms. 42 channels scheduled in 4.7 s, 73k contiguous rows. Logo upload stored at 256 px with an immutable URL |
+| 10-06 | Phase 5 | 120 | FFmpeg decodes AC3, E-AC3, DTS, TrueHD. Sync of 3.7k items about 20 s. Tune 1.0–1.8 s direct, 1.0 s from the standby, 9.2 s over HLS. Hand-off 2.0 s behind (under the 3 s threshold) |
+| 10-07 | Phase 6 | 133 | 100 channels, release build: phone fling 2.9% missed frames; TV D-pad 8.4% (UI thread p99 15.5 ms, the rest is the AVDs' software GPU) |
+| 10-07 | UI redesign | — | Every top-level screen on TV, phone and a 2560×1600 tablet; all design-review fixes made |
+| 10-07 | Audio and subtitles | — | Language picks direct and transcoded; libass draws ASS with embedded fonts; libass adds 2–3 MB per ABI |
+| 10-07 | Library channels | 169 | Generation 150–220 ms for 50k items (warm JVM). The real library gives 106 channels (Productions 32, Decades 7, Genres 30, Themes 37), scheduled in about 9 s; no genre or decade channel mixes series and movies or anime and cartoons |
+| 10-08 | Artwork, stream facts, seeking | — | Logos and backdrops in the guide and show pages; tech line in the banner; seeking shifts the schedule and 1,838 slots stayed back to back |
+| 10-08 | On demand by channel | — | Banner, rows, channel pages, *Previous* and NEXT; all design-review fixes made |
+| 10-09 | Profile accounts and library access | all modules | Built and unit-tested only (`ProfileAccessTest`, `GuideTest`); both AVDs were offline |
 
 ## Known follow-ups
 
@@ -446,11 +344,16 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - In an anime-heavy library several school themes overlap (School, High School, Japanese High School, School Life); none is similar enough to another to be dropped.
 - Movie sync is covered by the derived fixture only. Give the test account a movie library to check it against a real server.
 - `ScheduleEngine.rewind` rewinds show cursors but not shuffle decks: items in discarded slots of a shuffle channel wait for the next deck.
-- Box-set membership is only checked against hand-made fixtures: the test account's one box set lists no items it can see.
-- Choosing a logo on the device uses the system file picker, which many TV devices lack (not tried on the TV AVD); a browser can upload one with `PUT /api/channels/{id}/logo`. The web page for it comes with web UI parity (Phase 10).
+- Choosing a logo on the device uses the system file picker, which many TV devices lack (not tried on the TV AVD); a browser can upload one with `PUT /api/channels/{id}/logo`. The web page for it comes with web UI parity (Phase 11).
 - HLS takes about 9 s to start on the test server, and a channel tuned that way runs behind until its next program. Measure on the Fire TV Stick; the standby could pre-warm HLS channels earlier.
 - The off-air screen and the phone gestures weren't exercised on a device: no channel has dayparts yet, and only the TV AVD was used.
 - Music channels (and their now-playing screen) wait until music libraries are back.
-- Guide frame timing on the AVDs is limited by their software GPU; measure the 100-channel scroll on the Fire TV Stick (Phase 11).
+- Guide frame timing on the AVDs is limited by their software GPU; measure the 100-channel scroll on the Fire TV Stick (Phase 12).
 - The Add to channel page sits outside the tabs, so no drawer or bar destination is highlighted while it is open.
 - On a phone a channel's page opens on the on-air episode's season but doesn't scroll to the episode, so the program at the top stays in view.
+- Not yet checked on a device:
+  - Profiles: a member signed in on a second server, playing as a profile's own user (Jellyfin's dashboard should show that user), a library the profile's user can't see blacked out as No access, a channel made only from such a library leaving the guide, a profile whose token is gone, the profile picker with more than one profile, age-restricted profiles' schedules.
+  - Channels: putting a channel into a segment, and where a segment or a channel outside one starts (5000 with the defaults; build only).
+  - Playback: transcoding's label in the banner, seeking across a program's end on a channel with ASS subtitles, a channel moving from a program to an unqueued ASS program at its scheduled end, two subtitle tracks in one language, an off-air channel's page in On demand.
+  - Phones and tablets: a phone that can play (the phone AVD's sign-in is rejected by the server), the library-channel and audio/subtitle settings screens on a phone, tablets beyond the redesign captures.
+  - Looks: the launcher icon on a real launcher, 1.3× font scale, contrast over every backdrop.

@@ -4,6 +4,7 @@ import org.jellyfin.sdk.model.api.BaseItemKind
 import tv.anstelle.core.model.MediaType
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -15,9 +16,17 @@ class LibraryRulesTest {
         assertEquals(setOf(BaseItemKind.MUSIC_VIDEO), LibraryRules.itemKinds("musicvideos"))
         assertTrue(BaseItemKind.SERIES in LibraryRules.itemKinds(null))
         assertTrue(BaseItemKind.VIDEO in LibraryRules.itemKinds("homevideos"))
-        // Music is on hold, and books, photos and collections have nothing to air.
+        // Music is on hold, and books and photos have nothing to air.
         assertTrue(LibraryRules.itemKinds("music").isEmpty())
-        assertTrue(LibraryRules.itemKinds("boxsets").isEmpty())
+        assertTrue(LibraryRules.itemKinds("books").isEmpty())
+    }
+
+    @Test
+    fun `views that only gather other libraries' items are not libraries`() {
+        assertTrue(LibraryRules.isLibrary("movies"))
+        assertTrue(LibraryRules.isLibrary("music"))
+        assertTrue(LibraryRules.isLibrary(null))
+        assertFalse(LibraryRules.isLibrary("boxsets"))
     }
 
     @Test

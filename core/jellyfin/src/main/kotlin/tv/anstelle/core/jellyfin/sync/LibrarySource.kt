@@ -26,9 +26,6 @@ import javax.inject.Singleton
 /** A Jellyfin library (collection folder) the user can see. */
 data class RemoteLibrary(val id: String, val name: String, val collectionType: String?)
 
-/** A box set (a Jellyfin "collection" of movies or shows) the user can see. */
-data class RemoteBoxSet(val id: String, val name: String)
-
 data class ItemPage(val items: List<BaseItemDto>, val totalCount: Int)
 
 /** The server calls library sync needs. An interface so the sync logic can be tested offline. */
@@ -55,11 +52,6 @@ interface LibrarySource {
 
     /** Ids of every item below [parentId]. Cheap: no metadata. */
     suspend fun itemIds(parentId: String, kinds: Set<BaseItemKind>): List<String>
-
-    suspend fun boxSets(): List<RemoteBoxSet>
-
-    /** Ids of the movies, shows and episodes in a box set. */
-    suspend fun boxSetItemIds(boxSetId: String): List<String>
 }
 
 /** Creates a [LibrarySource] for a signed-in user on one server. */
@@ -91,8 +83,10 @@ internal class JellyfinLibrarySource(
         val libraries = linkedMapOf<String, RemoteLibrary>()
         for (view in views) {
             if (view.type != BaseItemKind.COLLECTION_FOLDER) continue
+            val type = view.collectionType?.serialName
+            if (!LibraryRules.isLibrary(type)) continue
             val id = view.id.toJellyfinId()
-            libraries[id] = RemoteLibrary(id, view.name.orEmpty(), view.collectionType?.serialName)
+            libraries[id] = RemoteLibrary(id, view.name.orEmpty(), type)
         }
         val grouped = views.any { it.type == BaseItemKind.USER_VIEW && it.collectionType != null }
         if (grouped) {
@@ -100,7 +94,9 @@ internal class JellyfinLibrarySource(
                 val id = option.id?.let(::normalizeJellyfinId) ?: continue
                 if (id in libraries) continue
                 val folder = api.libraryApi.getItem(itemId = id.toUUID(), userId = user).content
-                libraries[id] = RemoteLibrary(id, folder.name ?: option.name.orEmpty(), folder.collectionType?.serialName)
+                val type = folder.collectionType?.serialName
+                if (!LibraryRules.isLibrary(type)) continue
+                libraries[id] = RemoteLibrary(id, folder.name ?: option.name.orEmpty(), type)
             }
         }
         libraries.values.toList()
@@ -165,31 +161,6 @@ internal class JellyfinLibrarySource(
             start += page.size
         }
         ids
-    }
-
-    override suspend fun boxSets(): List<RemoteBoxSet> = jellyfinCall("Listing collections") {
-        api.libraryApi.getItems(
-            GetItemsRequest(
-                userId = user,
-                recursive = true,
-                includeItemTypes = listOf(BaseItemKind.BOX_SET),
-                enableImages = false,
-                sortBy = listOf(ItemSortBy.SORT_NAME),
-                enableTotalRecordCount = false,
-            ),
-        ).content.items.map { RemoteBoxSet(it.id.toJellyfinId(), it.name.orEmpty()) }
-    }
-
-    override suspend fun boxSetItemIds(boxSetId: String): List<String> = jellyfinCall("Listing a collection") {
-        // A box set's children are its linked items; no paging, box sets are small.
-        api.libraryApi.getItems(
-            GetItemsRequest(
-                userId = user,
-                parentId = boxSetId.toUUID(),
-                enableImages = false,
-                enableTotalRecordCount = false,
-            ),
-        ).content.items.map { it.id.toJellyfinId() }
     }
 
     private companion object {

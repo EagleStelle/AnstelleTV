@@ -16,8 +16,7 @@ import java.util.UUID
  * overviews and dates are replaced and file paths removed, while the structure and the
  * technical fields (streams, ticks, ratings) stay as the server sent them.
  * `items_movie_page_derived.json` is built from a recorded episode, because the test
- * account has no movie library. The `box_set*_derived.json` files are written by hand in
- * the server's shape, with only the fields box-set reading uses.
+ * account has no movie library.
  */
 object Fixtures {
     fun text(name: String): String =

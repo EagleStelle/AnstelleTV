@@ -3,6 +3,7 @@ package tv.anstelle.feature.guide
 import tv.anstelle.core.theme.components.obscured
 import tv.anstelle.core.data.ondemand.WatchChoices
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.TvOff
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDecay
@@ -73,6 +74,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -458,11 +460,18 @@ private fun ProgramCells(
             for (i in first until last) {
                 androidx.compose.runtime.key(strip.starts[i]) {
                     val restricted = strip.isRestricted(i, access)
+                    val offAir = strip.isOffAir(i)
+                    val until = "until ${WatchChoices.clockTime(strip.ends[i])}"
                     ProgramCell(
                         title = strip.titles[i],
-                        // The episode's own title is blacked out; a restricted stretch says when it ends.
-                        detail = if (!showDetail) null else if (restricted) "${Restriction.titleFor(strip.items[i], access)} · until ${WatchChoices.clockTime(strip.ends[i])}" else strip.details[i],
-                        offAir = strip.isOffAir(i),
+                        // A dark stretch says when it ends; a restricted one's episode is blacked out, so it says why too.
+                        detail = when {
+                            !showDetail -> null
+                            restricted -> "${Restriction.titleFor(strip.items[i], access)}  $until".uppercase()
+                            offAir -> until.uppercase()
+                            else -> strip.details[i]
+                        },
+                        offAir = offAir,
                         restricted = restricted,
                         // Ended programs recede; the one on air and its show's later airings keep
                         // the plain cell; every other show takes its run's color.
@@ -564,14 +573,19 @@ private fun ProgramCell(
             else -> theme.text
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            // The lock carries the restriction, so it never rests on color alone.
-            if (restricted) androidx.compose.material3.Icon(Icons.Filled.Lock, contentDescription = "Restricted", tint = titleColor, modifier = Modifier.size(if (tv) 12.dp else 13.dp))
+            // The icon carries the state (the stand-in marks' lock and TV-off), so it never rests on color alone.
+            when {
+                restricted -> androidx.compose.material3.Icon(Icons.Filled.Lock, contentDescription = "Restricted", tint = titleColor, modifier = Modifier.size(if (tv) 12.dp else 13.dp))
+                offAir -> androidx.compose.material3.Icon(Icons.Filled.TvOff, contentDescription = null, tint = titleColor, modifier = Modifier.size(if (tv) 12.dp else 13.dp))
+            }
             androidx.compose.material3.Text(
-                title,
+                // Off air, the cell's title is the state itself, set like the stand-in mark's.
+                if (offAir) title.uppercase() else title,
                 color = titleColor,
                 fontSize = if (tv) 14.sp else 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                fontFamily = theme.bodyFont,
+                fontFamily = if (offAir) theme.displayFont else theme.bodyFont,
+                letterSpacing = if (offAir) FIELD_TRACKING else TextUnit.Unspecified,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.obscured(restricted, titleColor, radius = 5.dp),
@@ -588,7 +602,10 @@ private fun ProgramCell(
                     else -> theme.textMuted
                 },
                 fontSize = if (tv) 11.sp else 12.sp,
-                fontFamily = theme.bodyFont,
+                // A dark stretch (off air, restricted) speaks in the field voice, uppercase, like its mark everywhere else.
+                fontWeight = if (dark) FontWeight.SemiBold else null,
+                fontFamily = if (dark) theme.displayFont else theme.bodyFont,
+                letterSpacing = if (dark) FIELD_TRACKING else TextUnit.Unspecified,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -619,6 +636,9 @@ private val MIN_TEXT_CELL = 44.dp
 private const val TONE_PAST = -2
 private const val TONE_PLAIN = -1
 private const val RUN_DETAIL_ALPHA = 0.76f
+
+/** The field voice's tracking, for a dark stretch's uppercase text. */
+private val FIELD_TRACKING = 0.06.em
 
 /** "Today", "Tomorrow" or the weekday and date of the left edge. */
 private fun dayLabel(windowStart: Long, now: Long): String {

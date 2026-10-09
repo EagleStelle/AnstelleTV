@@ -26,6 +26,7 @@ import tv.anstelle.core.data.Artwork
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.WatchAccount
 import tv.anstelle.core.data.ondemand.OnDemandRepository
+import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.data.programDetail
 import tv.anstelle.core.data.programTitle
 import tv.anstelle.core.database.dao.MediaItemDao
@@ -46,7 +47,8 @@ import tv.anstelle.core.player.StreamInfo
 import tv.anstelle.core.player.StreamPlanner
 import javax.inject.Inject
 
-enum class OnDemandStatus { LOADING, PLAYING, ENDED, ERROR }
+/** [RESTRICTED]: the profile may not watch the item ([OnDemandState.restriction] says why), so nothing plays. */
+enum class OnDemandStatus { LOADING, PLAYING, ENDED, RESTRICTED, ERROR }
 
 data class OnDemandState(
     val status: OnDemandStatus = OnDemandStatus.LOADING,
@@ -66,6 +68,8 @@ data class OnDemandState(
     val next: String? = null,
     /** The episode before this one in its show, or null (a movie, or the first episode). */
     val previous: String? = null,
+    /** Why the profile may not watch the item; set with [OnDemandStatus.RESTRICTED]. */
+    val restriction: Restriction? = null,
     val message: String? = null,
 )
 
@@ -144,13 +148,9 @@ class OnDemandPlayer @Inject constructor(
         scope.launch {
             prefs = tracks.prefs(profileId)
             val item = itemDao.byId(itemId)
-            if (item != null && !access.allows(item.id, item.ratingScore)) {
-                val message = if (access.isHidden(item.id)) {
-                    "No access. Jellyfin doesn't share this with the profile."
-                } else {
-                    "Age restricted. This is over the profile's maturity rating."
-                }
-                _state.update { it.copy(status = OnDemandStatus.ERROR, message = message) }
+            val restriction = item?.let { Restriction.of(it.id, it.ratingScore, access) }
+            if (restriction != null) {
+                _state.update { it.copy(status = OnDemandStatus.RESTRICTED, restriction = restriction) }
                 return@launch
             }
             val entry = item?.let { resolve(it, forceTranscode = false) }

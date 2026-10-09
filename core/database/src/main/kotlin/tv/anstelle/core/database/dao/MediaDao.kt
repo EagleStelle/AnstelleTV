@@ -23,20 +23,8 @@ data class SeriesMetadataRow(
     val genres: String,
     val studios: String,
     val tags: String,
-    val collections: String,
     val officialRating: String?,
     val ratingScore: Int?,
-)
-
-/** What sync keeps from a stored item when the server sends it again. */
-data class StoredItemRow(val id: Long, val remoteId: String, val collections: String)
-
-/** An item's box-set membership, for reconciliation. */
-data class ItemCollectionsRow(
-    val id: Long,
-    val remoteId: String,
-    val seriesRemoteId: String?,
-    val collections: String,
 )
 
 /** The metadata channel rules test, for one item. Loaded for the whole library at once. */
@@ -54,7 +42,6 @@ data class CatalogRow(
     val genres: String,
     val studios: String,
     val tags: String,
-    val collections: String,
     val year: Int?,
     val officialRating: String?,
     val ratingScore: Int?,
@@ -103,9 +90,6 @@ interface LibraryDao {
     @Query("SELECT * FROM library WHERE serverId = :serverId ORDER BY name")
     suspend fun forServer(serverId: Long): List<LibraryEntity>
 
-    @Query("SELECT * FROM library WHERE id = :id")
-    suspend fun byId(id: Long): LibraryEntity?
-
     @Upsert
     suspend fun upsert(library: LibraryEntity): Long
 
@@ -133,8 +117,8 @@ interface MediaItemDao {
     @Query("SELECT * FROM media_item WHERE serverId = :serverId AND remoteId = :remoteId")
     suspend fun byRemoteId(serverId: Long, remoteId: String): MediaItemEntity?
 
-    @Query("SELECT id, remoteId, collections FROM media_item WHERE serverId = :serverId AND remoteId IN (:remoteIds)")
-    suspend fun storedFor(serverId: Long, remoteIds: List<String>): List<StoredItemRow>
+    @Query("SELECT id, remoteId FROM media_item WHERE serverId = :serverId AND remoteId IN (:remoteIds)")
+    suspend fun storedFor(serverId: Long, remoteIds: List<String>): List<ItemIdRow>
 
     @Query("SELECT id, remoteId FROM media_item WHERE serverId = :serverId")
     suspend fun allIds(serverId: Long): List<ItemIdRow>
@@ -162,7 +146,7 @@ interface MediaItemDao {
 
     @Query(
         """
-        SELECT remoteId, genres, studios, tags, collections, officialRating, ratingScore
+        SELECT remoteId, genres, studios, tags, officialRating, ratingScore
         FROM media_item WHERE serverId = :serverId AND type = :seriesType
         """,
     )
@@ -173,15 +157,12 @@ interface MediaItemDao {
         """
         SELECT m.id, m.remoteId, l.remoteId AS libraryRemoteId, m.type, m.title, m.seriesRemoteId,
                m.showTitle, m.season, m.episode, m.durationMs, m.genres, m.studios, m.tags,
-               m.collections, m.year, m.officialRating, m.ratingScore, m.audioLanguages
+               m.year, m.officialRating, m.ratingScore, m.audioLanguages
         FROM media_item m LEFT JOIN library l ON l.id = m.libraryId
         ORDER BY m.id
         """,
     )
     suspend fun catalog(): List<CatalogRow>
-
-    @Query("SELECT id, remoteId, seriesRemoteId, collections FROM media_item WHERE serverId = :serverId")
-    suspend fun collectionRows(serverId: Long): List<ItemCollectionsRow>
 
     /** A show's episodes within [maxRating], in airing order: seasons, then specials, then unnumbered ones. */
     @Query(
@@ -193,9 +174,6 @@ interface MediaItemDao {
         """,
     )
     suspend fun episodes(serverId: Long, seriesRemoteId: String, episodeType: MediaType, maxRating: Int?): List<MediaItemEntity>
-
-    @Query("UPDATE media_item SET collections = :collections WHERE id = :id")
-    suspend fun setCollections(id: Long, collections: String)
 
     /** Inserts new items (id 0) and updates existing ones in place, so local ids stay stable. */
     @Upsert

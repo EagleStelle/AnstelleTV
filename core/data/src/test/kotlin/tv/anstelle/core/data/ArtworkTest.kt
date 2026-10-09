@@ -14,7 +14,7 @@ class ArtworkTest {
     private fun entity(remoteId: String, type: MediaType, backdrop: String? = null, logo: String? = null) = MediaItemEntity(
         serverId = 1, libraryId = 1, remoteId = remoteId, type = type, title = remoteId, sortTitle = null,
         seriesRemoteId = null, showTitle = null, season = null, episode = null, durationMs = 0, genres = "", studios = "",
-        tags = "", collections = "", year = null, premiereDateUtcMs = null, officialRating = null, ratingScore = null,
+        tags = "", year = null, premiereDateUtcMs = null, officialRating = null, ratingScore = null,
         overview = null, communityRating = null, hdrType = HdrType.SDR, audioFormat = null, videoCodec = null,
         audioCodec = null, container = null, width = null, height = null, videoBitDepth = null, audioChannels = null,
         mediaSourceId = null, tracks = MediaTracks(emptyList(), emptyList(), emptyList()), audioLanguages = "",

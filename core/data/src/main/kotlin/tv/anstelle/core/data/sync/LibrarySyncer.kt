@@ -10,7 +10,6 @@ import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.database.AnstelleDatabase
-import tv.anstelle.core.database.dao.ItemCollectionsRow
 import tv.anstelle.core.database.dao.LibraryDao
 import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.MediaServerDao
@@ -51,7 +50,7 @@ data class SyncOptions(
  * - **Series first:** episodes usually have no genres, studios, tags or rating of their
  *   own, so series are stored before episodes and episodes inherit from them. When a
  *   series changes, its episodes are fetched again.
- * - **Reconciliation:** deletions and box-set membership don't touch `DateLastSaved`, so
+ * - **Reconciliation:** deletions don't touch `DateLastSaved`, so
  *   an ID-only listing (cheap: no metadata) runs every few hours. Deleted
  *   items are removed and the schedules that air them are marked for regeneration.
  * - **Profiles:** every sync lists, ID-only, what each profile's own Jellyfin user can see; the
@@ -274,10 +273,7 @@ class LibrarySyncer @Inject constructor(
     private suspend fun store(serverId: Long, dtos: List<BaseItemDto>, context: SyncContext) {
         if (dtos.isEmpty()) return
         val existing = itemDao.storedFor(serverId, dtos.map { it.id.toJellyfinId() }).associateBy { it.remoteId }
-        val entities = dtos.mapNotNull { dto ->
-            val stored = existing[dto.id.toJellyfinId()]
-            ItemMapper.map(dto, context, stored?.id ?: 0L, stored?.collections)
-        }
+        val entities = dtos.mapNotNull { dto -> ItemMapper.map(dto, context, existing[dto.id.toJellyfinId()]?.id ?: 0L) }
         if (entities.isNotEmpty()) itemDao.upsertAll(entities)
     }
 
@@ -291,27 +287,8 @@ class LibrarySyncer @Inject constructor(
         }
         val gone = itemDao.allIds(server.id).filter { it.remoteId !in remoteIds }.map { it.id }
         removeItems(gone)
-        reconcileCollections(server, source)
         serverDao.setReconciled(server.id, time.nowUtcMs())
         AppLog.i(TAG, "${server.name}: reconciled ${remoteIds.size} items, removed ${gone.size}")
-    }
-
-    /**
-     * Box-set membership isn't part of an item, so it is read per box set and written to the
-     * items' `collections`. Episodes get their series' box sets.
-     */
-    private suspend fun reconcileCollections(server: MediaServerEntity, source: LibrarySource) {
-        status.update(server.id, "Reading collections…")
-        val boxSets = source.boxSets()
-        val members = HashMap<String, MutableList<String>>()
-        for (boxSet in boxSets) {
-            for (id in source.boxSetItemIds(boxSet.id)) members.getOrPut(id) { ArrayList() } += boxSet.name
-        }
-        val changes = collectionChanges(itemDao.collectionRows(server.id), members)
-        if (changes.isNotEmpty()) {
-            database.withTransaction { for ((id, value) in changes) itemDao.setCollections(id, value) }
-        }
-        AppLog.i(TAG, "${server.name}: ${boxSets.size} collections holding ${members.size} items or shows, ${changes.size} items changed")
     }
 
     /**
@@ -339,20 +316,6 @@ class LibrarySyncer @Inject constructor(
         const val WATERMARK_OVERLAP_MS = 5 * 60 * 1000L
         const val RECONCILE_INTERVAL_MS = 6 * 60 * 60 * 1000L
     }
-}
-
-/**
- * The `collections` values that change, by item id. [members] maps a Jellyfin item id to the
- * names of the box sets holding it; an item belongs to its own box sets and its series'.
- */
-internal fun collectionChanges(rows: List<ItemCollectionsRow>, members: Map<String, List<String>>): Map<Long, String> {
-    val changes = HashMap<Long, String>()
-    for (row in rows) {
-        val names = members[row.remoteId].orEmpty() + row.seriesRemoteId?.let(members::get).orEmpty()
-        val value = ItemMapper.pipeJoin(names.sortedWith(String.CASE_INSENSITIVE_ORDER))
-        if (value != row.collections) changes[row.id] = value
-    }
-    return changes
 }
 
 /** Item kinds to sync from this library; empty when it is turned off or holds nothing to air. */

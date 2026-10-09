@@ -50,7 +50,7 @@ data class Rule(val field: RuleField, val op: RuleOp, val values: List<String>) 
 
         /** The operators a rule on [field] may use. */
         fun opsFor(field: RuleField): List<RuleOp> = when (field) {
-            RuleField.GENRE, RuleField.STUDIO, RuleField.TAG, RuleField.COLLECTION ->
+            RuleField.GENRE, RuleField.STUDIO, RuleField.TAG ->
                 listOf(RuleOp.ANY_OF, RuleOp.NOT_ANY_OF, RuleOp.EQUALS, RuleOp.CONTAINS)
             RuleField.OFFICIAL_RATING ->
                 listOf(RuleOp.AT_MOST, RuleOp.AT_LEAST, RuleOp.BETWEEN, RuleOp.ANY_OF, RuleOp.NOT_ANY_OF, RuleOp.EQUALS, RuleOp.CONTAINS)

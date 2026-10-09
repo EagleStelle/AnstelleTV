@@ -34,7 +34,6 @@ fun item(
     genres: List<String> = emptyList(),
     studios: List<String> = emptyList(),
     tags: List<String> = emptyList(),
-    collections: List<String> = emptyList(),
     year: Int? = null,
     rating: String? = null,
     score: Int? = null,
@@ -55,7 +54,6 @@ fun item(
     genres = pipes(genres),
     studios = pipes(studios),
     tags = pipes(tags),
-    collections = pipes(collections),
     year = year,
     officialRating = rating,
     ratingScore = score,
@@ -122,7 +120,7 @@ class FakeScheduleDao : ScheduleDao {
                 val item = it.mediaItemId
                 ChannelAiring(
                     it.channelId, item, it.startUtcMs, it.endUtcMs, item?.let { 1L }, item?.let { id -> "item-$id" },
-                    item?.let { id -> "Item $id" }, null, null, null, null, null, null, null, null, null, null, null, null,
+                    item?.let { id -> "Item $id" }, null, null, null, null, null, null, null, null, null, null, null,
                 )
             }
 

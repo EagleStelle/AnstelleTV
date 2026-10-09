@@ -330,7 +330,7 @@ private fun InfoPanel(item: SettingsItem, state: SettingsUiState, modifier: Modi
             SettingsItem.HISTORY -> {
                 item(key = "in-use") { SectionLabel("In use") }
                 item(key = "live") { Fact("Live TV · ${syncName(state.liveTvSync)}", syncDescription(SyncPlace.LIVE_TV, state.liveTvSync), false) }
-                item(key = "ondemand") { Fact("On demand · ${syncName(state.onDemandSync)}", syncDescription(SyncPlace.ON_DEMAND, state.onDemandSync), false) }
+                item(key = "ondemand") { Fact("On Demand · ${syncName(state.onDemandSync)}", syncDescription(SyncPlace.ON_DEMAND, state.onDemandSync), false) }
             }
             else -> Unit
         }
@@ -393,10 +393,10 @@ private fun description(item: SettingsItem, state: SettingsUiState): String = wh
         state.servers.isEmpty() -> "Connect a Jellyfin server to start building channels."
         else -> "AnstelleTV builds its channels from the Jellyfin libraries you connect here."
     }
-    SettingsItem.CHANNELS -> "Lineups, numbers, groups, logos and favorites, the same for every profile. Channels are made from your library; any of them can be edited."
+    SettingsItem.CHANNELS -> "Lineups, numbers, groups, logos and favorites."
     SettingsItem.LANGUAGES -> playbackSummary(state.tracks)
     SettingsItem.HISTORY -> watchHistorySummary(state.liveTvSync, state.onDemandSync)
-    SettingsItem.THEME -> "Change the colors, fonts and guide rows of every screen. Each profile has a separate theme. Start from one of $BUILT_IN_THEMES built-in themes, or design your own."
+    SettingsItem.THEME -> "Change the colors, fonts and guide rows of every screen."
     SettingsItem.WEB -> {
         val server = state.webServer
         when {
@@ -415,7 +415,7 @@ private fun serversValue(servers: List<MediaServer>): String = when {
     else -> "${servers.size} connected"
 }
 
-private const val HISTORY_INTRO = "What Live TV and On demand save to this profile's Jellyfin user."
+private const val HISTORY_INTRO = "What Live TV and On Demand save to this profile's Jellyfin user."
 
 private const val WIDE_DP = 600
 

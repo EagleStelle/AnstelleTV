@@ -284,7 +284,6 @@ private fun SignInStep(state: AddServerUiState, viewModel: AddServerViewModel, m
             item(key = "quick") {
                 FocusTile(
                     title = "Use Quick Connect",
-                    subtitle = "Get a code and approve it from Jellyfin on your phone or computer. No typing.",
                     icon = Icons.Filled.QrCode2,
                     onClick = viewModel::startQuickConnect,
                     modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),

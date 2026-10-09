@@ -1,8 +1,9 @@
 package tv.anstelle.feature.ondemand
 
 import tv.anstelle.core.theme.components.obscured
+import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
-import tv.anstelle.core.theme.components.RestrictedSize
+import tv.anstelle.core.theme.components.StandInSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -228,7 +229,7 @@ fun OnDemandScreen(
             listOfNotNull(onOpenSettings?.let { PlaceholderAction("Settings", "Connect a Jellyfin server, then add channels", Icons.Filled.Settings, it) })
         }
         PlaceholderScreen(
-            title = "On demand",
+            title = "On Demand",
             description = "No channels yet. Once your library syncs, every channel's program can be watched here whenever you like.",
             actions = actions,
             modifier = modifier,
@@ -461,19 +462,27 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
         Column(Modifier.padding(TILE_FRAME)) {
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(ControlShape).background(theme.surfaceHigh)) {
                 val restriction = now?.restriction
+                val markInset = Modifier.padding(start = 10.dp, top = 8.dp)
                 if (now == null || now.offAir) {
-                    OffAir(now, Modifier.align(Alignment.Center))
+                    // Off air, or nothing scheduled: the ground with its mark, like a restricted tile, and
+                    // the ladder over the off-air stretch.
+                    Box(Modifier.fillMaxSize().background(theme.background)) {
+                        if (now == null) {
+                            OffAirMark(markInset.align(Alignment.TopStart), StandInSize.LINE, alignStart = true, title = "No schedule")
+                        } else {
+                            OffAirMark(markInset.align(Alignment.TopStart), StandInSize.LINE, alignStart = true)
+                            SegmentLadder(
+                                progress(now.startUtcMs, now.endUtcMs, nowMs),
+                                Modifier.align(Alignment.BottomStart).padding(horizontal = 10.dp, vertical = 7.dp),
+                                segments = 16,
+                            )
+                        }
+                    }
                 } else if (restriction != null) {
                     // Something the profile may not watch: the picture is blacked out, the logo or title
                     // blurred, and the ladder runs over the whole restricted stretch.
                     Box(Modifier.fillMaxSize().background(theme.background)) {
-                        RestrictedMark(
-                            title = restriction.title,
-                            detail = restriction.short,
-                            size = RestrictedSize.TILE,
-                            modifier = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 8.dp),
-                            alignStart = true,
-                        )
+                        RestrictedMark(restriction.title, markInset.align(Alignment.TopStart), StandInSize.LINE, alignStart = true)
                         TitleLogo(
                             logoUrl = now.artwork.logoUrl,
                             title = now.title,
@@ -518,16 +527,18 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                // Off air, restricted or unscheduled, the picture already says why; the caption says when, in the mark's own voice.
+                val dark = now == null || now.offAir || now.restriction != null
                 val line = when {
-                    now == null -> "Nothing scheduled"
-                    now.offAir -> "Back at ${WatchChoices.clockTime(now.endUtcMs)}"
-                    now.restriction != null -> "${now.restriction?.title} until ${WatchChoices.clockTime(now.endUtcMs)}"
+                    now == null -> "Nothing scheduled".uppercase()
+                    dark -> "Until ${WatchChoices.clockTime(now.endUtcMs)}".uppercase()
                     // Time left first: a long episode title is what gets cut.
                     else -> listOfNotNull("${WatchChoices.span(now.endUtcMs - nowMs, roundUp = true)} left", now.detail.takeIf { now.isEpisode }).joinToString(" · ")
                 }
                 androidx.compose.material3.Text(
                     line,
-                    style = typography.bodySmall,
+                    // Label-medium keeps body-small's line height, so a dark tile stands as tall as the rest.
+                    style = if (dark) typography.labelMedium else typography.bodySmall,
                     color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -535,17 +546,6 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
             }
         }
     }
-}
-
-@Composable
-private fun OffAir(now: ChannelNow?, modifier: Modifier) {
-    val theme = LocalAnstelleTheme.current
-    androidx.compose.material3.Text(
-        if (now == null) "NO SCHEDULE" else "OFF AIR",
-        style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-        color = theme.textMuted,
-        modifier = modifier,
-    )
 }
 
 /** The inset that focus fills round a tile's picture. */

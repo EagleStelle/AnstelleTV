@@ -59,36 +59,33 @@ enum class RuleField(override val code: Int) : CodedEnum {
     STUDIO(1),
     TAG(2),
 
-    /** Box sets the item (or its series) belongs to. */
-    COLLECTION(3),
-
     /** The rating text with text operators; its numeric score with AT_LEAST, AT_MOST and BETWEEN. */
-    OFFICIAL_RATING(4),
-    YEAR(5),
+    OFFICIAL_RATING(3),
+    YEAR(4),
 
     /** The first year of the item's decade: 1980 for 1980–1989. */
-    DECADE(6),
+    DECADE(5),
 
     /** Whole words or phrases in the title, the show title or the tags. */
-    KEYWORD(7),
+    KEYWORD(6),
 
     /** A library, by its Jellyfin id. */
-    LIBRARY(8),
+    LIBRARY(7),
 
     /** A show, by its Jellyfin series id. */
-    SERIES(9),
+    SERIES(8),
 
     /** A single episode, movie or video, by its Jellyfin id. */
-    ITEM(10),
+    ITEM(9),
 
     /** EPISODE, MOVIE or MUSIC_VIDEO. */
-    MEDIA_TYPE(11),
+    MEDIA_TYPE(10),
 
     /**
      * What kind of show the item belongs to: a media type's key ("anime", "cartoons"), "unclear"
      * for animation whose genres and audio disagree, or "none". Decided per show by the catalog.
      */
-    KIND(12),
+    KIND(11),
 }
 
 enum class RuleOp(override val code: Int) : CodedEnum {

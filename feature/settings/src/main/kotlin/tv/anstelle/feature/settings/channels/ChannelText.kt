@@ -36,7 +36,6 @@ internal val BuilderFields = listOf(
     RuleField.GENRE,
     RuleField.STUDIO,
     RuleField.TAG,
-    RuleField.COLLECTION,
     RuleField.KEYWORD,
     RuleField.OFFICIAL_RATING,
     RuleField.YEAR,
@@ -50,7 +49,6 @@ internal fun fieldLabel(field: RuleField): String = when (field) {
     RuleField.GENRE -> "Genre"
     RuleField.STUDIO -> "Studio or network"
     RuleField.TAG -> "Tag"
-    RuleField.COLLECTION -> "Collection"
     RuleField.OFFICIAL_RATING -> "Rating"
     RuleField.YEAR -> "Year"
     RuleField.DECADE -> "Decade"
@@ -66,7 +64,6 @@ internal fun fieldHint(field: RuleField): String = when (field) {
     RuleField.GENRE -> "Comedy, Animation, Western…"
     RuleField.STUDIO -> "NBC, Cartoon Network, Studio Ghibli…"
     RuleField.TAG -> "Tags from your Jellyfin metadata"
-    RuleField.COLLECTION -> "Box sets, like a movie series"
     RuleField.OFFICIAL_RATING -> "TV-Y, PG-13, or a rating score limit"
     RuleField.YEAR -> "Release year"
     RuleField.DECADE -> "1980s, 1990s…"

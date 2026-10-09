@@ -71,7 +71,6 @@ private class CompiledRule(rule: Rule) {
         RuleField.GENRE -> list(item.genres)
         RuleField.STUDIO -> list(item.studios)
         RuleField.TAG -> list(item.tags)
-        RuleField.COLLECTION -> list(item.collections)
         RuleField.OFFICIAL_RATING -> if (numeric) number(item.row.ratingScore) else single(item.rating)
         RuleField.YEAR -> number(item.row.year)
         RuleField.DECADE -> number(item.row.year?.let { it - Math.floorMod(it, 10) })

@@ -30,7 +30,6 @@ import tv.anstelle.core.data.playback.ChannelPlayer
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.ChannelGroup
 import tv.anstelle.core.model.ProfileAccess
-import tv.anstelle.core.model.RatingLimits
 import javax.inject.Inject
 
 /** A channel row's header. */
@@ -58,8 +57,6 @@ data class GuideUiState(
     val hasChannels: Boolean = false,
     /** What the profile may watch: programs beyond it are blacked out. */
     val access: ProfileAccess = ProfileAccess.OPEN,
-    /** The profile's rating limit as the library names ratings ("PG-13"). */
-    val limitName: String = "",
 )
 
 /**
@@ -133,7 +130,6 @@ class GuideViewModel @Inject constructor(
         viewModelScope.launch {
             val profile = profiles.ensureActiveProfile()
             profileId = profile.id
-            val levels = profiles.ratingLevels()
             tab.value = settings.get(Settings.guideTab(profile.id))
             combine(
                 channelRepository.observeChannels(),
@@ -145,7 +141,6 @@ class GuideViewModel @Inject constructor(
             }.collect { (channels, groups, open, profileAccess) ->
                 val accessChanged = profileAccess != access
                 access = profileAccess
-                val limitName = profileAccess.limit?.let { RatingLimits.label(it, levels) }.orEmpty()
                 tunable = profiles.tunable(channels, profileAccess)
                 playback.setLineup(tunable)
                 val tabs = buildList {
@@ -168,7 +163,6 @@ class GuideViewModel @Inject constructor(
                     tab = key,
                     hasChannels = tunable.isNotEmpty(),
                     access = profileAccess,
-                    limitName = limitName,
                 )
                 // New or changed channels: their cells load with the next window read.
                 if (windows.isNotEmpty() && windows.values.first().keys != tunable.mapTo(HashSet()) { it.id }) {

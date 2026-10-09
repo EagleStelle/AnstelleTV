@@ -32,21 +32,21 @@ internal fun syncName(sync: WatchSync): String = when (sync) {
 internal fun syncDescription(place: SyncPlace, sync: WatchSync): String = when (place) {
     SyncPlace.LIVE_TV -> when (sync) {
         WatchSync.STATUS -> "What you watch from start to end is marked watched. Joining late or skipping ahead does not count."
-        WatchSync.PROGRESS -> "Where you stop is saved, replacing your spot from On demand. Nothing is marked watched."
-        WatchSync.BOTH -> "What you watch from start to end is marked watched. Where you stop replaces your On demand spot."
+        WatchSync.PROGRESS -> "Where you stop is saved, replacing your spot from On Demand. Nothing is marked watched."
+        WatchSync.BOTH -> "What you watch from start to end is marked watched. Where you stop replaces your On Demand spot."
         WatchSync.OFF -> "Live TV sends nothing to your server."
     }
     SyncPlace.ON_DEMAND -> when (sync) {
         WatchSync.STATUS -> "What you finish is marked watched. Where you stop isn't saved."
         WatchSync.PROGRESS -> "Where you stop is saved, so you can resume. Nothing is marked watched."
         WatchSync.BOTH -> "Where you stop is saved and what you finish is marked watched."
-        WatchSync.OFF -> "On demand sends nothing to your server."
+        WatchSync.OFF -> "On Demand sends nothing to your server."
     }
 }
 
 /** "Live TV: Status · On demand: Both". */
 internal fun watchHistorySummary(liveTv: WatchSync, onDemand: WatchSync): String =
-    "Live TV: ${syncName(liveTv)} · On demand: ${syncName(onDemand)}"
+    "Live TV: ${syncName(liveTv)} · On Demand: ${syncName(onDemand)}"
 
 /** "Japanese, Korean, English · subtitles in English when audio is in another language". */
 internal fun summary(prefs: TrackPrefs): String {

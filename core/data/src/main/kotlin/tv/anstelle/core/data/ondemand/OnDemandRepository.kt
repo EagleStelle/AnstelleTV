@@ -26,7 +26,6 @@ import tv.anstelle.core.jellyfin.auth.TokenStore
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.ProfileAccess
-import tv.anstelle.core.model.RatingLimits
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -132,7 +131,6 @@ class OnDemandRepository @Inject constructor(
         if (channels.isEmpty()) return@withContext emptyMap()
         val byId = channels.associateBy { it.id }
         val bases = baseUrls()
-        val limitName = limitName(access.limit)
         val maxSlot = scheduleDao.maxSlotMs()
         // SQLite on older Android allows 999 bound values per statement.
         val rows = channels.map { it.id }.chunked(MAX_IDS_PER_QUERY).flatMap { scheduleDao.airingsAt(it, atUtcMs, maxSlot) }
@@ -145,7 +143,7 @@ class OnDemandRepository @Inject constructor(
                 val now = if (item == null || title == null || remoteId == null) {
                     ChannelNow(channel, 0, row.startUtcMs, row.endUtcMs, GuideRepository.OFF_AIR_TITLE, null, false, null, Artwork.None)
                 } else {
-                    val restriction = Restriction.of(item, row.officialRating, row.ratingScore, access, limitName)
+                    val restriction = Restriction.of(item, row.ratingScore, access)
                     val artwork = Artwork.of(
                         row.serverId?.let(bases::get),
                         remoteId, row.backdropImageTag, row.logoImageTag,
@@ -186,7 +184,7 @@ class OnDemandRepository @Inject constructor(
         val base = serverDao.byId(entity.serverId)?.baseUrl
         val series = entity.seriesRemoteId?.let { itemDao.byRemoteId(entity.serverId, it) }
         val episodes = showEpisodes(entity, access)
-        val restriction = Restriction.of(entity.id, entity.officialRating, entity.ratingScore, access, limitName(access.limit))
+        val restriction = Restriction.of(entity.id, entity.ratingScore, access)
         ChannelPage(
             channel = channel,
             startUtcMs = slot.startUtcMs,
@@ -215,10 +213,6 @@ class OnDemandRepository @Inject constructor(
     /** Where the run of restricted programs ending one at [fromUtcMs] on [channelId] ends. */
     private suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, access: ProfileAccess): Long =
         scheduleDao.restrictedUntil(channelId, fromUtcMs, access.limit, access.profileId)?.coerceAtLeast(fromUtcMs) ?: fromUtcMs
-
-    /** [maxRating] named as the library names ratings; empty without a limit, which restricts nothing. */
-    private suspend fun limitName(maxRating: Int?): String =
-        if (maxRating == null) "" else RatingLimits.label(maxRating, profiles.ratingLevels())
 
     /**
      * Where [profileId]'s Jellyfin user stopped in the page's program and, for a show, in each

@@ -1,7 +1,8 @@
 package tv.anstelle.feature.ondemand
 
 import tv.anstelle.core.theme.components.obscured
-import androidx.compose.material.icons.filled.Lock
+import tv.anstelle.core.theme.components.RestrictedMark
+import tv.anstelle.core.theme.components.StandInSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.indication
@@ -456,16 +457,7 @@ private fun ColumnScope.Hero(page: ChannelPage, nowMs: Long) {
         }
     }
     // For a program the profile may not watch, the overview is blacked out with the pictures.
-    page.restriction?.let { restriction ->
-        Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            androidx.compose.material3.Icon(Icons.Filled.Lock, contentDescription = null, tint = theme.textMuted, modifier = Modifier.size(18.dp))
-            androidx.compose.material3.Text(
-                "${restriction.title.uppercase()}  ·  ${restriction.detail.uppercase()}",
-                style = typography.labelMedium,
-                color = theme.textMuted,
-            )
-        }
-    }
+    page.restriction?.let { RestrictedMark(it.title, Modifier.padding(top = 4.dp), size = StandInSize.LINE, alignStart = true) }
     // Three lines on TV keep the actions on the first screen under the program.
     item.overview?.let { Overview(it, Modifier.padding(top = 4.dp), tvLines = 3) }
 }

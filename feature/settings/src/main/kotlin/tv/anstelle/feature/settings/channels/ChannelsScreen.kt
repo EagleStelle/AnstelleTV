@@ -153,8 +153,8 @@ fun ChannelsScreen(
         item(key = "banner") {
             // The D-pad steps the size in place; touch picks it from a list.
             FocusTile(
-                title = "On demand banner",
-                subtitle = "Channels picked at random on each visit for the top of On demand.",
+                title = "On Demand banner",
+                subtitle = "Channels picked at random on each visit for the top of On Demand.",
                 icon = Icons.Filled.ViewCarousel,
                 value = "${state.bannerSize} channels",
                 onClick = if (isTv) ({ viewModel.stepBannerSize(1) }) else ({ pickingBanner = true }),
@@ -214,7 +214,7 @@ private fun BannerSizePicker(current: Int, onPick: (Int) -> Unit, onDismiss: () 
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = theme.surface,
-        title = { androidx.compose.material3.Text("On demand banner", style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, color = theme.text) },
+        title = { androidx.compose.material3.Text("On Demand banner", style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, color = theme.text) },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(Settings.OnDemandBannerSizes) { size ->

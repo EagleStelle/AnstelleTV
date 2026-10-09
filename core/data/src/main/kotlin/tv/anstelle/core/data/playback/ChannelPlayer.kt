@@ -46,7 +46,6 @@ import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.jellyfin.auth.TokenStore
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.ProfileAccess
-import tv.anstelle.core.model.RatingLimits
 import tv.anstelle.core.model.SlotKind
 import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.player.CapabilityProbe
@@ -511,10 +510,9 @@ class ChannelPlayer @Inject constructor(
     private suspend fun restricted(channel: Channel, slot: ScheduleSlotEntity, item: MediaItemEntity) {
         stopActive()
         trace = null
-        val limitName = RatingLimits.label(access.limit, profiles.ratingLevels())
         val until = runEnd(slot)
         val server = serverDao.byId(item.serverId)
-        val restriction = Restriction.of(item.id, item.officialRating, item.ratingScore, access, limitName)
+        val restriction = Restriction.of(item.id, item.ratingScore, access)
         _state.update {
             it.copy(
                 status = TuneStatus.RESTRICTED,
@@ -744,7 +742,8 @@ class ChannelPlayer @Inject constructor(
 
     private companion object {
         const val TAG = "Player"
-        const val OFF_AIR_TITLE = "Off air"
+        /** The banner's NOW or NEXT title off air, uppercase like the off-air mark under it. */
+        const val OFF_AIR_TITLE = "OFF AIR"
         const val MAX_DRIFT_MS = 3_000L
 
         /** A seek stops this far before the program's end, so it never runs into the next one. */

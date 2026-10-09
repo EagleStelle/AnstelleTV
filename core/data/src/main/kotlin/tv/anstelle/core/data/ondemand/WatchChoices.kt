@@ -45,7 +45,7 @@ object WatchChoices {
     fun liveOffAir(untilUtcMs: Long) = WatchChoice(WatchKind.LIVE, "Watch live", "Off air until ${clockTime(untilUtcMs)}.")
 
     /** A program the profile may not watch ([title] says why): the channel stays dark until it ends. */
-    fun liveRestricted(untilUtcMs: Long, title: String) = WatchChoice(WatchKind.LIVE, "Watch live", "$title. Dark until ${clockTime(untilUtcMs)}.")
+    fun liveRestricted(untilUtcMs: Long, title: String) = WatchChoice(WatchKind.LIVE, "Watch live", "$title until ${clockTime(untilUtcMs)}.")
 
     /** The program on now, from its start on the channel. */
     val restart = WatchChoice(WatchKind.RESTART, "Start over", "Rewinds the channel to 0:00.")
@@ -55,11 +55,11 @@ object WatchChoices {
      * where it starts and what follows, the one thing that differs from the channel: an episode
      * runs on into the show, a movie leaves the schedule behind.
      */
-    fun onDemand(isEpisode: Boolean) = WatchChoice(WatchKind.PLAY, "Watch on demand", "From the start, ${onDemandAfter(isEpisode)}.")
+    fun onDemand(isEpisode: Boolean) = WatchChoice(WatchKind.PLAY, "Watch on Demand", "From the start, ${onDemandAfter(isEpisode)}.")
 
     /** The program on now in the on-demand player, from the point the channel has reached. */
     fun resumeOnDemand(elapsedMs: Long, isEpisode: Boolean) =
-        WatchChoice(WatchKind.PLAY, "Resume on demand", "From ${span(elapsedMs)} in, ${onDemandAfter(isEpisode)}.", elapsedMs)
+        WatchChoice(WatchKind.PLAY, "Resume on Demand", "From ${span(elapsedMs)} in, ${onDemandAfter(isEpisode)}.", elapsedMs)
 
     private fun onDemandAfter(isEpisode: Boolean) = if (isEpisode) "then the next episodes" else "off the schedule"
 
@@ -77,15 +77,15 @@ object WatchChoices {
 
     /** A program that isn't on now, from its start on demand; the words follow when it airs. */
     fun fromStart(tense: AiringTense, startUtcMs: Long) = when (tense) {
-        AiringTense.LATER -> WatchChoice(WatchKind.PLAY, "Watch now", "Don't wait for ${clockTime(startUtcMs)}. On demand from 0:00.")
-        else -> WatchChoice(WatchKind.PLAY, "Watch again", "Aired at ${clockTime(startUtcMs)}. On demand from 0:00.")
+        AiringTense.LATER -> WatchChoice(WatchKind.PLAY, "Watch now", "Don't wait for ${clockTime(startUtcMs)}. On Demand from 0:00.")
+        else -> WatchChoice(WatchKind.PLAY, "Watch again", "Aired at ${clockTime(startUtcMs)}. On Demand from 0:00.")
     }
 
     /** Plays from Jellyfin's resume point. */
     fun resume(positionMs: Long) = WatchChoice(WatchKind.PLAY, "Resume from ${span(positionMs)} in", "Where you stopped last time.", positionMs)
 
     /** An episode, from its start on demand. */
-    val playFromStart = WatchChoice(WatchKind.PLAY, "Play from the start", "On demand from 0:00.")
+    val playFromStart = WatchChoice(WatchKind.PLAY, "Play from the start", "On Demand from 0:00.")
 
     fun addToChannel(isMovie: Boolean) = WatchChoice(
         WatchKind.ADD_TO_CHANNEL,

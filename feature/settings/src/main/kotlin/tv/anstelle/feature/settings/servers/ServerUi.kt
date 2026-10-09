@@ -5,7 +5,6 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import tv.anstelle.core.database.dao.TypeCount
 import tv.anstelle.core.model.MediaServer
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.theme.components.MenuPage
@@ -36,19 +35,21 @@ internal fun MediaServer.statusLine(progress: String?, nowUtcMs: Long): String {
     if (progress != null) return progress
     if (!isSignedIn) return "Signed out. Select to sign in again."
     lastSyncError?.let { return it }
-    val synced = lastSyncUtcMs ?: return "Not synced yet"
-    if (nowUtcMs - synced < DateUtils.MINUTE_IN_MILLIS) return "Synced just now"
-    return "Synced " + DateUtils.getRelativeTimeSpanString(synced, nowUtcMs, DateUtils.MINUTE_IN_MILLIS)
+    val ago = syncedAgo(nowUtcMs) ?: return "Not synced yet"
+    return "Synced $ago"
 }
 
-internal fun countsLine(counts: List<TypeCount>): String =
-    counts.filter { it.count > 0 }.joinToString(" · ") { "%,d %s".format(it.count, it.type.label(it.count)) }
-        .ifEmpty { "No items yet" }
+/** "just now", "5 minutes ago", "Yesterday": when the last sync finished, or null before the first. */
+internal fun MediaServer.syncedAgo(nowUtcMs: Long): String? {
+    val synced = lastSyncUtcMs ?: return null
+    if (nowUtcMs - synced < DateUtils.MINUTE_IN_MILLIS) return "just now"
+    return DateUtils.getRelativeTimeSpanString(synced, nowUtcMs, DateUtils.MINUTE_IN_MILLIS).toString()
+}
 
-private fun MediaType.label(count: Int): String {
+internal fun MediaType.label(count: Int): String {
     val one = count == 1
     return when (this) {
-        MediaType.SERIES -> if (one) "show" else "shows"
+        MediaType.SERIES -> "series"
         MediaType.EPISODE -> if (one) "episode" else "episodes"
         MediaType.MOVIE -> if (one) "movie" else "movies"
         MediaType.MUSIC -> if (one) "song" else "songs"
@@ -58,11 +59,10 @@ private fun MediaType.label(count: Int): String {
 
 internal fun collectionLabel(collectionType: String?): String = when (collectionType) {
     "movies" -> "Movies"
-    "tvshows" -> "TV shows"
+    "tvshows" -> "Series"
     "musicvideos" -> "Music videos"
     "homevideos" -> "Home videos"
     "music" -> "Music"
-    "boxsets" -> "Collections"
     "books" -> "Books"
     "photos" -> "Photos"
     "playlists" -> "Playlists"

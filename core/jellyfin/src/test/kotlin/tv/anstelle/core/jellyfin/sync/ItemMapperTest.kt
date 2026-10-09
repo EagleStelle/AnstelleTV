@@ -41,7 +41,7 @@ class ItemMapperTest {
     private fun seriesRows(): Map<String, SeriesMetadataRow> = tvPage
         .mapNotNull { ItemMapper.map(it, context()) }
         .filter { it.type == MediaType.SERIES }
-        .associate { it.remoteId to SeriesMetadataRow(it.remoteId, it.genres, it.studios, it.tags, "|Example Saga|", it.officialRating, it.ratingScore) }
+        .associate { it.remoteId to SeriesMetadataRow(it.remoteId, it.genres, it.studios, it.tags, it.officialRating, it.ratingScore) }
 
     private fun map(dto: BaseItemDto): MediaItemEntity? = ItemMapper.map(dto, context(seriesRows()))
 
@@ -83,9 +83,6 @@ class ItemMapperTest {
         // The episode has no genres or studios of its own; the series does.
         assertEquals("|Drama|Suspense|Thriller|Mystery|", episode.genres)
         assertEquals("|Example Network|", episode.studios)
-        // A new episode starts in its series' box sets; a known one keeps what reconciliation stored.
-        assertEquals("|Example Saga|", episode.collections)
-        assertEquals("", ItemMapper.map(item(tvPage, "Pilot"), context(seriesRows()), 42, existingCollections = "")!!.collections)
         assertEquals("mkv", episode.container)
         assertEquals("h264", episode.videoCodec)
         assertEquals(1920, episode.width)

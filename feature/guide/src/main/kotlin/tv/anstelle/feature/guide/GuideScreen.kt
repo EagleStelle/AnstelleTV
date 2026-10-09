@@ -1,12 +1,11 @@
 package tv.anstelle.feature.guide
 
 import tv.anstelle.core.theme.components.obscured
-import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.filled.Lock
 import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.model.ProfileAccess
+import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
-import tv.anstelle.core.theme.components.RestrictedSize
+import tv.anstelle.core.theme.components.StandInSize
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
@@ -415,14 +414,16 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
             },
             modifier = Modifier.fillMaxSize(),
         )
-        if (playback.status == TuneStatus.RESTRICTED) {
+        // Off air or restricted: the ground stands in for the picture, with the player's own mark.
+        if (playback.status == TuneStatus.OFF_AIR || playback.status == TuneStatus.RESTRICTED) {
             Box(Modifier.fillMaxSize().background(theme.background), contentAlignment = Alignment.Center) {
-                RestrictedMark(
-                    title = playback.restriction?.title ?: Restriction.AGE_TITLE,
-                    detail = playback.restriction?.detail,
-                    size = if (LocalIsTv.current) RestrictedSize.PANEL else RestrictedSize.TILE,
-                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 20.dp),
-                )
+                val until = playback.now?.let { WatchChoices.clockTime(it.endUtcMs) }
+                val inset = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 20.dp)
+                if (playback.status == TuneStatus.OFF_AIR) {
+                    OffAirMark(inset, StandInSize.PANEL, until)
+                } else {
+                    RestrictedMark(playback.restriction?.title ?: Restriction.AGE_TITLE, inset, StandInSize.PANEL, until)
+                }
             }
         }
         val status = when (playback.status) {
@@ -478,7 +479,8 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
  * backdrop. The show's logo stands in for its title when the server has one. Five lines are
  * kept for the overview whether or not it fills them, so the grid never jumps as the
  * selection moves. A program the profile may not watch shows no artwork or
- * overview: the restriction takes the overview's place.
+ * overview: the restriction takes the overview's place. Off air, the off-air mark takes the
+ * title's.
  */
 @Composable
 private fun Details(
@@ -512,13 +514,14 @@ private fun Details(
     val more = details?.takeIf { selected != null && it.mediaItemId == selected.mediaItemId }
     val restriction = when {
         selected == null -> playback.restriction
-        more != null -> Restriction.of(more.mediaItemId, more.rating, more.ratingScore, state.access, state.limitName)
-        selected.restricted -> if (selected.restrictedAs == Restriction.NO_ACCESS_TITLE) Restriction.NoAccess else Restriction.Age(null, state.limitName)
+        more != null -> Restriction.of(more.mediaItemId, more.ratingScore, state.access)
+        selected.restricted -> if (selected.restrictedAs == Restriction.NO_ACCESS_TITLE) Restriction.NoAccess else Restriction.Age
         else -> null
     }
     // Artwork belongs to the show, so it stays put while the selection moves through one show's episodes.
     val artwork = details?.takeIf { selected != null && it.title == selected.title }?.artwork
     val restricted = restriction != null
+    val offAir = if (selected != null) selected.mediaItemId == 0L else playback.status == TuneStatus.OFF_AIR
     Backdrop(
         // A restricted program's picture is blacked out.
         url = artwork?.backdropUrl?.takeUnless { restricted },
@@ -529,19 +532,27 @@ private fun Details(
             Modifier.padding(horizontal = if (isTv) 16.dp else 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            TitleLogo(
-                logoUrl = artwork?.logoUrl,
-                title = title,
-                height = if (isTv) 56.dp else 30.dp,
-                maxLogoWidth = if (isTv) 320.dp else 200.dp,
-                style = androidx.compose.ui.text.TextStyle(
-                    fontSize = if (isTv) 24.sp else 20.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = theme.displayFont,
-                ),
-                // A restricted program's title and logo are blurred.
-                modifier = Modifier.obscured(restricted, theme.textMuted, radius = 10.dp),
-            )
+            val titleHeight = if (isTv) 56.dp else 30.dp
+            if (offAir) {
+                // Off air has no title: the preview's mark takes its place, in the slot's height.
+                Box(Modifier.height(titleHeight), contentAlignment = Alignment.BottomStart) {
+                    OffAirMark(size = StandInSize.PANEL, alignStart = true)
+                }
+            } else {
+                TitleLogo(
+                    logoUrl = artwork?.logoUrl,
+                    title = title,
+                    height = titleHeight,
+                    maxLogoWidth = if (isTv) 320.dp else 200.dp,
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontSize = if (isTv) 24.sp else 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = theme.displayFont,
+                    ),
+                    // A restricted program's title and logo are blurred.
+                    modifier = Modifier.obscured(restricted, theme.textMuted, radius = 10.dp),
+                )
+            }
             // The episode (or a movie's title and year) in full ink, then its facts quieter on the same line.
             val lead = lineUnderLogo(detail, title, isEpisode = more?.isEpisode ?: true, hasLogo = artwork?.logoUrl != null)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -586,18 +597,7 @@ private fun Details(
             if (restriction != null) {
                 // The overview's lines stay reserved, so the grid holds still.
                 Box(Modifier.padding(top = 3.dp).height(with(LocalDensity.current) { (16.sp * overviewLines).toDp() })) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.material3.Icon(Icons.Filled.Lock, contentDescription = null, tint = theme.textMuted, modifier = Modifier.size(14.dp))
-                        androidx.compose.material3.Text(
-                            "${restriction.title.uppercase()}  ·  ${restriction.detail.uppercase()}",
-                            color = theme.textMuted,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = theme.displayFont,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    RestrictedMark(restriction.title, size = StandInSize.LINE, alignStart = true)
                 }
                 return@Column
             }
