@@ -5,25 +5,11 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
@@ -35,21 +21,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -76,16 +53,19 @@ import tv.anstelle.core.data.ThemeRepository
 import tv.anstelle.core.data.ThemeSummary
 import tv.anstelle.core.data.WebServerController
 import tv.anstelle.core.model.Profile
-import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.ActionDialog
-import tv.anstelle.core.theme.components.DialogAction
-import tv.anstelle.core.theme.components.FocusSurface
-import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.core.theme.components.MenuPage
-import tv.anstelle.core.theme.components.Notice
-import tv.anstelle.core.theme.components.SectionLabel
+import tv.anstelle.core.theme.components.ConfirmSheet
+import tv.anstelle.core.theme.components.LocalPageFocus
+import tv.anstelle.core.theme.components.LocalSettingsSheets
+import tv.anstelle.core.theme.components.MenuAction
+import tv.anstelle.core.theme.components.OptionRow
+import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsNotice
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.SettingsSearch
 import tv.anstelle.core.theme.components.requestWhenReady
+import tv.anstelle.core.theme.components.section
 import javax.inject.Inject
 
 /** The theme every profile starts with. */
@@ -112,9 +92,12 @@ class ThemesViewModel @Inject constructor(
     private val webServer: WebServerController,
 ) : ViewModel() {
     /** The profile whose theme this picks; 0 in the route means the one watching. */
-    private val profileFlow = (savedState.get<Long>("profileId") ?: 0L).let { id ->
-        if (id > 0) profiles.observeProfile(id) else profiles.observeActiveProfile()
-    }
+    private val profileId = savedState.get<Long>("profileId") ?: 0L
+
+    /** Opened from a profile's page rather than from Settings. */
+    val forProfile: Boolean get() = profileId > 0
+
+    private val profileFlow = if (profileId > 0) profiles.observeProfile(profileId) else profiles.observeActiveProfile()
 
     val state: StateFlow<ThemesUiState> = flow { themes.seedBuiltIns(); emit(Unit) }
         .flatMapLatest { combine(profileFlow, themes.observeThemes()) { profile, list -> ThemesUiState(profile, ordered(list), loaded = true) } }
@@ -180,10 +163,10 @@ class ThemesViewModel @Inject constructor(
 }
 
 /**
- * The themes a profile can wear, each with its colors at a glance. OK or a tap puts one on at
- * once, so the whole app shows it; holding it (or Menu) offers changing a copy, saving it as
- * a file and deleting one of the user's own. On TV and tablets a panel beside the list shows
- * the focused theme without putting it on.
+ * The themes a profile can wear, each with its colors at a glance: the user's own first, then the
+ * built-in ones. Picking one puts it on at once, so the whole app shows it; each theme's menu
+ * copies or edits it, saves it as a file, or deletes one of the user's own. The preview beside
+ * the list (above it on phones) shows the focused theme without putting it on.
  */
 @Composable
 fun ThemesScreen(
@@ -193,12 +176,8 @@ fun ThemesScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
-    val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
-    val wide = isTv || LocalConfiguration.current.screenWidthDp >= WIDE_DP
-    val context = LocalContext.current
     var focusedId by remember { mutableLongStateOf(0L) }
-    var actionsFor by remember { mutableStateOf<ThemeSummary?>(null) }
     var exportId by remember { mutableLongStateOf(0L) }
     val firstFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
@@ -225,145 +204,103 @@ fun ThemesScreen(
 
     val inUse = state.inUseId
     val profileName = state.profile?.name
-    val subtitle = when {
-        isTv -> "Press OK to use a theme${profileName?.let { " on $it" }.orEmpty()}. Press Menu to copy, change or save one."
-        else -> "Tap a theme to use it${profileName?.let { " on $it" }.orEmpty()}. Touch and hold one to copy, change or save it."
-    }
-    // On TV focus starts on the theme worn, once the list is there to hold it.
+    var query by rememberSaveable { mutableStateOf("") }
+    val shownThemes = query.trim().let { needle -> if (needle.isEmpty()) state.themes else state.themes.filter { it.spec.name.contains(needle, ignoreCase = true) } }
+    val own = shownThemes.filter { !it.isBuiltIn }
+    val builtIn = shownThemes.filter { it.isBuiltIn }
+    // On TV focus starts on the theme worn, once the list is there to hold it; back from the
+    // designer, it returns to the theme that was opened.
+    val page = LocalPageFocus.current
     if (isTv) {
         LaunchedEffect(state.loaded) {
-            val index = state.themes.indexOfFirst { it.id == inUse }
-            if (!state.loaded || index < 0) return@LaunchedEffect
-            listState.scrollToItem(index + LIST_ITEMS_BEFORE_THEMES)
+            if (!state.loaded || inUse == null) return@LaunchedEffect
+            if (page?.restore() == true) return@LaunchedEffect
+            // Message and buttons, then each section's heading and its themes.
+            val ownIndex = own.indexOfFirst { it.id == inUse }
+            val index = if (ownIndex >= 0) {
+                LIST_ITEMS_BEFORE_THEMES + 1 + ownIndex
+            } else {
+                LIST_ITEMS_BEFORE_THEMES + (if (own.isEmpty()) 0 else 1 + own.size) + 1 + builtIn.indexOfFirst { it.id == inUse }
+            }
+            listState.scrollToItem(index.coerceAtLeast(0))
             firstFocus.requestWhenReady()
         }
     }
-    Row(modifier.fillMaxSize().background(theme.background)) {
-        Box(if (wide) Modifier.weight(0.56f) else Modifier.weight(1f)) {
-            MenuPage(title = "Themes", subtitle = subtitle, listState = listState) {
-                item(key = "message") { message?.let { (text, problem) -> Notice(text, isError = problem) } }
-                if (state.themes.isNotEmpty()) item(key = "built-in") { SectionLabel("Built in") }
-                items(state.themes, key = { it.id }) { summary ->
-                    if (!summary.isBuiltIn && summary == state.themes.first { !it.isBuiltIn }) SectionLabel("Designed here")
-                    ThemeRow(
-                        summary = summary,
-                        inUse = summary.id == inUse,
-                        onClick = { viewModel.use(summary.id) },
-                        onMore = { actionsFor = summary },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onFocusChanged { if (it.isFocused) focusedId = summary.id }
-                            .let { if (summary.id == inUse) it.focusRequester(firstFocus) else it },
-                    )
-                }
-                item(key = "own") { SectionLabel("Your own") }
-                item(key = "new") {
-                    FocusTile(
-                        title = "Design a theme",
-                        subtitle = "Starts as a copy of the theme in use.",
-                        icon = Icons.Filled.Add,
-                        onClick = { inUse?.let { viewModel.copy(it, onEdit) } },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                item(key = "import") {
-                    FocusTile(
-                        title = "Add from a file",
-                        subtitle = "A theme saved from AnstelleTV on this or another device.",
-                        icon = Icons.Filled.FileUpload,
-                        onClick = ::importFile,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        }
-        if (wide) {
-            Box(Modifier.width(1.dp).fillMaxHeight().background(theme.line))
-            val shown = state.themes.firstOrNull { it.id == focusedId } ?: state.themes.firstOrNull { it.id == inUse }
-            LazyColumn(
-                Modifier.weight(0.44f).fillMaxHeight().background(theme.surface),
-                contentPadding = PaddingValues(if (isTv) 40.dp else 24.dp),
-            ) {
-                if (shown != null) item { ThemePreview(shown.spec, Modifier.fillMaxWidth()) }
-            }
-        }
-    }
+    val shown = state.themes.firstOrNull { it.id == focusedId } ?: state.themes.firstOrNull { it.id == inUse }
 
-    actionsFor?.let { summary ->
-        ActionDialog(
-            actions = buildList {
-                add(DialogAction("Use this theme", profileName?.let { "On $it, right away." } ?: "Right away.", Icons.Filled.Check) { actionsFor = null; viewModel.use(summary.id) })
-                if (summary.isBuiltIn) {
-                    add(DialogAction("Copy and change", "Built-in themes stay as they are; you change a copy.", Icons.Filled.Edit) { actionsFor = null; viewModel.copy(summary.id, onEdit) })
-                } else {
-                    add(DialogAction("Change", "Its colors, fonts, guide rows and effects.", Icons.Filled.Edit) { actionsFor = null; onEdit(summary.id) })
-                }
-                add(DialogAction("Save as a file", "To keep a copy, or use it on another device.", Icons.Filled.FileDownload) { actionsFor = null; export(summary) })
-                if (!summary.isBuiltIn) {
-                    add(DialogAction("Delete", "Profiles using it go back to the default.", Icons.Filled.Delete) { actionsFor = null; viewModel.delete(summary.id) })
-                }
-            },
-            onDismiss = { actionsFor = null },
-        ) {
-            androidx.compose.material3.Text(summary.spec.name, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, color = theme.text)
-            ThemeSwatches(summary.spec)
+    SettingsPage(
+        title = "Themes",
+        trail = if (viewModel.forProfile && profileName != null) listOf("Profiles", profileName) else listOf("Settings"),
+        listState = listState,
+        // Always there, even before the themes load: a phone's list keeps its first item in place,
+        // so a preview that arrived later would sit above it, scrolled away.
+        aside = { shown?.let { ThemePreview(it.spec, Modifier.fillMaxWidth()) } },
+        modifier = modifier,
+    ) {
+        item(key = "message") { message?.let { (text, problem) -> SettingsNotice(text, isError = problem) } }
+        item(key = "search") { SettingsSearch(query, onQueryChange = { query = it }, label = "Find a theme") }
+        item(key = "actions") {
+            SettingsButtons {
+                OsdButton("New theme", onClick = { inUse?.let { viewModel.copy(it, onEdit) } }, icon = Icons.Filled.Add)
+                OsdButton("Import", onClick = ::importFile, icon = Icons.Filled.FileUpload)
+            }
+        }
+        if (own.isNotEmpty()) {
+            section("Custom themes")
+            items(own, key = { it.id }) { summary ->
+                ThemeOption(summary, summary.id == inUse, viewModel, onEdit, ::export, firstFocus, onFocused = { focusedId = summary.id })
+            }
+        }
+        if (builtIn.isNotEmpty()) section("Built in")
+        if (own.isEmpty() && builtIn.isEmpty()) item(key = "none") { SettingsNotice("No theme has that name.") }
+        items(builtIn, key = { it.id }) { summary ->
+            ThemeOption(summary, summary.id == inUse, viewModel, onEdit, ::export, firstFocus, onFocused = { focusedId = summary.id })
         }
     }
 }
 
-/** A theme in the list: its colors, its name, whether it's built in, and a check when worn. */
+/** A theme in the list: a radio when worn, its colors, its name and kind, and its menu. */
 @Composable
-private fun ThemeRow(summary: ThemeSummary, inUse: Boolean, onClick: () -> Unit, onMore: () -> Unit, modifier: Modifier) {
-    val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
-    FocusSurface(
-        onClick = onClick,
-        onLongClick = onMore,
-        modifier = modifier.onPreviewKeyEvent { event ->
-            if (event.type == KeyEventType.KeyDown && event.key == Key.Menu) onMore().let { true } else false
+private fun ThemeOption(
+    summary: ThemeSummary,
+    inUse: Boolean,
+    viewModel: ThemesViewModel,
+    onEdit: (Long) -> Unit,
+    export: (ThemeSummary) -> Unit,
+    firstFocus: FocusRequester,
+    onFocused: () -> Unit,
+) {
+    val sheets = LocalSettingsSheets.current
+    OptionRow(
+        title = summary.spec.name,
+        summary = listOfNotNull(
+            if (summary.spec.isLight) "Light" else "Dark",
+            "scanlines".takeIf { summary.spec.effects.scanlines },
+            "the default".takeIf { summary.spec.key == DEFAULT_THEME_KEY },
+        ).joinToString(", "),
+        selected = inUse,
+        onClick = { viewModel.use(summary.id) },
+        leading = { ThemeSwatches(summary.spec) },
+        actions = buildList {
+            if (summary.isBuiltIn) {
+                add(MenuAction("Copy and edit", Icons.Filled.Edit, detail = "Built-in themes stay as they are; you edit a copy.") { viewModel.copy(summary.id, onEdit) })
+            } else {
+                add(MenuAction("Edit", Icons.Filled.Edit, detail = "Its colors, type, guide rows and effects.") { onEdit(summary.id) })
+            }
+            add(MenuAction("Save as file", Icons.Filled.FileDownload, detail = "To keep a copy, or use it on another device.") { export(summary) })
+            if (!summary.isBuiltIn) {
+                add(
+                    MenuAction("Delete", Icons.Filled.Delete, detail = "Profiles using it go back to the default.", danger = true) {
+                        sheets.show(ConfirmSheet("Delete ${summary.spec.name}?", "Profiles using it go back to the default.", "Delete", Icons.Filled.Delete) { viewModel.delete(summary.id) })
+                    },
+                )
+            }
         },
-    ) { focused ->
-        Row(
-            Modifier
-                .defaultMinSize(minHeight = if (isTv) 64.dp else 56.dp)
-                .padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            ThemeSwatches(summary.spec)
-            Column(Modifier.weight(1f)) {
-                androidx.compose.material3.Text(
-                    summary.spec.name,
-                    style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
-                    color = if (inUse && !focused) theme.accent else androidx.compose.material3.LocalContentColor.current,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val about = listOfNotNull(
-                    if (summary.spec.isLight) "Light" else "Dark",
-                    "Scanlines".takeIf { summary.spec.effects.scanlines },
-                    "Default".takeIf { summary.spec.key == DEFAULT_THEME_KEY },
-                ).joinToString(" · ")
-                androidx.compose.material3.Text(
-                    about,
-                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                    color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
-                    maxLines = 1,
-                )
-            }
-            if (inUse) {
-                androidx.compose.material3.Icon(
-                    Icons.Filled.Check,
-                    contentDescription = "In use",
-                    tint = if (focused) theme.onAccent else theme.accent,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
-    }
+        modifier = Modifier
+            .onFocusChanged { if (it.hasFocus) onFocused() }
+            .let { if (inUse) it.focusRequester(firstFocus) else it },
+    )
 }
 
-private const val WIDE_DP = 600
-
-/** The message and the first section label come before the themes in the list (TV has no subtitle row). */
-private const val LIST_ITEMS_BEFORE_THEMES = 2
+/** The message, the search and the buttons come before the themes in the list. */
+private const val LIST_ITEMS_BEFORE_THEMES = 3

@@ -26,7 +26,7 @@ class AdminOnlyViewModel @Inject constructor(profiles: ProfileRepository) : View
 }
 
 /**
- * Shows [content], an app-wide setting (media servers, channels, web control),
+ * Shows [content], an app-wide setting (servers, channels, web control),
  * only to the owner and admins. Members never see a way in; should one land here anyway (a
  * restored back stack, say), [onLeave] takes them back.
  */

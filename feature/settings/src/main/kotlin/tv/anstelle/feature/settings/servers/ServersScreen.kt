@@ -1,7 +1,6 @@
 package tv.anstelle.feature.settings.servers
 
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudOff
@@ -9,11 +8,8 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -27,8 +23,11 @@ import kotlinx.coroutines.flow.stateIn
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ServerRepository
 import tv.anstelle.core.model.MediaServer
-import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.FocusTile
+import tv.anstelle.core.theme.components.LinkRow
+import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.rememberInitialFocus
 import javax.inject.Inject
 
 @Immutable
@@ -49,7 +48,7 @@ class ServersViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ServersUiState())
 }
 
-/** The connected Jellyfin servers. */
+/** The connected Jellyfin servers, each opening its own page, and the button that adds one. */
 @Composable
 fun ServersScreen(
     onAddServer: () -> Unit,
@@ -58,35 +57,41 @@ fun ServersScreen(
     viewModel: ServersViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val firstFocus = remember { FocusRequester() }
-    if (LocalIsTv.current && state.loaded) LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+    val firstFocus = rememberInitialFocus(ready = state.loaded)
 
     SettingsPage(
-        title = "Media servers",
-        subtitle = "AnstelleTV builds its channels from the Jellyfin libraries you connect here.",
+        title = "Servers",
+        trail = listOf("Settings"),
+        about = "AnstelleTV builds its channels from the Jellyfin libraries of the servers you connect here. " +
+            "Add one with its address, then sign in with Quick Connect or a password.",
         modifier = modifier,
     ) {
+        item(key = "add") {
+            SettingsButtons {
+                OsdButton(
+                    "Add server",
+                    onClick = onAddServer,
+                    icon = Icons.Filled.Add,
+                    primary = state.servers.isEmpty(),
+                    modifier = if (state.servers.isEmpty()) Modifier.focusRequester(firstFocus) else Modifier,
+                )
+            }
+        }
         items(state.servers, key = { it.id }) { server ->
             val progress = state.progress[server.id]
-            FocusTile(
-                title = "${server.name} · ${server.userName.orEmpty()}",
-                subtitle = server.statusLine(progress, state.nowUtcMs),
+            val trouble = !server.isSignedIn || server.lastSyncError != null
+            val status = server.statusLine(progress, state.nowUtcMs)
+            LinkRow(
+                title = server.name,
+                // "alice, synced 5 minutes ago"; a problem or a running sync speaks alone.
+                summary = server.userName?.takeIf { !trouble && progress == null }?.let { "$it, ${status.replaceFirstChar(Char::lowercase)}" } ?: status,
                 icon = when {
                     progress != null -> Icons.Filled.Sync
-                    !server.isSignedIn || server.lastSyncError != null -> Icons.Filled.CloudOff
+                    trouble -> Icons.Filled.CloudOff
                     else -> Icons.Filled.Dns
                 },
                 onClick = { onOpenServer(server.id) },
-                modifier = Modifier.fillMaxWidth().let { if (server == state.servers.first()) it.focusRequester(firstFocus) else it },
-            )
-        }
-        item(key = "add") {
-            FocusTile(
-                title = "Add a Jellyfin server",
-                subtitle = "Sign in with Quick Connect or a password.",
-                icon = Icons.Filled.Add,
-                onClick = onAddServer,
-                modifier = Modifier.fillMaxWidth().let { if (state.servers.isEmpty()) it.focusRequester(firstFocus) else it },
+                modifier = if (server == state.servers.first()) Modifier.focusRequester(firstFocus) else Modifier,
             )
         }
     }

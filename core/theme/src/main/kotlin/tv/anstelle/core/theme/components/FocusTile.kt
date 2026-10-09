@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,8 +38,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tv.anstelle.core.theme.ControlShape
+import tv.anstelle.core.theme.DangerColor
+import tv.anstelle.core.theme.OnDangerColor
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
+import kotlin.random.Random
 
 /**
  * The one clickable surface every control is built from, for D-pad and touch alike. Focus
@@ -75,8 +79,12 @@ fun FocusSurface(
         !enabled -> theme.textMuted
         else -> contentColor
     }
+    // On a page that keeps its place, focus comes back here if this was the row left on.
+    val page = LocalPageFocus.current
+    val row = if (page != null) rememberSaveable { Random.nextLong() } else 0L
     Box(
         modifier
+            .let { if (page != null) with(page) { it.track(row) } else it }
             .clip(shape)
             .background(container)
             .combinedClickable(
@@ -121,17 +129,25 @@ fun FocusTile(
     onPrevious: (() -> Unit)? = null,
     onNext: (() -> Unit)? = null,
     primary: Boolean = false,
+    danger: Boolean = false,
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val stepping = onPrevious != null && onNext != null
+    // A destructive row carries the danger red: its icon at rest, its fill on focus.
+    val focusInk = if (danger) OnDangerColor else theme.onAccent
     FocusSurface(
         onClick = onClick,
         onLongClick = onLongClick,
         enabled = enabled,
         color = if (primary) theme.accent else theme.surface,
         contentColor = if (primary) theme.onAccent else theme.text,
-        focusColor = if (primary) theme.text else theme.accent,
+        focusColor = when {
+            danger -> DangerColor
+            primary -> theme.text
+            else -> theme.accent
+        },
+        focusContentColor = focusInk,
         modifier = if (stepping) {
             modifier.onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -145,7 +161,11 @@ fun FocusTile(
             modifier
         },
     ) { focused ->
-        val muted = if (focused || primary) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted
+        val muted = when {
+            focused -> focusInk.copy(alpha = 0.76f)
+            primary -> theme.onAccent.copy(alpha = 0.76f)
+            else -> theme.textMuted
+        }
         Row(
             Modifier
                 .defaultMinSize(minHeight = if (isTv) 64.dp else 56.dp)
@@ -157,7 +177,12 @@ fun FocusTile(
                 androidx.compose.material3.Icon(
                     icon,
                     contentDescription = null,
-                    tint = if (selected && !focused) theme.accent else androidx.compose.material3.LocalContentColor.current,
+                    tint = when {
+                        focused -> androidx.compose.material3.LocalContentColor.current
+                        danger -> DangerColor
+                        selected -> theme.accent
+                        else -> androidx.compose.material3.LocalContentColor.current
+                    },
                     modifier = Modifier.size(if (isTv) 26.dp else 22.dp),
                 )
             }
@@ -206,7 +231,7 @@ fun FocusTile(
                     androidx.compose.material3.Text(
                         value,
                         style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
-                        color = if (focused) theme.onAccent else theme.text,
+                        color = if (focused) focusInk else theme.text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -219,7 +244,7 @@ fun FocusTile(
                 selected -> androidx.compose.material3.Icon(
                     Icons.Filled.Check,
                     contentDescription = "Selected",
-                    tint = if (focused) theme.onAccent else theme.accent,
+                    tint = if (focused) focusInk else theme.accent,
                     modifier = Modifier.size(20.dp),
                 )
                 trailing == TileTrailing.Chevron -> androidx.compose.material3.Icon(
@@ -235,8 +260,10 @@ fun FocusTile(
 }
 
 /**
- * A button: [primary] is the screen's one main action (rose, turning bone when focused so
- * focus still shows); the rest sit on the surface step. A button is a fill, never an outline.
+ * A button: [primary] is the screen's one main action, rose at rest on touch (turning bone when
+ * focused so focus still shows); on TV it rests like the others. The rest sit one surface step
+ * above their ground. A [danger] button (delete, remove) is the fixed danger red everywhere. A
+ * button is a fill, never an outline.
  */
 @Composable
 fun OsdButton(
@@ -246,16 +273,34 @@ fun OsdButton(
     icon: ImageVector? = null,
     primary: Boolean = false,
     enabled: Boolean = true,
+    danger: Boolean = false,
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
+    // On TV the accent only ever means focus, so the primary rests like the rest and focus marks
+    // it; touch, with no focus to lead with, fills the primary at rest. A destructive button is
+    // the danger red in every theme and on every device; focus turns it white with red ink.
+    val restsFilled = primary && !isTv
     FocusSurface(
         onClick = onClick,
         enabled = enabled,
-        color = if (primary) theme.accent else theme.surface,
-        contentColor = if (primary) theme.onAccent else theme.text,
-        focusColor = if (primary) theme.text else theme.accent,
-        focusContentColor = theme.onAccent,
+        color = when {
+            danger -> DangerColor
+            restsFilled -> theme.accent
+            LocalOnPanel.current -> theme.surfaceHigh
+            else -> theme.surface
+        },
+        contentColor = when {
+            danger -> OnDangerColor
+            restsFilled -> theme.onAccent
+            else -> theme.text
+        },
+        focusColor = when {
+            danger -> OnDangerColor
+            restsFilled -> theme.text
+            else -> theme.accent
+        },
+        focusContentColor = if (danger) DangerColor else theme.onAccent,
         modifier = modifier,
     ) {
         Row(

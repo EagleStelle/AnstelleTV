@@ -1,28 +1,26 @@
 package tv.anstelle.feature.settings.channels
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.LibraryAdd
-import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.Scale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -50,11 +48,21 @@ import tv.anstelle.core.model.PlaybackOrder
 import tv.anstelle.core.model.RuleField
 import tv.anstelle.core.model.RuleOp
 import tv.anstelle.core.theme.components.AnstelleTextField
-import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.feature.settings.servers.MessageText
-import tv.anstelle.feature.settings.servers.SectionLabel
-import tv.anstelle.feature.settings.servers.SettingsPage
-import tv.anstelle.feature.settings.servers.rememberInitialFocus
+import tv.anstelle.core.theme.components.CheckRow
+import tv.anstelle.core.theme.components.ChoiceRow
+import tv.anstelle.core.theme.components.LinkRow
+import tv.anstelle.core.theme.components.MenuAction
+import tv.anstelle.core.theme.components.MenuRow
+import tv.anstelle.core.theme.components.OptionRow
+import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.PageFocusScope
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsNotice
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.TextRow
+import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.section
+import tv.anstelle.core.theme.components.settingsEdge
 import javax.inject.Inject
 
 /** Where the builder is. Rules are added in three steps: field, operator, values. */
@@ -66,8 +74,18 @@ sealed interface BuilderPage {
 
     data class Op(val group: Int, val field: RuleField) : BuilderPage
 
-    /** Choosing values from a list: genres, networks, shows, types… */
-    data class Choose(val group: Int, val field: RuleField, val op: RuleOp, val selected: Set<String> = emptySet(), val query: String = "") : BuilderPage
+    /**
+     * Choosing values from a list: genres, networks, shows, types, ratings, years. For BETWEEN the
+     * first pick is [from] and the second ends the range.
+     */
+    data class Choose(
+        val group: Int,
+        val field: RuleField,
+        val op: RuleOp,
+        val selected: Set<String> = emptySet(),
+        val query: String = "",
+        val from: ValueOption? = null,
+    ) : BuilderPage
 
     /** Typing values: numbers, keywords or text to look for. */
     data class Type(val group: Int, val field: RuleField, val op: RuleOp, val first: String = "", val second: String = "") : BuilderPage
@@ -93,7 +111,8 @@ data class LineupUiState(
     val groups: List<GroupRow> = emptyList(),
     val includes: List<PickRow> = emptyList(),
     val excludes: List<PickRow> = emptyList(),
-    val summary: String? = null,
+    /** What the lineup airs; null while it is being counted. */
+    val reach: LineupReach? = null,
     val page: BuilderPage = BuilderPage.Main,
     /** Choices for the Choose and Shows pages, filtered by the query. */
     val options: List<ValueOption> = emptyList(),
@@ -115,13 +134,27 @@ class ChannelLineupViewModel @Inject constructor(
     private val _state = MutableStateFlow(LineupUiState(isNew = channelId == 0L))
     val state: StateFlow<LineupUiState> = _state.asStateFlow()
 
+    /** A new channel's group and segment. */
+    val placement = PlacementPicker(repository, viewModelScope) { fail(it) }
+
     private var catalog = Catalog(emptyList())
     private var lineup = Lineup.EMPTY
     private var summaryJob: Job? = null
 
+    /** The library's airtime, for a lineup's share of it. */
+    private var libraryMs = 0L
+
+    /** Each rating score with the ratings the library gives it ("TV-14, PG-13"). */
+    private var ratingNames: Map<Int, String> = emptyMap()
+
     init {
         viewModelScope.launch {
             catalog = repository.catalog()
+            libraryMs = catalog.items.sumOf { it.row.durationMs }
+            ratingNames = catalog.items
+                .mapNotNull { item -> item.row.ratingScore?.let { score -> item.row.officialRating?.let { score to it } } }
+                .groupBy({ it.first }, { it.second })
+                .mapValues { (_, names) -> names.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER).take(3).joinToString(", ") }
             if (channelId != 0L) {
                 lineup = repository.lineup(channelId)
                 val name = repository.observeChannel(channelId).first()?.name.orEmpty()
@@ -145,19 +178,24 @@ class ChannelLineupViewModel @Inject constructor(
 
     fun chooseOp(op: RuleOp) {
         val page = _state.value.page as? BuilderPage.Op ?: return
-        val typed = isNumeric(page.field, op) || page.field == RuleField.KEYWORD || op == RuleOp.CONTAINS
+        // Only keywords and "contains" are typed; everything else is picked from what the library has.
+        val typed = page.field == RuleField.KEYWORD || op == RuleOp.CONTAINS
         go(if (typed) BuilderPage.Type(page.group, page.field, op) else BuilderPage.Choose(page.group, page.field, op))
     }
 
-    /** Toggles a value; a rule that takes one value is added at once. */
-    fun toggleValue(value: String) {
+    /**
+     * Picks a value: a rule that takes one value is added at once; BETWEEN takes where the range
+     * starts, then where it ends; a list toggles the value.
+     */
+    fun toggleValue(option: ValueOption) {
         val page = _state.value.page as? BuilderPage.Choose ?: return
-        if (page.op == RuleOp.EQUALS) {
-            add(page.group, Rule(page.field, page.op, listOf(value)))
-            return
+        val value = option.value
+        when {
+            page.op == RuleOp.BETWEEN && page.from == null -> go(page.copy(from = option, query = ""))
+            page.op == RuleOp.BETWEEN -> add(page.group, Rule(page.field, page.op, listOf(page.from!!.value, value)))
+            page.op in SinglePickOps -> add(page.group, Rule(page.field, page.op, listOf(value)))
+            else -> go(page.copy(selected = if (value in page.selected) page.selected - value else page.selected + value))
         }
-        val selected = if (value in page.selected) page.selected - value else page.selected + value
-        go(page.copy(selected = selected))
     }
 
     fun setQuery(query: String) {
@@ -202,8 +240,11 @@ class ChannelLineupViewModel @Inject constructor(
         changed()
     }
 
-    fun cycleGroupWeight(group: Int) {
-        lineup = lineup.copy(groups = lineup.groups.mapIndexed { i, g -> if (i == group) g.copy(weight = nextWeight(g.weight)) else g })
+    /** Names a rating score for a rule's description ("TV-14, PG-13"). */
+    private fun ratingOf(value: String): String? = value.toIntOrNull()?.let(ratingNames::get)
+
+    fun setGroupWeight(group: Int, weight: Float) {
+        lineup = lineup.copy(groups = lineup.groups.mapIndexed { i, g -> if (i == group) g.copy(weight = weight) else g })
         changed()
     }
 
@@ -236,8 +277,8 @@ class ChannelLineupViewModel @Inject constructor(
         changed()
     }
 
-    fun cyclePickWeight(index: Int) {
-        lineup = lineup.copy(includes = lineup.includes.mapIndexed { i, p -> if (i == index) p.copy(weight = nextWeight(p.weight)) else p })
+    fun setPickWeight(index: Int, weight: Float) {
+        lineup = lineup.copy(includes = lineup.includes.mapIndexed { i, p -> if (i == index) p.copy(weight = weight) else p })
         changed()
     }
 
@@ -247,7 +288,7 @@ class ChannelLineupViewModel @Inject constructor(
             BuilderPage.Main -> return false
             is BuilderPage.Field, is BuilderPage.Shows -> BuilderPage.Main
             is BuilderPage.Op -> BuilderPage.Field(page.group)
-            is BuilderPage.Choose -> BuilderPage.Op(page.group, page.field)
+            is BuilderPage.Choose -> if (page.from != null) page.copy(from = null) else BuilderPage.Op(page.group, page.field)
             is BuilderPage.Type -> BuilderPage.Op(page.group, page.field)
         }
         go(previous)
@@ -257,12 +298,15 @@ class ChannelLineupViewModel @Inject constructor(
     fun save() {
         val current = _state.value
         if (current.busy) return
+        // A new channel never goes without a group and a segment.
+        val place = placement.state.value
+        if (channelId == 0L) place.problem?.let { return fail(it) }
         if (lineup.isEmpty) return fail("Add a rule or a show first.")
         _state.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             try {
                 val id = if (channelId == 0L) {
-                    repository.create(current.name.ifBlank { "New channel" }, lineup, PlaybackOrder.EPISODE_ORDER, 1)
+                    repository.create(current.name.ifBlank { "New channel" }, lineup, PlaybackOrder.EPISODE_ORDER, 1, place.groupId!!, place.segment!!)
                 } else {
                     repository.setLineup(channelId, lineup)
                     channelId
@@ -297,7 +341,7 @@ class ChannelLineupViewModel @Inject constructor(
         val titleOf = catalog::titleOf
         _state.update { state ->
             state.copy(
-                groups = lineup.groups.map { group -> GroupRow(group.rules.map { describe(it, titleOf) }, group.weight) },
+                groups = lineup.groups.map { group -> GroupRow(group.rules.map { describe(it, titleOf, ::ratingOf) }, group.weight) },
                 includes = lineup.includes.map { PickRow(titleOf(it.remoteId) ?: "Not in your library", it.weight) },
                 excludes = lineup.excludes.map { PickRow(titleOf(it.remoteId) ?: "Not in your library", it.weight) },
             )
@@ -305,38 +349,58 @@ class ChannelLineupViewModel @Inject constructor(
         val snapshot = lineup
         summaryJob?.cancel()
         summaryJob = viewModelScope.launch {
-            val summary = withContext(Dispatchers.Default) { matchSummary(LineupMatcher(snapshot).match(catalog)) }
-            _state.update { it.copy(summary = summary) }
+            val reach = withContext(Dispatchers.Default) { LineupReach.of(LineupMatcher(snapshot).match(catalog), libraryMs) }
+            _state.update { it.copy(reach = reach) }
         }
     }
 
+    /**
+     * The values a page lists, in a fixed order that picking never changes: alphabetical, or
+     * ascending for years and rating scores. Picked values stay listed while the list is filtered;
+     * a range's end lists only values from its start on.
+     */
     private fun optionsFor(page: BuilderPage): List<ValueOption> {
         val (all, query, selected) = when (page) {
-            is BuilderPage.Choose -> Triple(choices(page.field), page.query, page.selected)
-            is BuilderPage.Shows -> Triple(catalog.shows.map { ValueOption(it.remoteId, it.title, it.itemCount) }, page.query, emptySet())
+            is BuilderPage.Choose -> {
+                val start = page.from?.value?.toIntOrNull()
+                val values = choices(page.field, page.op).filter { start == null || (it.value.toIntOrNull() ?: Int.MIN_VALUE) >= start }
+                Triple(values, page.query, page.selected + listOfNotNull(page.from?.value))
+            }
+            is BuilderPage.Shows -> Triple(catalog.shows.map { ValueOption(it.remoteId, it.title, it.itemCount) }.alphabetical(), page.query, emptySet())
             else -> return emptyList()
         }
         val needle = query.trim()
-        val matching = if (needle.isEmpty()) all else all.filter { it.label.contains(needle, ignoreCase = true) }
-        // Picked values stay visible while the list is filtered.
-        return (all.filter { it.value in selected } + matching.filter { it.value !in selected }).take(MAX_OPTIONS)
+        return all.filter { needle.isEmpty() || it.value in selected || it.label.contains(needle, ignoreCase = true) }.take(MAX_OPTIONS)
     }
 
-    private fun choices(field: RuleField): List<ValueOption> = when (field) {
+    private fun choices(field: RuleField, op: RuleOp): List<ValueOption> = when (field) {
         RuleField.MEDIA_TYPE -> Rule.PlayableTypes.map { type ->
             ValueOption(type.name, mediaTypeLabel(type.name), catalog.items.count { it.row.type == type })
-        }.filter { it.count > 0 }
-        RuleField.SERIES -> catalog.shows.filter { catalog.isSeries(it.remoteId) }.map { ValueOption(it.remoteId, it.title, it.itemCount) }
-        RuleField.KIND -> catalog.values(field).map { ValueOption(it.value, kindLabel(it.value), it.count) }
-        else -> catalog.values(field).map { ValueOption(it.value, it.value, it.count) }
+        }.filter { it.count > 0 }.alphabetical()
+        RuleField.SERIES -> catalog.shows.filter { catalog.isSeries(it.remoteId) }.map { ValueOption(it.remoteId, it.title, it.itemCount) }.alphabetical()
+        RuleField.KIND -> catalog.values(field).map { ValueOption(it.value, kindLabel(it.value), it.count) }.alphabetical()
+        RuleField.YEAR -> catalog.items.mapNotNull { it.row.year }.groupingBy { it }.eachCount().entries
+            .sortedBy { it.key }
+            .map { ValueOption(it.key.toString(), it.key.toString(), it.value) }
+        // A rating compared by score picks a score, named by the ratings that have it.
+        RuleField.OFFICIAL_RATING -> if (op == RuleOp.AT_LEAST || op == RuleOp.AT_MOST || op == RuleOp.BETWEEN) {
+            catalog.items.mapNotNull { it.row.ratingScore }.groupingBy { it }.eachCount().entries
+                .sortedBy { it.key }
+                .map { ValueOption(it.key.toString(), ratingNames[it.key] ?: "Score ${it.key}", it.value) }
+        } else {
+            catalog.values(field).map { ValueOption(it.value, it.value, it.count) }.alphabetical()
+        }
+        else -> catalog.values(field).map { ValueOption(it.value, it.value, it.count) }.alphabetical()
     }
+
+    private fun List<ValueOption>.alphabetical() = sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
 
     private companion object {
         const val MAX_OPTIONS = 200
     }
 }
 
-/** Builds a channel's lineup: rule groups (any group may match), and shows always or never included. */
+/** Builds a channel's lineup: rule sets (any set may match), and shows always or never included. */
 @Composable
 fun ChannelLineupScreen(
     onSaved: (channelId: Long, isNew: Boolean) -> Unit,
@@ -345,152 +409,167 @@ fun ChannelLineupScreen(
     viewModel: ChannelLineupViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val placement by viewModel.placement.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.savedChannelId) { state.savedChannelId?.let { onSaved(it, state.isNew) } }
     androidx.activity.compose.BackHandler { if (!viewModel.back()) onBack() }
     if (!state.loaded) return
+    val panes = rememberSaveableStateHolder()
+    // The pages above this one: the channel's own page for a lineup, the channel list for a new one.
+    val trail = listOf("Settings", "Channels") + listOfNotNull(state.name.takeIf { !state.isNew && it.isNotEmpty() })
+    val builder = trail + if (state.isNew) "New channel" else "Lineup"
 
-    when (val page = state.page) {
-        BuilderPage.Main -> MainPage(state, viewModel, modifier)
-        is BuilderPage.Field -> FieldPage(viewModel, modifier)
-        is BuilderPage.Op -> OpPage(page, viewModel, modifier)
-        is BuilderPage.Choose -> ChoosePage(page, state, viewModel, modifier)
-        is BuilderPage.Type -> TypePage(page, state, viewModel, modifier)
-        is BuilderPage.Shows -> ShowsPage(page, state, viewModel, modifier)
+    val page = state.page
+    val pane = @Composable {
+        PageFocusScope {
+            when (page) {
+                BuilderPage.Main -> MainPage(state, placement, viewModel, trail, modifier)
+                is BuilderPage.Field -> FieldPage(viewModel, builder, modifier)
+                is BuilderPage.Op -> OpPage(page, viewModel, builder, modifier)
+                is BuilderPage.Choose -> ChoosePage(page, state, viewModel, builder, modifier)
+                is BuilderPage.Type -> TypePage(page, state, viewModel, builder, modifier)
+                is BuilderPage.Shows -> ShowsPage(page, state, viewModel, builder, modifier)
+            }
+        }
     }
+    // The pages a step back returns to keep their scroll and focused row; the last steps start fresh.
+    val returnKey = when (page) {
+        BuilderPage.Main -> "main"
+        is BuilderPage.Field -> "field"
+        is BuilderPage.Op -> "op-${page.field}"
+        else -> null
+    }
+    if (returnKey != null) panes.SaveableStateProvider(returnKey, pane) else pane()
 }
 
 @Composable
-private fun MainPage(state: LineupUiState, viewModel: ChannelLineupViewModel, modifier: Modifier) {
+private fun MainPage(state: LineupUiState, placement: Placement, viewModel: ChannelLineupViewModel, trail: List<String>, modifier: Modifier) {
     val firstFocus = rememberInitialFocus()
     SettingsPage(
         title = if (state.isNew) "New channel" else "Lineup",
-        subtitle = "An item airs when it matches every rule of any one group. Weights make shows air more or less often.",
+        trail = trail,
+        about = if (state.isNew) {
+            "Name it, pick its group and segment, then add rules. A show plays when it matches every rule in a set."
+        } else {
+            "A show plays when it matches every rule in a set. Changes start after the next program."
+        },
+        aside = { ReachReadout(state.reach) },
         modifier = modifier,
     ) {
-        item(key = "summary") { MessageText("Matches: ${state.summary ?: "counting…"}") }
         if (state.isNew) {
             item(key = "name") {
-                AnstelleTextField(
+                TextRow(
+                    title = "Name",
                     value = state.name,
-                    onValueChange = viewModel::setName,
-                    label = "Channel name",
-                    isLast = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    summary = state.name.ifBlank { "New channel" },
+                    onSave = { name -> viewModel.setName(name); null },
+                    modifier = Modifier.focusRequester(firstFocus),
+                )
+            }
+            item(key = "group") {
+                GroupChoiceRow(placement.groups, placement.groupId, viewModel.placement::pickGroup, viewModel.placement::newGroup)
+            }
+            item(key = "segment") {
+                SegmentChoiceRow(placement.segments, placement.segment, viewModel.placement::pickSegment, viewModel.placement::newSegment)
+            }
+        }
+        state.groups.forEachIndexed { g, group ->
+            groupItems(g, group, viewModel, firstFocus.takeIf { g == 0 && !state.isNew })
+        }
+        item(key = "add-group") {
+            SettingsButtons {
+                OsdButton(
+                    if (state.groups.isEmpty()) "Add rule" else "Add rule set",
+                    onClick = viewModel::addGroup,
+                    icon = Icons.Filled.Add,
+                    modifier = if (state.groups.isEmpty() && !state.isNew) Modifier.focusRequester(firstFocus) else Modifier,
                 )
             }
         }
-        // Focus starts on the first rule, or on adding one; not on the name, which would open the keyboard.
-        state.groups.forEachIndexed { g, group ->
-            groupItems(g, group, viewModel, firstFocus.takeIf { g == 0 })
-        }
-        item(key = "add-group") {
-            FocusTile(
-                title = if (state.groups.isEmpty()) "Add a rule" else "Add another group (or)",
-                subtitle = if (state.groups.isEmpty()) "Genre, network, year, keyword, show…" else "Items matching this group air too.",
-                icon = Icons.Filled.AddCircle,
-                onClick = viewModel::addGroup,
-                modifier = Modifier.fillMaxWidth().let { if (state.groups.isEmpty()) it.focusRequester(firstFocus) else it },
-            )
-        }
         picks("Always include", state.includes, include = true, viewModel)
         picks("Never include", state.excludes, include = false, viewModel)
-        item(key = "error") { state.error?.let { MessageText(it, isError = true) } }
+        item(key = "error") { state.error?.let { SettingsNotice(it, isError = true) } }
         item(key = "save") {
-            FocusTile(
-                title = if (state.busy) "Saving…" else if (state.isNew) "Create channel" else "Save lineup",
-                subtitle = if (state.isNew) null else "The airing on now and the next one stay; the rest of the schedule follows the new lineup.",
-                icon = Icons.Filled.Check,
-                onClick = viewModel::save,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            SettingsButtons(Modifier.padding(top = 16.dp)) {
+                OsdButton(
+                    text = if (state.busy) "Saving…" else if (state.isNew) "Create channel" else "Save lineup",
+                    onClick = viewModel::save,
+                    icon = Icons.Filled.Check,
+                    primary = true,
+                )
+            }
         }
     }
 }
 
 private fun LazyListScope.groupItems(g: Int, group: GroupRow, viewModel: ChannelLineupViewModel, focus: FocusRequester?) {
-    item(key = "group-$g") { SectionLabel(if (g == 0) "Group 1" else "Or group ${g + 1}") }
+    section(if (g == 0) "Rule set 1" else "Or rule set ${g + 1}", key = "group-$g")
     group.rules.forEachIndexed { r, text ->
         item(key = "rule-$g-$r") {
-            FocusTile(
+            MenuRow(
                 title = text,
-                subtitle = "Select to remove.",
                 icon = Icons.Filled.FilterAlt,
-                onClick = { viewModel.removeRule(g, r) },
-                modifier = Modifier.fillMaxWidth().let { if (focus != null && r == 0) it.focusRequester(focus) else it },
+                actions = listOf(MenuAction("Remove rule", Icons.Filled.Delete, danger = true) { viewModel.removeRule(g, r) }),
+                modifier = if (focus != null && r == 0) Modifier.focusRequester(focus) else Modifier,
             )
         }
     }
-    item(key = "add-rule-$g") {
-        FocusTile(
-            title = "Add a rule to this group (and)",
-            icon = Icons.Filled.Add,
-            onClick = { viewModel.addRule(g) },
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
     item(key = "weight-$g") {
-        FocusTile(
-            title = "Weight ${weightLabel(group.weight)}",
-            subtitle = "How often this group's shows are picked. Select to change.",
+        ChoiceRow(
+            title = "Weight",
+            value = group.weight,
+            choices = WeightSteps,
+            label = ::weightLabel,
+            detail = ::weightHint,
+            about = "How often this set's shows play.",
+            onSelect = { viewModel.setGroupWeight(g, it) },
             icon = Icons.Filled.Scale,
-            onClick = { viewModel.cycleGroupWeight(g) },
-            modifier = Modifier.fillMaxWidth(),
         )
     }
-    item(key = "remove-$g") {
-        FocusTile(
-            title = "Remove this group",
-            icon = Icons.Filled.Delete,
-            onClick = { viewModel.removeGroup(g) },
-            modifier = Modifier.fillMaxWidth(),
-        )
+    item(key = "group-buttons-$g") {
+        SettingsButtons {
+            OsdButton("Add rule", onClick = { viewModel.addRule(g) }, icon = Icons.Filled.Add)
+            OsdButton("Remove rule set", onClick = { viewModel.removeGroup(g) }, icon = Icons.Filled.Delete, danger = true)
+        }
     }
 }
 
 private fun LazyListScope.picks(label: String, rows: List<PickRow>, include: Boolean, viewModel: ChannelLineupViewModel) {
-    item(key = "picks-$include") { SectionLabel(label) }
+    section(label, key = "picks-$include")
     rows.forEachIndexed { i, row ->
         item(key = "pick-$include-$i") {
-            FocusTile(
+            MenuRow(
                 title = row.title,
-                subtitle = if (include) "Weight ${weightLabel(row.weight)}. Select to change." else "Select to remove.",
+                summary = if (include) "Weight ${weightLabel(row.weight)}" else null,
                 icon = if (include) Icons.Filled.LibraryAdd else Icons.Filled.Block,
-                onClick = { if (include) viewModel.cyclePickWeight(i) else viewModel.removePick(include = false, index = i) },
-                modifier = Modifier.fillMaxWidth(),
+                actions = buildList {
+                    if (include) {
+                        for (weight in WeightSteps) {
+                            add(MenuAction("Weight ${weightLabel(weight)}", detail = weightHint(weight), selected = weight == row.weight) { viewModel.setPickWeight(i, weight) })
+                        }
+                    }
+                    add(MenuAction("Remove", Icons.Filled.Delete, danger = true) { viewModel.removePick(include, i) })
+                },
             )
-        }
-        if (include) {
-            item(key = "unpick-$i") {
-                FocusTile(
-                    title = "Remove ${row.title}",
-                    icon = Icons.Filled.RemoveCircleOutline,
-                    onClick = { viewModel.removePick(include = true, index = i) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
         }
     }
     item(key = "add-pick-$include") {
-        FocusTile(
-            title = "Add a show or movie",
-            icon = Icons.Filled.Add,
-            onClick = { viewModel.openShows(include) },
-            modifier = Modifier.fillMaxWidth(),
-        )
+        SettingsButtons {
+            OsdButton("Add show", onClick = { viewModel.openShows(include) }, icon = Icons.Filled.Add)
+        }
     }
 }
 
 @Composable
-private fun FieldPage(viewModel: ChannelLineupViewModel, modifier: Modifier) {
+private fun FieldPage(viewModel: ChannelLineupViewModel, trail: List<String>, modifier: Modifier) {
     val firstFocus = rememberInitialFocus()
-    SettingsPage(title = "Add a rule", subtitle = "What should the rule look at?", modifier = modifier) {
+    SettingsPage(title = "Add rule", trail = trail, about = "What should the rule look at?", modifier = modifier) {
         BuilderFields.forEachIndexed { i, field ->
             item(key = field.name) {
-                FocusTile(
+                LinkRow(
                     title = fieldLabel(field),
-                    subtitle = fieldHint(field),
+                    summary = fieldHint(field),
                     onClick = { viewModel.chooseField(field) },
-                    modifier = Modifier.fillMaxWidth().let { if (i == 0) it.focusRequester(firstFocus) else it },
+                    modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier,
                 )
             }
         }
@@ -498,15 +577,15 @@ private fun FieldPage(viewModel: ChannelLineupViewModel, modifier: Modifier) {
 }
 
 @Composable
-private fun OpPage(page: BuilderPage.Op, viewModel: ChannelLineupViewModel, modifier: Modifier) {
+private fun OpPage(page: BuilderPage.Op, viewModel: ChannelLineupViewModel, trail: List<String>, modifier: Modifier) {
     val firstFocus = rememberInitialFocus()
-    SettingsPage(title = fieldLabel(page.field), subtitle = "How should it compare?", modifier = modifier) {
+    SettingsPage(title = fieldLabel(page.field), trail = trail + "Add rule", about = "How should it compare?", modifier = modifier) {
         Rule.opsFor(page.field).forEachIndexed { i, op ->
             item(key = op.name) {
-                FocusTile(
+                LinkRow(
                     title = "${fieldLabel(page.field)} ${opLabel(page.field, op)}…",
                     onClick = { viewModel.chooseOp(op) },
-                    modifier = Modifier.fillMaxWidth().let { if (i == 0) it.focusRequester(firstFocus) else it },
+                    modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier,
                 )
             }
         }
@@ -514,12 +593,19 @@ private fun OpPage(page: BuilderPage.Op, viewModel: ChannelLineupViewModel, modi
 }
 
 @Composable
-private fun ChoosePage(page: BuilderPage.Choose, state: LineupUiState, viewModel: ChannelLineupViewModel, modifier: Modifier) {
+private fun ChoosePage(page: BuilderPage.Choose, state: LineupUiState, viewModel: ChannelLineupViewModel, trail: List<String>, modifier: Modifier) {
     val firstFocus = rememberInitialFocus()
-    val single = page.op == RuleOp.EQUALS
+    val single = page.op in SinglePickOps
+    val from = page.from
     SettingsPage(
-        title = "${fieldLabel(page.field)} ${opLabel(page.field, page.op)}…",
-        subtitle = if (single) "Pick one." else "Pick one or more, then add the rule.",
+        title = if (from == null) "${fieldLabel(page.field)} ${opLabel(page.field, page.op)}…" else "${fieldLabel(page.field)} ${opLabel(page.field, page.op)} ${from.label} and…",
+        trail = trail + "Add rule",
+        about = when {
+            page.op == RuleOp.BETWEEN && from == null -> "Pick where the range starts."
+            page.op == RuleOp.BETWEEN -> "Pick where the range ends."
+            single -> "Pick one."
+            else -> "Pick one or more, then add the rule."
+        },
         modifier = modifier,
     ) {
         item(key = "query") {
@@ -528,48 +614,57 @@ private fun ChoosePage(page: BuilderPage.Choose, state: LineupUiState, viewModel
                 onValueChange = viewModel::setQuery,
                 label = "Filter",
                 isLast = true,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = settingsEdge, vertical = 8.dp),
             )
         }
         if (!single) {
             item(key = "confirm") {
-                FocusTile(
-                    title = "Add the rule (${page.selected.size} picked)",
-                    icon = Icons.Filled.Check,
-                    onClick = viewModel::confirmRule,
-                    modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
-                )
+                SettingsButtons {
+                    OsdButton(
+                        "Add rule (${page.selected.size})",
+                        onClick = viewModel::confirmRule,
+                        icon = Icons.Filled.Check,
+                        primary = true,
+                        modifier = Modifier.focusRequester(firstFocus),
+                    )
+                }
             }
         }
-        item(key = "error") { state.error?.let { MessageText(it, isError = true) } }
-        if (state.options.isEmpty()) item(key = "none") { MessageText("Nothing in your library has one.") }
+        item(key = "error") { state.error?.let { SettingsNotice(it, isError = true) } }
+        if (state.options.isEmpty()) item(key = "none") { SettingsNotice("Nothing in your library has one.") }
         itemsIndexed(state.options, key = { _, option -> "option-${option.value}" }) { i, option ->
-            FocusTile(
-                title = option.label,
-                subtitle = "%,d %s".format(option.count, if (option.count == 1) "item" else "items"),
-                icon = if (option.value in page.selected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-                onClick = { viewModel.toggleValue(option.value) },
-                modifier = Modifier.fillMaxWidth().let { if (single && i == 0) it.focusRequester(firstFocus) else it },
-            )
+            val count = "%,d %s".format(option.count, if (option.count == 1) "item" else "items")
+            if (single) {
+                OptionRow(
+                    title = option.label,
+                    summary = count,
+                    selected = option.value == from?.value,
+                    onClick = { viewModel.toggleValue(option) },
+                    modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier,
+                )
+            } else {
+                CheckRow(
+                    title = option.label,
+                    summary = count,
+                    checked = option.value in page.selected,
+                    onClick = { viewModel.toggleValue(option) },
+                )
+            }
         }
     }
 }
 
+/** Typing what to look for: keywords, or text a value contains. Everything else is picked from the library. */
 @Composable
-private fun TypePage(page: BuilderPage.Type, state: LineupUiState, viewModel: ChannelLineupViewModel, modifier: Modifier) {
+private fun TypePage(page: BuilderPage.Type, state: LineupUiState, viewModel: ChannelLineupViewModel, trail: List<String>, modifier: Modifier) {
     val firstFocus = rememberInitialFocus()
-    val numeric = isNumeric(page.field, page.op)
-    val unit = when (page.field) {
-        RuleField.DECADE -> " (like 1980)"
-        RuleField.OFFICIAL_RATING -> " (rating score, roughly an age)"
-        else -> ""
-    }
     SettingsPage(
         title = "${fieldLabel(page.field)} ${opLabel(page.field, page.op)}…",
-        subtitle = when {
-            page.field == RuleField.KEYWORD -> "Words or phrases, separated by commas. Titles, show titles and tags are searched."
-            numeric -> null
-            else -> "Matches values that contain this text."
+        trail = trail + "Add rule",
+        about = if (page.field == RuleField.KEYWORD) {
+            "Words or phrases, separated by commas. Searches titles and tags."
+        } else {
+            "Matches anything that contains this text."
         },
         modifier = modifier,
     ) {
@@ -577,44 +672,28 @@ private fun TypePage(page: BuilderPage.Type, state: LineupUiState, viewModel: Ch
             AnstelleTextField(
                 value = page.first,
                 onValueChange = { viewModel.setTyped(it, page.second) },
-                label = (if (page.op == RuleOp.BETWEEN) "From" else "Value") + unit,
-                keyboardType = if (numeric) KeyboardType.Number else KeyboardType.Text,
-                isLast = page.op != RuleOp.BETWEEN,
+                label = if (page.field == RuleField.KEYWORD) "Keywords" else "Text",
+                isLast = true,
                 onDone = viewModel::confirmRule,
-                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = settingsEdge, vertical = 4.dp).focusRequester(firstFocus),
             )
         }
-        if (page.op == RuleOp.BETWEEN) {
-            item(key = "second") {
-                AnstelleTextField(
-                    value = page.second,
-                    onValueChange = { viewModel.setTyped(page.first, it) },
-                    label = "To$unit",
-                    keyboardType = KeyboardType.Number,
-                    isLast = true,
-                    onDone = viewModel::confirmRule,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-        item(key = "error") { state.error?.let { MessageText(it, isError = true) } }
+        item(key = "error") { state.error?.let { SettingsNotice(it, isError = true) } }
         item(key = "confirm") {
-            FocusTile(
-                title = "Add the rule",
-                icon = Icons.Filled.Check,
-                onClick = viewModel::confirmRule,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            SettingsButtons {
+                OsdButton("Add rule", onClick = viewModel::confirmRule, icon = Icons.Filled.Check, primary = true)
+            }
         }
     }
 }
 
 @Composable
-private fun ShowsPage(page: BuilderPage.Shows, state: LineupUiState, viewModel: ChannelLineupViewModel, modifier: Modifier) {
+private fun ShowsPage(page: BuilderPage.Shows, state: LineupUiState, viewModel: ChannelLineupViewModel, trail: List<String>, modifier: Modifier) {
     val firstFocus = rememberInitialFocus()
     SettingsPage(
         title = if (page.include) "Always include" else "Never include",
-        subtitle = if (page.include) "The show or movie airs on this channel whatever the rules say." else "The show or movie never airs on this channel.",
+        trail = trail,
+        about = if (page.include) "Always plays on this channel, whatever the rules say." else "Never plays on this channel.",
         modifier = modifier,
     ) {
         item(key = "query") {
@@ -623,16 +702,16 @@ private fun ShowsPage(page: BuilderPage.Shows, state: LineupUiState, viewModel: 
                 onValueChange = viewModel::setQuery,
                 label = "Search",
                 isLast = true,
-                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = settingsEdge, vertical = 8.dp).focusRequester(firstFocus),
             )
         }
-        if (state.options.isEmpty()) item(key = "none") { MessageText("No matching shows or movies.") }
+        if (state.options.isEmpty()) item(key = "none") { SettingsNotice("No matching shows or movies.") }
         itemsIndexed(state.options, key = { _, option -> "show-${option.value}" }) { _, option ->
-            FocusTile(
+            OptionRow(
                 title = option.label,
-                subtitle = "%,d %s".format(option.count, if (option.count == 1) "item" else "episodes"),
+                summary = "%,d %s".format(option.count, if (option.count == 1) "item" else "episodes"),
+                selected = false,
                 onClick = { viewModel.pickShow(option.value) },
-                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

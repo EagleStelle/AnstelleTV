@@ -18,12 +18,12 @@ fun DashboardOffDialog(onKeep: () -> Unit, onDelete: () -> Unit, onDismiss: () -
     val typography = androidx.compose.material3.MaterialTheme.typography
     ActionDialog(
         actions = listOf(
-            DialogAction("Keep history", "Comes back when the dashboard is on again.", Icons.Filled.Archive, onKeep),
-            DialogAction("Delete history", "Removes everything kept for this profile.", Icons.Filled.DeleteOutline, onDelete),
+            DialogAction("Keep history", "It's all there again when you turn the dashboard back on.", Icons.Filled.Archive, onKeep),
+            DialogAction("Delete history", "Clears everything your dashboard shows.", Icons.Filled.DeleteOutline, danger = true, onClick = onDelete),
         ),
         onDismiss = onDismiss,
     ) {
         androidx.compose.material3.Text("Turn off the dashboard?", style = typography.headlineSmall, color = theme.text)
-        androidx.compose.material3.Text("Nothing more is kept for this profile.", style = typography.bodyMedium, color = theme.textMuted)
+        androidx.compose.material3.Text("It stops keeping track of what you watch.", style = typography.bodyMedium, color = theme.textMuted)
     }
 }

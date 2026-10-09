@@ -154,7 +154,7 @@ object ThemeContrast {
         Floor("textMuted", "surface", 4.5, "Quiet text on rows"),
         Floor("onAccent", "accent", 4.5, "Text on focus"),
         Floor("accent", "background", 3.0, "Focus on the ground"),
-        Floor("onAccentContainer", "accentContainer", 4.5, "Text on the container"),
+        Floor("onAccentContainer", "accentContainer", 4.5, "Text on selected"),
         Floor("bannerText", "banner", 7.0, "Banner text"),
         Floor("text", "guideCell", 7.0, "Text on guide cells"),
     )
@@ -167,7 +167,7 @@ object ThemeContrast {
         val byRole = colors.all().toMap()
         val pairs = Floors.map { floor -> floor to ratio(byRole.getValue(floor.foreground), byRole.getValue(floor.background)) }
         val runs = colors.guideRuns.mapIndexed { i, run ->
-            Floor("text", "guideRuns[$i]", RUN_MINIMUM, "Text on guide run ${i + 1}") to ratio(colors.text, run)
+            Floor("text", "guideRuns[$i]", RUN_MINIMUM, "Text on Guide: later ${i + 1}") to ratio(colors.text, run)
         }
         return (pairs + runs).filter { (floor, ratio) -> ratio < floor.minimum }
     }

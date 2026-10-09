@@ -1,11 +1,8 @@
 package tv.anstelle.feature.settings.channels
 
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AddCircle
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,11 +27,13 @@ import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelSummary
 import tv.anstelle.core.data.channels.Lineup
 import tv.anstelle.core.model.PlaybackOrder
-import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.feature.settings.servers.MessageText
-import tv.anstelle.feature.settings.servers.SectionLabel
-import tv.anstelle.feature.settings.servers.SettingsPage
-import tv.anstelle.feature.settings.servers.rememberInitialFocus
+import tv.anstelle.core.theme.components.CheckRow
+import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsNotice
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.section
 import javax.inject.Inject
 
 @Immutable
@@ -59,6 +58,9 @@ class AddToChannelViewModel @Inject constructor(
     private val _state = MutableStateFlow(AddToChannelUiState())
     val state: StateFlow<AddToChannelUiState> = _state.asStateFlow()
 
+    /** The group and segment New channel puts the channel in. */
+    val placement = PlacementPicker(repository, viewModelScope) { problem -> _state.update { it.copy(message = problem) } }
+
     init {
         viewModelScope.launch {
             val pick = repository.pickFor(itemId)
@@ -73,13 +75,15 @@ class AddToChannelViewModel @Inject constructor(
         _state.update {
             it.copy(
                 including = it.including + channel.channel.id,
-                message = "${pick.title} now airs on ${channel.channel.number} ${channel.channel.name}, after the program on now and the next one.",
+                message = "${pick.title} now plays on ${channel.channel.number} ${channel.channel.name}, starting after the next program.",
             )
         }
     }
 
     fun newChannel() = act { pick ->
-        val id = repository.create(pick.title, Lineup(emptyList(), includes = listOf(pick.pick)), PlaybackOrder.EPISODE_ORDER, 1)
+        val place = placement.state.value
+        place.problem?.let { throw IllegalArgumentException(it) }
+        val id = repository.create(pick.title, Lineup(emptyList(), includes = listOf(pick.pick)), PlaybackOrder.EPISODE_ORDER, 1, place.groupId!!, place.segment!!)
         val channels = repository.observeChannels().first()
         val number = channels.firstOrNull { it.channel.id == id }?.channel?.number
         _state.update {
@@ -110,7 +114,10 @@ class AddToChannelViewModel @Inject constructor(
     }
 }
 
-/** Makes a channel always air a show or movie, or builds a new channel around it. */
+/**
+ * Makes channels always air a show or movie: a checkbox per channel (checked once it airs it),
+ * or New channel builds a channel around it in the group and segment above it.
+ */
 @Composable
 fun AddToChannelScreen(
     onGone: () -> Unit,
@@ -118,6 +125,7 @@ fun AddToChannelScreen(
     viewModel: AddToChannelViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val placement by viewModel.placement.state.collectAsStateWithLifecycle()
     if (!state.loaded) return
     val pick = state.pick
     if (pick == null) {
@@ -126,30 +134,41 @@ fun AddToChannelScreen(
     }
     val firstFocus = rememberInitialFocus()
     SettingsPage(
-        title = "Add ${pick.title} to a channel",
-        subtitle = "The channel always airs it, whatever its rules say. Its schedule changes after the program on now and the next one.",
+        title = "Add to channel",
+        showBack = true,
+        about = "Checked channels always play ${pick.title}, starting after the next program. New channel makes one just for it.",
+        aside = {
+            androidx.compose.material3.Text(
+                pick.title,
+                style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
+                color = tv.anstelle.core.theme.LocalAnstelleTheme.current.text,
+            )
+        },
         modifier = modifier,
     ) {
-        item(key = "message") { state.message?.let { MessageText(it) } }
-        item(key = "new") {
-            FocusTile(
-                title = "New channel: ${pick.title}",
-                subtitle = "A channel of its own, playing it in episode order.",
-                icon = Icons.Filled.AddCircle,
-                onClick = viewModel::newChannel,
-                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
-            )
+        item(key = "message") { state.message?.let { SettingsNotice(it) } }
+        item(key = "group") {
+            GroupChoiceRow(placement.groups, placement.groupId, viewModel.placement::pickGroup, viewModel.placement::newGroup)
         }
-        if (state.channels.isNotEmpty()) item(key = "label") { SectionLabel("Your channels") }
+        item(key = "segment") {
+            SegmentChoiceRow(placement.segments, placement.segment, viewModel.placement::pickSegment, viewModel.placement::newSegment)
+        }
+        item(key = "new") {
+            SettingsButtons {
+                OsdButton("New channel", onClick = viewModel::newChannel, icon = Icons.Filled.Add, primary = true, modifier = Modifier.focusRequester(firstFocus))
+            }
+        }
+        if (state.channels.isNotEmpty()) section("Your channels")
         items(state.channels, key = { it.channel.id }) { summary ->
             val channel = summary.channel
             val included = channel.id in state.including
-            FocusTile(
+            CheckRow(
                 title = "${channel.number}  ${channel.name}",
-                subtitle = if (included) "Always airs ${pick.title}." else listOfNotNull(summary.groupName, "hidden".takeIf { channel.isHidden }).joinToString(" · ").ifEmpty { null },
-                icon = if (included) Icons.Filled.CheckCircle else Icons.Filled.LiveTv,
-                onClick = { if (!included) viewModel.addTo(summary) },
-                modifier = Modifier.fillMaxWidth(),
+                summary = if (included) "Always airs ${pick.title}" else listOfNotNull(summary.groupName, "hidden".takeIf { channel.isHidden }).joinToString(", ").ifEmpty { null },
+                checked = included,
+                // Taking a pick off a channel happens in its lineup.
+                enabled = !included,
+                onClick = { viewModel.addTo(summary) },
             )
         }
     }

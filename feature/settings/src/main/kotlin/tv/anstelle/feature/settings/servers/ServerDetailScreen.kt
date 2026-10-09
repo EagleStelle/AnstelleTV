@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -34,16 +33,10 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -72,8 +65,17 @@ import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.PanelShape
-import tv.anstelle.core.theme.components.FocusTile
+import tv.anstelle.core.theme.components.DangerButton
+import tv.anstelle.core.theme.components.InfoRow
+import tv.anstelle.core.theme.components.LinkRow
+import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsPage
 import tv.anstelle.core.theme.components.StatusLine
+import tv.anstelle.core.theme.components.SwitchRow
+import tv.anstelle.core.theme.components.foot
+import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.section
 import javax.inject.Inject
 
 @Immutable
@@ -119,7 +121,10 @@ class ServerDetailViewModel @Inject constructor(
     }
 }
 
-/** One server: connection, sync status, item counts and which libraries are synced. */
+/**
+ * One server: its readout (sync state, what the library holds, the connection), the sync
+ * buttons, a switch per library, the Jellyfin user it syncs as, and removing it at the foot.
+ */
 @Composable
 fun ServerDetailScreen(
     onSignIn: (Long) -> Unit,
@@ -129,64 +134,55 @@ fun ServerDetailScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val server = state.server ?: return
-    val firstFocus = remember { FocusRequester() }
-    if (LocalIsTv.current) LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
-    // Removing everything synced from a server is destructive, so it takes a second press.
-    var confirmRemove by remember { mutableStateOf(false) }
+    val firstFocus = rememberInitialFocus()
 
-    SettingsPage(title = server.name, modifier = modifier) {
-        item(key = "readout") { ServerReadout(server, state.progress, state.counts, state.nowUtcMs) }
+    SettingsPage(
+        title = server.name,
+        trail = listOf("Settings", "Servers"),
+        about = "Sync now fetches what changed; Full sync reads every item again. A library turned off is dropped at the next sync.",
+        aside = { ServerReadout(server, state.progress, state.counts, state.nowUtcMs) },
+        modifier = modifier,
+    ) {
         item(key = "sync") {
-            FocusTile(
-                title = if (server.isSignedIn) "Sync now" else "Sign in again",
-                subtitle = if (server.isSignedIn) "Fetch changes and check for removed items." else "The server no longer accepts the saved sign-in.",
-                icon = if (server.isSignedIn) Icons.Filled.Sync else Icons.AutoMirrored.Filled.Login,
-                onClick = { if (server.isSignedIn) viewModel.syncNow(full = false) else onSignIn(server.id) },
-                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
-            )
-        }
-        item(key = "libraries") { SectionLabel("Libraries") }
-        items(state.libraries, key = { it.id }) { library ->
-            val supported = viewModel.canAir(library)
-            FocusTile(
-                title = library.name,
-                subtitle = if (supported) {
-                    val use = if (library.isEnabled) "Used for channels" else "Not used"
-                    "${collectionLabel(library.collectionType)} · $use. Select to change."
+            SettingsButtons {
+                if (server.isSignedIn) {
+                    OsdButton("Sync now", onClick = { viewModel.syncNow(full = false) }, icon = Icons.Filled.Sync, primary = true, modifier = Modifier.focusRequester(firstFocus))
+                    OsdButton("Full sync", onClick = { viewModel.syncNow(full = true) }, icon = Icons.Filled.Refresh)
                 } else {
-                    "${collectionLabel(library.collectionType)} · not supported yet"
-                },
-                icon = if (supported && library.isEnabled) Icons.Filled.VideoLibrary else Icons.Filled.VideocamOff,
-                onClick = { if (supported) viewModel.toggle(library) },
-                modifier = Modifier.fillMaxWidth(),
-            )
+                    OsdButton("Sign in", onClick = { onSignIn(server.id) }, icon = Icons.AutoMirrored.Filled.Login, primary = true, modifier = Modifier.focusRequester(firstFocus))
+                }
+            }
         }
-        item(key = "actions") { SectionLabel("Server") }
-        item(key = "full") {
-            FocusTile(
-                title = "Fetch everything again",
-                subtitle = "Re-reads every item instead of only the changes.",
-                icon = Icons.Filled.Refresh,
-                onClick = { viewModel.syncNow(full = true) },
-                modifier = Modifier.fillMaxWidth(),
-            )
+        section("Libraries")
+        items(state.libraries, key = { it.id }) { library ->
+            if (viewModel.canAir(library)) {
+                SwitchRow(
+                    title = library.name,
+                    checked = library.isEnabled,
+                    onCheckedChange = { viewModel.toggle(library) },
+                    summary = collectionLabel(library.collectionType),
+                    icon = Icons.Filled.VideoLibrary,
+                )
+            } else {
+                InfoRow(library.name, summary = "${collectionLabel(library.collectionType)}, not supported yet", icon = Icons.Filled.VideocamOff)
+            }
         }
-        item(key = "signin") {
-            FocusTile(
-                title = "Sign in as someone else",
-                subtitle = "Switch the Jellyfin user this server syncs for.",
-                icon = Icons.AutoMirrored.Filled.Login,
+        section("Account")
+        item(key = "user") {
+            LinkRow(
+                title = "Jellyfin user",
+                summary = server.userName ?: "Not signed in",
+                icon = Icons.Filled.Person,
                 onClick = { onSignIn(server.id) },
-                modifier = Modifier.fillMaxWidth(),
             )
         }
-        item(key = "remove") {
-            FocusTile(
-                title = if (confirmRemove) "Select again to remove ${server.name}" else "Remove server",
-                subtitle = "Signs out and deletes everything synced from it.",
-                icon = Icons.Filled.DeleteForever,
-                onClick = { if (confirmRemove) viewModel.remove(onRemoved) else confirmRemove = true },
-                modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) confirmRemove = false },
+        foot {
+            DangerButton(
+                text = "Remove server",
+                question = "Remove ${server.name}?",
+                explanation = "Signs out and deletes everything synced from it.",
+                confirm = "Remove",
+                onConfirm = { viewModel.remove(onRemoved) },
             )
         }
     }
@@ -195,7 +191,7 @@ fun ServerDetailScreen(
 /**
  * What the server is and how its sync stands, read like a set's system-information panel. It
  * is a hairline frame with no fill, the way the OSD draws facts (badges, empty slots), so it
- * never reads as a row to press: everything that acts is a filled row under it, Sync now first.
+ * never reads as something to press: everything that acts sits in the list beside or under it.
  * The sync state leads, set like the banner's NOW line; then what the library holds in tabular
  * figures; then the connection's facts, each behind the icon that names it.
  */
@@ -255,7 +251,7 @@ private val TopLevelKinds = setOf(MediaType.MOVIE, MediaType.SERIES, MediaType.E
 
 /** One count of what the library holds: the number in tabular figures over its kind. */
 @Composable
-private fun CountReadout(count: Int, type: MediaType, numberStyle: TextStyle = countStyle(), modifier: Modifier = Modifier) {
+private fun CountReadout(count: Int, type: MediaType, modifier: Modifier = Modifier, numberStyle: TextStyle = countStyle()) {
     val theme = LocalAnstelleTheme.current
     Column(modifier.semantics(mergeDescendants = true) {}) {
         androidx.compose.material3.Text("%,d".format(count), style = numberStyle, color = theme.text, maxLines = 1)

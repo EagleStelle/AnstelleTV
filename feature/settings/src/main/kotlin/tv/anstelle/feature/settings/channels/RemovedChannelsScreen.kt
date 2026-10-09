@@ -1,17 +1,13 @@
 package tv.anstelle.feature.settings.channels
 
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.RestorePage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -25,10 +21,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.GeneratedChannel
-import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.feature.settings.servers.MessageText
-import tv.anstelle.feature.settings.servers.SettingsPage
+import tv.anstelle.core.theme.components.MenuAction
+import tv.anstelle.core.theme.components.MenuRow
+import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsNotice
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.rememberInitialFocus
 import javax.inject.Inject
 
 @Immutable
@@ -74,56 +73,57 @@ class RemovedChannelsViewModel @Inject constructor(
 
     private fun publish(message: String? = null) {
         _state.value = RemovedUiState(
-            channels = removed.map { RemovedRow(it.key, it.name, "${it.segment.groupName} · ${matchSummary(it.match)}") },
+            channels = removed.map { RemovedRow(it.key, it.name, "${it.segment.groupName}, ${matchSummary(it.match)}") },
             loading = false,
             message = message,
         )
     }
 }
 
-/** Channels made from the library that were deleted, and still fit the library. */
+/** Channels made from the library that were deleted and still fit the library: each one's menu brings it back. */
 @Composable
 fun RemovedChannelsScreen(
     modifier: Modifier = Modifier,
     viewModel: RemovedChannelsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val firstFocus = remember { FocusRequester() }
     // The list arrives after matching, so focus waits for it.
-    if (LocalIsTv.current) LaunchedEffect(state.loading) { if (!state.loading) runCatching { firstFocus.requestFocus() } }
+    val firstFocus = rememberInitialFocus(ready = !state.loading)
     SettingsPage(
         title = "Removed channels",
-        subtitle = "Channels made from your library that were deleted. They don't come back on their own.",
+        trail = listOf("Settings", "Channels"),
+        about = "Library channels you deleted. They stay gone until you bring them back.",
         modifier = modifier,
     ) {
         item(key = "status") {
-            MessageText(
+            SettingsNotice(
                 when {
                     state.loading -> "Matching with your library…"
                     state.message != null -> state.message!!
-                    state.channels.isEmpty() -> "Your library has no content for the removed channels now."
-                    state.channels.size == 1 -> "1 removed channel still fits your library."
-                    else -> "${state.channels.size} removed channels still fit your library."
-                },
+                    state.channels.isEmpty() -> "None of them fits your library now."
+                    else -> null
+                } ?: return@item,
             )
         }
         if (state.channels.isNotEmpty()) {
             item(key = "all") {
-                FocusTile(
-                    title = if (state.busy) "Bringing back…" else "Bring back all ${state.channels.size}",
-                    icon = Icons.Filled.RestorePage,
-                    onClick = viewModel::bringBackAll,
-                    modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
-                )
+                SettingsButtons {
+                    OsdButton(
+                        if (state.busy) "Bringing back…" else "Bring back all",
+                        onClick = viewModel::bringBackAll,
+                        icon = Icons.Filled.RestorePage,
+                        primary = true,
+                        modifier = Modifier.focusRequester(firstFocus),
+                    )
+                }
             }
         }
         items(state.channels, key = { it.key }) { channel ->
-            FocusTile(
+            MenuRow(
                 title = channel.name,
-                subtitle = channel.details,
+                summary = channel.details,
                 icon = Icons.Filled.Restore,
-                onClick = { viewModel.bringBack(channel.key) },
-                modifier = Modifier.fillMaxWidth(),
+                actions = listOf(MenuAction("Bring back", Icons.Filled.Restore) { viewModel.bringBack(channel.key) }),
             )
         }
     }

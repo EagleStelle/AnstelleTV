@@ -8,22 +8,15 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.RoundedCorner
 import androidx.compose.material.icons.filled.TableRows
@@ -35,18 +28,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -78,17 +72,24 @@ import tv.anstelle.core.model.ThemeContrast
 import tv.anstelle.core.model.ThemeSpec
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
-import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.ResolvedTheme
 import tv.anstelle.core.theme.components.AnstelleTextField
+import tv.anstelle.core.theme.components.ChoiceRow
+import tv.anstelle.core.theme.components.DangerButton
 import tv.anstelle.core.theme.components.FocusSurface
-import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.core.theme.components.MenuPage
-import tv.anstelle.core.theme.components.Notice
+import tv.anstelle.core.theme.components.LinkRow
 import tv.anstelle.core.theme.components.OsdButton
-import tv.anstelle.core.theme.components.SectionLabel
+import tv.anstelle.core.theme.components.PageFocusScope
 import tv.anstelle.core.theme.components.SegmentLadder
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsNotice
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.TextRow
+import tv.anstelle.core.theme.components.foot
 import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.section
+import tv.anstelle.core.theme.components.settingsEdge
+import tv.anstelle.core.theme.components.settingsGuided
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
@@ -195,10 +196,10 @@ class ThemeEditorViewModel @Inject constructor(
 }
 
 /**
- * The theme designer: the theme's name, each color role (opened into lightness, colorfulness
+ * The theme designer: the theme's name, each color role (opened into brightness, saturation
  * and hue ladders, or a hex code), type, guide rows and scanlines. Every change saves itself;
- * a theme being worn changes the whole app as it is edited. Colors that read badly against
- * each other are named at the top, with the ratio they reach and the one they should.
+ * a theme being worn changes the whole app as it is edited. Colors that are hard to read
+ * against each other are named at the top, with which one to make brighter or darker.
  */
 @Composable
 fun ThemeEditorScreen(
@@ -209,26 +210,21 @@ fun ThemeEditorScreen(
     val spec by viewModel.spec.collectAsStateWithLifecycle()
     val gone by viewModel.gone.collectAsStateWithLifecycle()
     val inUse by viewModel.inUse.collectAsStateWithLifecycle()
-    val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
-    val wide = isTv || LocalConfiguration.current.screenWidthDp >= 600
     LaunchedEffect(gone) { if (gone) onGone() }
     val current = spec ?: return
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
+    // The menu keeps its scroll and focused row while a color is open, so Done lands back on that color.
+    val panes = rememberSaveableStateHolder()
 
-    Row(modifier.fillMaxSize().background(theme.background)) {
-        Box(if (wide) Modifier.weight(0.56f) else Modifier.weight(1f)) {
-            val role = editing?.let { key -> colorRoles(current.colors).firstOrNull { it.key == key } }
-            if (role != null) {
+    Box(modifier) {
+        val role = editing?.let { key -> colorRoles(current.colors).firstOrNull { it.key == key } }
+        if (role != null) {
+            PageFocusScope {
                 ColorEditor(current, role, onChange = { hex -> viewModel.change { it.copy(colors = it.colors.with(role.key, hex)) } }, onDone = { editing = null })
-            } else {
-                EditorMenu(current, inUse, viewModel, onEditColor = { editing = it })
             }
-        }
-        if (wide) {
-            Box(Modifier.width(1.dp).fillMaxHeight().background(theme.line))
-            LazyColumn(Modifier.weight(0.44f).fillMaxHeight().background(theme.surface), contentPadding = PaddingValues(if (isTv) 40.dp else 24.dp)) {
-                item { ThemePreview(current, Modifier.fillMaxWidth()) }
+        } else {
+            panes.SaveableStateProvider("menu") {
+                PageFocusScope { EditorMenu(current, inUse, viewModel, onEditColor = { editing = it }) }
             }
         }
     }
@@ -236,75 +232,119 @@ fun ThemeEditorScreen(
 
 @Composable
 private fun EditorMenu(spec: ThemeSpec, inUse: Boolean, viewModel: ThemeEditorViewModel, onEditColor: (String) -> Unit) {
-    val isTv = LocalIsTv.current
-    val wide = isTv || LocalConfiguration.current.screenWidthDp >= 600
     val firstFocus = rememberInitialFocus()
-    var confirmDelete by remember { mutableStateOf(false) }
-    MenuPage(title = spec.name, subtitle = "Changes save as you go. A theme in use changes every screen as you edit it.") {
-        if (!wide) item(key = "preview") { ThemePreview(spec, Modifier.fillMaxWidth().padding(bottom = 8.dp)) }
+    SettingsPage(
+        title = spec.name,
+        trail = listOf("Settings", "Themes"),
+        about = "Edits save as you go. If this theme is in use, every screen shows them right away.",
+        aside = { ThemePreview(spec, Modifier.fillMaxWidth()) },
+    ) {
         val problems = ThemeContrast.problems(spec.colors)
-        for ((floor, ratio) in problems) {
+        for ((floor, _) in problems) {
             item(key = "problem-${floor.foreground}-${floor.background}") {
-                Notice("${floor.label} is %.1f:1; it reads well from %.1f:1.".format(ratio, floor.minimum), isError = true)
+                SettingsNotice(readability(floor, spec.colors), isError = true)
             }
-        }
-        item(key = "name") {
-            var name by rememberSaveable(spec.name) { mutableStateOf(spec.name) }
-            fun save() {
-                if (name.isNotBlank() && name != spec.name) viewModel.change { it.copy(name = name.trim()) }
-            }
-            AnstelleTextField(
-                value = name,
-                onValueChange = { name = it.take(32) },
-                label = "Name",
-                isLast = true,
-                onDone = ::save,
-                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus).onFocusChanged { if (!it.hasFocus) save() },
-            )
         }
         if (!inUse) {
             item(key = "use") {
-                FocusTile(title = "Use this theme", subtitle = "See every screen in it while you change it.", icon = Icons.Filled.Check, onClick = viewModel::use, modifier = Modifier.fillMaxWidth())
+                SettingsButtons { OsdButton("Use theme", onClick = viewModel::use, icon = Icons.Filled.Check, primary = true) }
             }
         }
-        item(key = "colors") { SectionLabel("Colors") }
+        item(key = "name") {
+            TextRow(
+                title = "Name",
+                value = spec.name,
+                filter = { it.take(32) },
+                onSave = { name ->
+                    if (name.isBlank()) {
+                        "Give the theme a name."
+                    } else {
+                        viewModel.change { it.copy(name = name) }
+                        null
+                    }
+                },
+                icon = Icons.Filled.Title,
+                modifier = Modifier.focusRequester(firstFocus),
+            )
+        }
+        section("Colors")
         colorRows(spec, onEditColor)
-        item(key = "type") { SectionLabel("Type") }
+        section("Type")
         item(key = "display") {
-            Stepper("Headings and numbers", spec.typography.display.label, Icons.Filled.Title, { by -> viewModel.change { it.copy(typography = it.typography.copy(display = FontChoice.entries.step(it.typography.display, by))) } })
+            ChoiceRow(
+                title = "Headings",
+                value = spec.typography.display,
+                choices = FontChoice.entries,
+                label = { it.label },
+                about = "Page titles, channel numbers, times and field labels.",
+                onSelect = { font -> viewModel.change { it.copy(typography = it.typography.copy(display = font)) } },
+                icon = Icons.Filled.Title,
+            )
         }
         item(key = "body") {
-            Stepper("Body text", spec.typography.body.label, Icons.Filled.TextFields, { by -> viewModel.change { it.copy(typography = it.typography.copy(body = FontChoice.entries.step(it.typography.body, by))) } })
+            ChoiceRow(
+                title = "Body text",
+                value = spec.typography.body,
+                choices = FontChoice.entries,
+                label = { it.label },
+                onSelect = { font -> viewModel.change { it.copy(typography = it.typography.copy(body = font)) } },
+                icon = Icons.Filled.TextFields,
+            )
         }
         item(key = "scale") {
-            Stepper("Text size", "${(spec.typography.scale * 100).roundToInt()}%", Icons.Filled.FormatSize, { by ->
-                viewModel.change { it.copy(typography = it.typography.copy(scale = TextSizes.step(it.typography.scale, by))) }
-            })
+            ChoiceRow(
+                title = "Text size",
+                value = TextSizes.nearest(spec.typography.scale),
+                choices = TextSizes.sizes,
+                label = { "${(it * 100).roundToInt()}%" },
+                onSelect = { size -> viewModel.change { it.copy(typography = it.typography.copy(scale = size)) } },
+                icon = Icons.Filled.FormatSize,
+            )
         }
-        item(key = "guide") { SectionLabel("Guide") }
+        section("Guide")
         item(key = "density") {
-            Stepper("Rows", spec.guide.density.label, Icons.Filled.TableRows, { by -> viewModel.change { it.copy(guide = it.guide.copy(density = GuideDensity.entries.step(it.guide.density, by))) } })
+            ChoiceRow(
+                title = "Rows",
+                value = spec.guide.density,
+                choices = GuideDensity.entries,
+                label = { it.label },
+                about = "How tall the guide's channel rows are.",
+                onSelect = { density -> viewModel.change { it.copy(guide = it.guide.copy(density = density)) } },
+                icon = Icons.Filled.TableRows,
+            )
         }
         item(key = "radius") {
-            Stepper("Cell corners", "${spec.guide.cellRadiusDp} dp", Icons.Filled.RoundedCorner, { by ->
-                viewModel.change { it.copy(guide = it.guide.copy(cellRadiusDp = (it.guide.cellRadiusDp + by).mod(MAX_RADIUS_DP + 1))) }
-            })
+            ChoiceRow(
+                title = "Cell corners",
+                value = spec.guide.cellRadiusDp,
+                choices = (0..MAX_RADIUS_DP).toList(),
+                label = { "$it dp" },
+                onSelect = { radius -> viewModel.change { it.copy(guide = it.guide.copy(cellRadiusDp = radius)) } },
+                icon = Icons.Filled.RoundedCorner,
+            )
         }
-        item(key = "effects") { SectionLabel("Effects") }
+        section("Effects")
         item(key = "scanlines") {
             val strength = Scanlines.indexOfFirst { (_, alpha) -> spec.effects.scanlines && alpha == spec.effects.scanlineAlpha }.coerceAtLeast(0)
-            Stepper("Scanlines", Scanlines[strength].first, Icons.Filled.AutoAwesome, { by ->
-                val (_, alpha) = Scanlines[(strength + by).mod(Scanlines.size)]
-                viewModel.change { it.copy(effects = it.effects.copy(scanlines = alpha > 0f, scanlineAlpha = if (alpha > 0f) alpha else it.effects.scanlineAlpha)) }
-            }, subtitle = "A picture tube's lines over the whole screen.")
+            ChoiceRow(
+                title = "Scanlines",
+                value = Scanlines[strength],
+                choices = Scanlines,
+                label = { it.first },
+                about = "A picture tube's lines over the whole screen.",
+                onSelect = { (_, alpha) ->
+                    viewModel.change { it.copy(effects = it.effects.copy(scanlines = alpha > 0f, scanlineAlpha = if (alpha > 0f) alpha else it.effects.scanlineAlpha)) }
+                },
+                icon = Icons.Filled.AutoAwesome,
+            )
         }
-        item(key = "delete") {
-            FocusTile(
-                title = if (confirmDelete) "Select again to delete ${spec.name}" else "Delete ${spec.name}",
-                subtitle = "Profiles using it go back to the default.",
-                icon = Icons.Filled.Delete,
-                onClick = { if (confirmDelete) viewModel.delete() else confirmDelete = true },
-                modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) confirmDelete = false },
+        foot {
+            DangerButton(
+                text = "Delete theme",
+                question = "Delete ${spec.name}?",
+                explanation = "Profiles using it go back to the default.",
+                confirm = "Delete",
+                onConfirm = viewModel::delete,
             )
         }
     }
@@ -314,35 +354,27 @@ private fun LazyListScope.colorRows(spec: ThemeSpec, onEditColor: (String) -> Un
     for (role in colorRoles(spec.colors)) {
         item(key = "color-${role.key}") {
             val hex = spec.colors.of(role.key)
-            val isTv = LocalIsTv.current
-            FocusSurface(onClick = { onEditColor(role.key) }, modifier = Modifier.fillMaxWidth()) { focused ->
-                val theme = LocalAnstelleTheme.current
-                Row(
-                    Modifier.defaultMinSize(minHeight = if (isTv) 64.dp else 56.dp).padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Box(Modifier.size(28.dp).background(ResolvedTheme.parseColor(hex), ControlShape).border(1.dp, if (focused) theme.onAccent else theme.line, ControlShape))
-                    Column(Modifier.weight(1f)) {
-                        androidx.compose.material3.Text(role.label, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                        androidx.compose.material3.Text(
-                            role.about,
-                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                            color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
-                            maxLines = 1,
-                        )
-                    }
-                    androidx.compose.material3.Text(hex.uppercase(), style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
-                }
-            }
+            LinkRow(
+                title = role.label,
+                summary = role.about,
+                value = hex.uppercase(),
+                leading = { Swatch(hex, Modifier.size(24.dp)) },
+                onClick = { onEditColor(role.key) },
+            )
         }
     }
 }
 
+/** A color as a flat square with a hairline, so a color close to the ground still shows its edge. */
+@Composable
+private fun Swatch(hex: String, modifier: Modifier) {
+    Box(modifier.background(ResolvedTheme.parseColor(hex), ControlShape).border(1.dp, LocalAnstelleTheme.current.line, ControlShape))
+}
+
 /**
- * One color, opened: its swatch, lightness, colorfulness and hue as ladders (left and right
- * on the D-pad, tap or drag on touch) and its hex code, with how it reads against the colors
- * it has to work with.
+ * One color, opened: its swatch, brightness, saturation and hue as ladders (left and right
+ * on the D-pad, tap or drag on touch) and its hex code, with whether it is easy to read
+ * against the colors it has to work with.
  */
 @Composable
 private fun ColorEditor(spec: ThemeSpec, role: ColorRole, onChange: (String) -> Unit, onDone: () -> Unit) {
@@ -356,21 +388,25 @@ private fun ColorEditor(spec: ThemeSpec, role: ColorRole, onChange: (String) -> 
         onChange(next.toHex())
     }
     val firstFocus = rememberInitialFocus()
-    MenuPage(title = role.label, subtitle = role.about) {
-        item(key = "swatch") {
-            Box(
-                Modifier.fillMaxWidth().height(56.dp).background(ResolvedTheme.parseColor(hex), ControlShape).border(1.dp, LocalAnstelleTheme.current.line, ControlShape),
-            )
-        }
+    val guided = settingsGuided
+    SettingsPage(
+        title = role.label,
+        trail = listOf("Settings", "Themes", spec.name),
+        about = role.about,
+        aside = {
+            Swatch(hex, Modifier.fillMaxWidth().height(56.dp))
+            if (guided) ThemePreview(spec, Modifier.fillMaxWidth())
+        },
+    ) {
         item(key = "lightness") {
-            LadderRow("Lightness", "${(color.lightness * 100).roundToInt()}%", color.lightness.toFloat(),
+            LadderRow("Brightness", "${(color.lightness * 100).roundToInt()}%", color.lightness.toFloat(),
                 onStep = { by -> set(color.copy(lightness = (color.lightness + by * 0.01).coerceIn(0.0, 1.0))) },
                 onSet = { f -> set(color.copy(lightness = f.toDouble())) },
                 modifier = Modifier.focusRequester(firstFocus),
             )
         }
         item(key = "chroma") {
-            LadderRow("Colorfulness", "${(color.chroma / Oklch.MAX_CHROMA * 100).roundToInt()}%", (color.chroma / Oklch.MAX_CHROMA).toFloat(),
+            LadderRow("Saturation", "${(color.chroma / Oklch.MAX_CHROMA * 100).roundToInt()}%", (color.chroma / Oklch.MAX_CHROMA).toFloat(),
                 onStep = { by -> set(color.copy(chroma = (color.chroma + by * 0.005).coerceIn(0.0, Oklch.MAX_CHROMA))) },
                 onSet = { f -> set(color.copy(chroma = f * Oklch.MAX_CHROMA)) },
             )
@@ -396,48 +432,56 @@ private fun ColorEditor(spec: ThemeSpec, role: ColorRole, onChange: (String) -> 
                 label = "Hex code",
                 keyboardType = KeyboardType.Ascii,
                 isLast = true,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = settingsEdge, vertical = 8.dp),
             )
         }
         val pairs = ThemeContrast.Floors.filter { it.foreground == role.key || it.background == role.key }
-        if (pairs.isNotEmpty()) item(key = "reads") { SectionLabel("How it reads") }
+        if (pairs.isNotEmpty()) section("Readability")
         for (floor in pairs) {
             item(key = "floor-${floor.foreground}-${floor.background}") {
                 val byRole = spec.colors.all().toMap()
                 val ratio = ThemeContrast.ratio(byRole.getValue(floor.foreground), byRole.getValue(floor.background))
-                Notice("${floor.label}: %.1f:1 (reads well from %.1f:1)".format(ratio, floor.minimum), isError = ratio < floor.minimum)
+                SettingsNotice(readability(floor, spec.colors, open = role.key), isError = ratio < floor.minimum)
             }
         }
-        item(key = "done") { OsdButton("Done", onClick = onDone, icon = Icons.Filled.Check, primary = true) }
+        item(key = "done") { SettingsButtons { OsdButton("Done", onClick = onDone, icon = Icons.Filled.Check, primary = true) } }
     }
 }
 
-/** A value stepped with left and right on TV; a tap steps it forward on touch. */
-@Composable
-private fun Stepper(title: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onStep: (Int) -> Unit, subtitle: String? = null) {
-    val isTv = LocalIsTv.current
-    FocusTile(
-        title = title,
-        subtitle = subtitle,
-        icon = icon,
-        value = value,
-        onClick = { onStep(1) },
-        onPrevious = if (isTv) ({ onStep(-1) }) else null,
-        onNext = if (isTv) ({ onStep(1) }) else null,
-        modifier = Modifier.fillMaxWidth(),
-    )
+/**
+ * Whether [floor]'s two colors read well, in words instead of a contrast ratio, and when they
+ * don't, the way to fix it: the lighter one brighter or the darker one darker. In a color's own
+ * pane ([open] is its role) the fix starts with that color's Brightness ladder.
+ */
+private fun readability(floor: ThemeContrast.Floor, colors: ThemeColors, open: String? = null): String {
+    val byRole = colors.all().toMap()
+    val fore = byRole.getValue(floor.foreground)
+    val back = byRole.getValue(floor.background)
+    if (ThemeContrast.ratio(fore, back) >= floor.minimum) return "${floor.label} is easy to read."
+    val names = colorRoles(colors).associate { it.key to it.label }
+    val (light, dark) = if (ThemeContrast.luminance(fore) >= ThemeContrast.luminance(back)) {
+        floor.foreground to floor.background
+    } else {
+        floor.background to floor.foreground
+    }
+    val fix = when (open) {
+        light -> "Raise its brightness, or make ${names.getValue(dark)} darker."
+        dark -> "Lower its brightness, or make ${names.getValue(light)} brighter."
+        else -> "Make ${names.getValue(light)} brighter or ${names.getValue(dark)} darker."
+    }
+    return "${floor.label} is hard to read. $fix"
 }
 
 /**
  * A value on a ladder: left and right step it on the D-pad; on touch a tap or a drag along
- * the ladder sets it.
+ * the ladder sets it. Flat on its ground like every settings row; focus fills it.
  */
 @Composable
 private fun LadderRow(title: String, value: String, fraction: Float, onStep: (Int) -> Unit, onSet: (Float) -> Unit, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
     FocusSurface(
         onClick = {},
+        color = Color.Transparent,
         modifier = modifier.fillMaxWidth().onPreviewKeyEvent { event ->
             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             when (event.key) {
@@ -447,9 +491,9 @@ private fun LadderRow(title: String, value: String, fraction: Float, onStep: (In
             }
         },
     ) { focused ->
-        Column(Modifier.padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                androidx.compose.material3.Text(title, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                androidx.compose.material3.Text(title, style = androidx.compose.material3.MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium), modifier = Modifier.weight(1f))
                 androidx.compose.material3.Text(value, style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
             }
             Box(
@@ -466,8 +510,6 @@ private fun LadderRow(title: String, value: String, fraction: Float, onStep: (In
     }
 }
 
-private fun <T> List<T>.step(current: T, by: Int): T = this[(indexOf(current) + by).mod(size)]
-
 private val FontChoice.label get() = when (this) {
     FontChoice.CONDENSED -> "Condensed"
     FontChoice.SANS -> "Sans"
@@ -482,12 +524,10 @@ private val GuideDensity.label get() = when (this) {
 }
 
 private object TextSizes {
-    private val sizes = listOf(0.9f, 0.95f, 1f, 1.05f, 1.1f, 1.15f, 1.2f, 1.25f, 1.3f)
+    val sizes = listOf(0.9f, 0.95f, 1f, 1.05f, 1.1f, 1.15f, 1.2f, 1.25f, 1.3f)
 
-    fun step(current: Float, by: Int): Float {
-        val index = sizes.indexOfFirst { kotlin.math.abs(it - current) < 0.01f }.takeIf { it >= 0 } ?: sizes.indexOf(1f)
-        return sizes[(index + by).coerceIn(0, sizes.lastIndex)]
-    }
+    /** The offered size closest to [scale], so a stored value between steps still shows as one. */
+    fun nearest(scale: Float): Float = sizes.minBy { kotlin.math.abs(it - scale) }
 }
 
 /** Scanline strengths: off, then light to strong. */

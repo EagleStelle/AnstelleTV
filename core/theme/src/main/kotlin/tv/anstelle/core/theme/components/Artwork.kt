@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,8 +58,8 @@ fun Backdrop(
 /**
  * A title as its logo when the server has one, else as text in [style]. The slot is at least
  * [height] tall either way (the logo exactly that), so swapping one for the other never moves
- * what sits under it. If the logo fails to load, the text comes back. Light themes always set
- * the text: title logos are drawn for dark pictures and fade into a light ground.
+ * what sits under it. If the logo fails to load, the text comes back, in [color]. Light themes
+ * always set the text: title logos are drawn for dark pictures and fade into a light ground.
  */
 @Composable
 fun TitleLogo(
@@ -69,6 +70,7 @@ fun TitleLogo(
     style: TextStyle,
     modifier: Modifier = Modifier,
     maxLines: Int = 1,
+    color: Color = LocalAnstelleTheme.current.text,
 ) {
     var failed by remember(logoUrl) { mutableStateOf(false) }
     val logo = logoUrl.takeUnless { LocalAnstelleTheme.current.spec.isLight }
@@ -86,7 +88,7 @@ fun TitleLogo(
             androidx.compose.material3.Text(
                 title,
                 style = style,
-                color = LocalAnstelleTheme.current.text,
+                color = color,
                 maxLines = maxLines,
                 overflow = TextOverflow.Ellipsis,
             )

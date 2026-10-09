@@ -29,7 +29,7 @@ class ThemeContrastTest {
         assertTrue(ThemeContrast.problems(colors).isEmpty())
         val dim = colors.copy(onAccent = "#E0C040", guideRuns = listOf("#00363A", "#C0C0C0"))
         val labels = ThemeContrast.problems(dim).map { it.first.label }
-        assertEquals(listOf("Text on focus", "Text on guide run 2"), labels)
+        assertEquals(listOf("Text on focus", "Text on Guide: later 2"), labels)
     }
 
     @Test

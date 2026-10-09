@@ -1,35 +1,24 @@
 package tv.anstelle.feature.settings.channels
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.filled.ViewCarousel
-import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
-import tv.anstelle.core.data.Settings
-import tv.anstelle.core.data.SettingsRepository
-import tv.anstelle.core.theme.LocalAnstelleTheme
-import tv.anstelle.core.theme.components.TileTrailing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatListNumbered
-import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,13 +28,21 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import tv.anstelle.core.data.Settings
+import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelSummary
-import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.feature.settings.servers.MessageText
-import tv.anstelle.feature.settings.servers.SectionLabel
-import tv.anstelle.feature.settings.servers.SettingsPage
+import tv.anstelle.core.theme.LocalAnstelleTheme
+import tv.anstelle.core.theme.components.ChoiceRow
+import tv.anstelle.core.theme.components.LinkRow
+import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsNotice
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.SettingsSearch
+import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.section
 import javax.inject.Inject
 
 @Immutable
@@ -53,7 +50,7 @@ data class ChannelsUiState(
     val channels: List<ChannelSummary> = emptyList(),
     /** Library channels that were deleted. */
     val removed: Int = 0,
-    /** How many random channels the On demand banner cycles through. */
+    /** How many random channels the On Demand banner cycles through. */
     val bannerSize: Int = 10,
     val loaded: Boolean = false,
 )
@@ -74,16 +71,14 @@ class ChannelsViewModel @Inject constructor(
     fun setBannerSize(size: Int) {
         viewModelScope.launch { settings.set(Settings.OnDemandBanner, size) }
     }
-
-    /** Steps the banner's size through its choices, wrapping at either end. */
-    fun stepBannerSize(by: Int) {
-        val sizes = Settings.OnDemandBannerSizes
-        val current = sizes.indexOf(state.value.bannerSize).takeIf { it >= 0 } ?: sizes.indexOf(Settings.OnDemandBanner.default)
-        setBannerSize(sizes[(current + by).mod(sizes.size)])
-    }
 }
 
-/** Every channel, the same for every profile, with the ways to add more. */
+/**
+ * Every channel, the same for every profile: a search over them, the button that builds one, how
+ * Live TV groups them and segments number them, how many On Demand deals into its banner, then
+ * the channels someone built and the ones made from the library, each opening its own page. While
+ * a search is typed, the page lists only the channels it finds.
+ */
 @Composable
 fun ChannelsScreen(
     onOpenChannel: (Long) -> Unit,
@@ -95,142 +90,106 @@ fun ChannelsScreen(
     viewModel: ChannelsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val isTv = LocalIsTv.current
-    val firstFocus = remember { FocusRequester() }
     // Coming back from a channel, focus returns to it: the list is still scrolled there.
-    val returnFocus = remember { FocusRequester() }
-    var lastOpened by rememberSaveable { mutableStateOf<Long?>(null) }
-    var pickingBanner by remember { mutableStateOf(false) }
-    if (pickingBanner) {
-        BannerSizePicker(
-            current = state.bannerSize,
-            onPick = {
-                viewModel.setBannerSize(it)
-                pickingBanner = false
-            },
-            onDismiss = { pickingBanner = false },
-        )
-    }
-    if (isTv) {
-        LaunchedEffect(state.loaded) {
-            if (!state.loaded) return@LaunchedEffect
-            val returned = lastOpened != null && runCatching { returnFocus.requestFocus() }.isSuccess
-            if (!returned) runCatching { firstFocus.requestFocus() }
-        }
-    }
+    val firstFocus = rememberInitialFocus(ready = state.loaded)
+    var query by rememberSaveable { mutableStateOf("") }
     SettingsPage(
         title = "Channels",
-        subtitle = if (state.channels.isEmpty()) null else "${state.channels.size} channels. Select one to change it.",
+        trail = listOf("Settings"),
+        about = "Shared by every profile. Groups are the tabs in Live TV; segments set the channel numbers. " +
+            "Library channels update on their own until you change them.",
         modifier = modifier,
     ) {
-        item(key = "new") {
-            FocusTile(
-                title = "New channel",
-                subtitle = "Build a channel from genres, networks, years, shows and more.",
-                icon = Icons.Filled.Add,
-                onClick = onNewChannel,
-                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
-            )
+        item(key = "search") { SettingsSearch(query, onQueryChange = { query = it }, label = "Find a channel") }
+        val needle = query.trim()
+        if (needle.isNotEmpty()) {
+            val found = state.channels.filter { it.channel.name.contains(needle, ignoreCase = true) || it.channel.number.toString().startsWith(needle) }
+            section(counted("Found", found.size), key = "section-found")
+            if (found.isEmpty()) item(key = "found-none") { SettingsNotice("No channel has that name or number.") }
+            channelRows(found, onOpenChannel)
+            return@SettingsPage
         }
+        item(key = "new") {
+            SettingsButtons {
+                OsdButton("New channel", onClick = onNewChannel, icon = Icons.Filled.Add, primary = true, modifier = Modifier.focusRequester(firstFocus))
+            }
+        }
+        section("Live TV")
         item(key = "groups") {
-            FocusTile(
-                title = "Groups",
-                subtitle = "Sort channels into guide groups.",
-                icon = Icons.Filled.Folder,
-                onClick = onOpenGroups,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            LinkRow(title = "Groups", icon = Icons.Filled.Folder, onClick = onOpenGroups)
         }
         item(key = "numbers") {
-            FocusTile(
-                title = "Channel numbers",
-                subtitle = "Where each group of channels is numbered from.",
-                icon = Icons.Filled.FormatListNumbered,
-                onClick = onOpenNumbers,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            LinkRow(title = "Segments", icon = Icons.Filled.FormatListNumbered, onClick = onOpenNumbers)
         }
+        section("On Demand")
         item(key = "banner") {
-            // The D-pad steps the size in place; touch picks it from a list.
-            FocusTile(
-                title = "On Demand banner",
-                subtitle = "Channels picked at random on each visit for the top of On Demand.",
+            ChoiceRow(
+                title = "Banner",
+                value = state.bannerSize,
+                choices = Settings.OnDemandBannerSizes,
+                label = { "$it channels" },
+                about = "How many random channels show at the top of On Demand.",
+                onSelect = viewModel::setBannerSize,
                 icon = Icons.Filled.ViewCarousel,
-                value = "${state.bannerSize} channels",
-                onClick = if (isTv) ({ viewModel.stepBannerSize(1) }) else ({ pickingBanner = true }),
-                onPrevious = if (isTv) ({ viewModel.stepBannerSize(-1) }) else null,
-                onNext = if (isTv) ({ viewModel.stepBannerSize(1) }) else null,
-                trailing = if (isTv) TileTrailing.None else TileTrailing.Chevron,
-                modifier = Modifier.fillMaxWidth(),
             )
         }
+        // The channels someone built first, then the ones made from the library, each a group of its own.
+        val (library, custom) = state.channels.partition { it.channel.fromLibrary }
+        section(counted("Custom channels", custom.size), key = "section-custom")
+        if (state.loaded && custom.isEmpty()) {
+            item(key = "custom-empty") { SettingsNotice("No custom channels yet.", isInfo = true) }
+        }
+        channelRows(custom, onOpenChannel)
+        section(counted("Library channels", library.size), key = "section-library")
         if (state.removed > 0) {
             item(key = "removed") {
-                FocusTile(
+                LinkRow(
                     title = "Removed channels",
-                    subtitle = "Bring back channels made from your library that were deleted.",
+                    summary = if (state.removed == 1) "1 made from your library" else "${state.removed} made from your library",
                     icon = Icons.Filled.Restore,
                     onClick = onOpenRemoved,
-                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
-        if (state.loaded && state.channels.isEmpty()) {
-            item(key = "empty") {
-                MessageText("No channels yet. They are made from your library after it syncs, or add your own.")
-            }
+        if (state.loaded && library.isEmpty()) {
+            item(key = "library-empty") { SettingsNotice("No library channels yet.", isInfo = true) }
         }
-        if (state.channels.isNotEmpty()) item(key = "label") { SectionLabel("Your channels") }
-        items(state.channels, key = { it.channel.id }) { summary ->
-            val channel = summary.channel
-            FocusTile(
-                title = "${channel.number}  ${channel.name}",
-                subtitle = listOfNotNull(
-                    summary.groupName,
-                    playbackLabel(channel.playbackOrder, channel.blockSize),
-                    "favorite".takeIf { channel.isFavorite },
-                    "hidden".takeIf { channel.isHidden },
-                    summary.seasonLabel?.let { if (summary.inSeason) "on air $it" else "off season, on air $it" },
-                ).joinToString(" · "),
-                icon = when {
-                    channel.isHidden -> Icons.Filled.VisibilityOff
-                    channel.isFavorite -> Icons.Filled.Star
-                    else -> Icons.Filled.LiveTv
-                },
-                onClick = {
-                    lastOpened = channel.id
-                    onOpenChannel(channel.id)
-                },
-                modifier = Modifier.fillMaxWidth().let { if (channel.id == lastOpened) it.focusRequester(returnFocus) else it },
-            )
-        }
+        channelRows(library, onOpenChannel)
     }
 }
 
-/** The banner's sizes as a list, for touch. */
+/** "Custom channels  3": a section's name with how many it holds, once it holds any. */
+private fun counted(name: String, count: Int) = if (count == 0) name else "$name  $count"
+
+/** Channels by number, each opening its page; a library channel someone changed says so. */
+private fun LazyListScope.channelRows(channels: List<ChannelSummary>, onOpenChannel: (Long) -> Unit) {
+    items(channels, key = { it.channel.id }) { summary ->
+        val channel = summary.channel
+        LinkRow(
+            title = channel.name,
+            summary = listOfNotNull(
+                summary.groupName,
+                playbackLabel(channel.playbackOrder, channel.blockSize),
+                "edited".takeIf { channel.fromLibrary && !channel.isManaged },
+                "favorite".takeIf { channel.isFavorite },
+                "hidden".takeIf { channel.isHidden },
+                summary.seasonLabel?.let { if (summary.inSeason) "on air $it" else "off season, on air $it" },
+            ).joinToString(", "),
+            leading = { ChannelNumber(channel.number) },
+            onClick = { onOpenChannel(channel.id) },
+        )
+    }
+}
+
+/** A channel's number in the icon's place: tabular, so the column of numbers lines up. */
 @Composable
-private fun BannerSizePicker(current: Int, onPick: (Int) -> Unit, onDismiss: () -> Unit) {
+internal fun ChannelNumber(number: Int) {
     val theme = LocalAnstelleTheme.current
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = theme.surface,
-        title = { androidx.compose.material3.Text("On Demand banner", style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, color = theme.text) },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(Settings.OnDemandBannerSizes) { size ->
-                    FocusTile(
-                        title = "$size channels",
-                        selected = size == current,
-                        onClick = { onPick(size) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) {
-                androidx.compose.material3.Text("Cancel", color = theme.accent)
-            }
-        },
+    androidx.compose.material3.Text(
+        "$number",
+        style = androidx.compose.material3.MaterialTheme.typography.titleMedium.merge(TextStyle(fontFamily = theme.displayFont, fontFeatureSettings = "tnum")),
+        color = androidx.compose.material3.LocalContentColor.current,
+        maxLines = 1,
+        modifier = Modifier.widthIn(min = 40.dp),
     )
 }

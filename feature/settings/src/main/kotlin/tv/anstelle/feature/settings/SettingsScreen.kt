@@ -4,40 +4,37 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.ClosedCaptionDisabled
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.InsertChart
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -49,8 +46,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
+import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ServerRepository
 import tv.anstelle.core.data.Settings
@@ -58,29 +57,58 @@ import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.ThemeRepository
 import tv.anstelle.core.data.WebServerController
 import tv.anstelle.core.data.WebServerStatus
+import tv.anstelle.core.data.channels.ChannelRepository
+import tv.anstelle.core.data.channels.ChannelSummary
 import tv.anstelle.core.data.playback.TrackChoices
+import tv.anstelle.core.data.stats.DashboardHistory
 import tv.anstelle.core.database.dao.PairedClientDao
+import tv.anstelle.core.database.dao.TypeCount
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.core.model.MediaServer
+import tv.anstelle.core.model.MediaType
+import tv.anstelle.core.model.SubtitleMode
 import tv.anstelle.core.model.ThemeSpec
 import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.model.WatchSync
 import tv.anstelle.core.model.codeOf
+import tv.anstelle.core.theme.DefaultTheme
 import tv.anstelle.core.theme.LocalAnstelleTheme
-import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.core.theme.components.PageHeader
-import tv.anstelle.core.theme.components.SectionLabel
-import tv.anstelle.core.theme.components.TileTrailing
-import tv.anstelle.core.theme.components.pagePadding
+import tv.anstelle.core.theme.components.LinkRow
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.StatusLine
+import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.settingsGuided
+import tv.anstelle.feature.settings.appearance.ThemePreview
 import tv.anstelle.feature.settings.playback.SyncPlace
 import tv.anstelle.feature.settings.playback.languageName
-import tv.anstelle.feature.settings.playback.syncDescription
+import tv.anstelle.feature.settings.playback.modeName
 import tv.anstelle.feature.settings.playback.syncName
-import tv.anstelle.feature.settings.playback.watchHistorySummary
-
-import tv.anstelle.feature.settings.playback.summary as playbackSummary
+import tv.anstelle.feature.settings.servers.syncedAgo
 import javax.inject.Inject
+
+/** What the channel list holds, for the home's readout. */
+@Immutable
+data class ChannelStats(
+    val total: Int = 0,
+    val custom: Int = 0,
+    val visible: Int = 0,
+    val favorites: Int = 0,
+    val hidden: Int = 0,
+    val groups: Int = 0,
+) {
+    val library: Int get() = total - custom
+
+    companion object {
+        fun of(channels: List<ChannelSummary>) = ChannelStats(
+            total = channels.size,
+            custom = channels.count { !it.channel.fromLibrary },
+            visible = channels.count { !it.channel.isHidden },
+            favorites = channels.count { it.channel.isFavorite },
+            hidden = channels.count { it.channel.isHidden },
+            groups = channels.mapNotNullTo(HashSet()) { it.groupName }.size,
+        )
+    }
+}
 
 @Immutable
 data class SettingsUiState(
@@ -88,12 +116,22 @@ data class SettingsUiState(
     val webServer: WebServerStatus = WebServerStatus.Stopped,
     val pairedClients: List<PairedClientEntity> = emptyList(),
     val servers: List<MediaServer> = emptyList(),
+    /** What each server's library holds, by kind. */
+    val serverCounts: Map<Long, List<TypeCount>> = emptyMap(),
+    /** The sync running on a server, as its progress line. */
+    val syncProgress: Map<Long, String> = emptyMap(),
+    val nowUtcMs: Long = 0,
+    val channels: ChannelStats = ChannelStats(),
+    /** Library channels that were deleted. */
+    val removedChannels: Int = 0,
     val liveTvSync: WatchSync = codeOf(Settings.liveTvSync(0).default),
     val onDemandSync: WatchSync = codeOf(Settings.onDemandSync(0).default),
+    /** Whether the profile keeps its dashboard. */
+    val dashboard: Boolean = Settings.dashboard(0).default,
     val tracks: TrackPrefs = TrackPrefs(),
     /** The theme the profile wears; null while the default is on. */
     val theme: ThemeSpec? = null,
-    /** The owner and admins see the app-wide rows (media servers, channels, web control); members don't. */
+    /** The owner and admins see the app-wide rows (servers, channels, web control); members don't. */
     val canManageApp: Boolean = false,
     val loaded: Boolean = false,
 )
@@ -101,17 +139,31 @@ data class SettingsUiState(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val settings: SettingsRepository,
-    private val webServer: WebServerController,
+    settings: SettingsRepository,
+    webServer: WebServerController,
     pairedClients: PairedClientDao,
     servers: ServerRepository,
+    channels: ChannelRepository,
     profiles: ProfileRepository,
     tracks: TrackChoices,
     themes: ThemeRepository,
+    history: DashboardHistory,
+    time: TimeSource,
 ) : ViewModel() {
-    private val sync = profiles.activeProfileId().flatMapLatest { profileId ->
-        combine(settings.observe(Settings.liveTvSync(profileId)), settings.observe(Settings.onDemandSync(profileId))) { live, onDemand ->
-            codeOf<WatchSync>(live) to codeOf<WatchSync>(onDemand)
+    /** Live TV's and On Demand's watch history settings, and the dashboard, for the profile watching. */
+    private val watching = profiles.activeProfileId().flatMapLatest { profileId ->
+        combine(
+            settings.observe(Settings.liveTvSync(profileId)),
+            settings.observe(Settings.onDemandSync(profileId)),
+            history.observeEnabled(profileId),
+        ) { live, onDemand, dashboard -> Triple(codeOf<WatchSync>(live), codeOf<WatchSync>(onDemand), dashboard) }
+    }
+
+    private val serverCounts = servers.observeServers().flatMapLatest { list ->
+        if (list.isEmpty()) {
+            flowOf(emptyMap())
+        } else {
+            combine(list.map { server -> servers.observeItemCounts(server.id).map { server.id to it } }) { it.toMap() }
         }
     }
 
@@ -120,9 +172,25 @@ class SettingsViewModel @Inject constructor(
         webServer.status,
         pairedClients.observeAll(),
         servers.observeServers(),
-        sync,
-    ) { enabled, status, clients, serverList, (live, onDemand) ->
-        SettingsUiState(enabled, status, clients, serverList, live, onDemand)
+        watching,
+    ) { enabled, status, clients, serverList, (live, onDemand, dashboard) ->
+        SettingsUiState(
+            webServerEnabled = enabled,
+            webServer = status,
+            pairedClients = clients,
+            servers = serverList,
+            liveTvSync = live,
+            onDemandSync = onDemand,
+            dashboard = dashboard,
+        )
+    }.combine(channels.observeChannels()) { state, list ->
+        state.copy(channels = ChannelStats.of(list))
+    }.combine(channels.observeRemovedCount()) { state, removed ->
+        state.copy(removedChannels = removed)
+    }.combine(serverCounts) { state, counts ->
+        state.copy(serverCounts = counts)
+    }.combine(servers.syncProgress) { state, progress ->
+        state.copy(syncProgress = progress.mapValues { it.value.message }, nowUtcMs = time.nowUtcMs())
     }.combine(profiles.activeProfileId().flatMapLatest { tracks.observePrefs(it) }) { state, prefs ->
         state.copy(tracks = prefs)
     }.combine(themes.observeActiveTheme()) { state, theme ->
@@ -130,34 +198,24 @@ class SettingsViewModel @Inject constructor(
     }.combine(profiles.observeCanManageApp()) { state, manages ->
         state.copy(canManageApp = manages, loaded = true)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
-
-    fun setWebServerEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            settings.set(Settings.WebServerEnabled, enabled)
-            if (enabled) webServer.startIfEnabled() else webServer.stop()
-        }
-    }
 }
 
-/** The rows of the settings menu, in order. */
-private enum class SettingsItem { SERVERS, CHANNELS, LANGUAGES, HISTORY, THEME, WEB }
+/** The areas of settings, in the order the home lists them. */
+private enum class SettingsArea { SERVERS, CHANNELS, PLAYBACK, HISTORY, THEME, WEB }
 
 /**
- * On-device settings, laid out like a TV's own setup menu: each row names a setting and shows
- * its value on the right. Choices step with left and right on the D-pad (OK steps forward,
- * and so does a tap). On TV and tablets a panel beside the menu explains the focused row;
- * phones show the explanation under each row instead.
- *
- * The library and network rows are app-wide: only the owner and admins see them. Playback and
- * appearance belong to the profile watching.
+ * Settings' home: one row per area with its state under it, no headings, the way Android's and
+ * Google TV's own settings open. On TV the guidance beside the list tells about the focused area.
+ * Servers, channels and web control are app-wide: only the owner and admins see them.
  */
 @Composable
 fun SettingsScreen(
     onOpenServers: () -> Unit,
     onOpenChannels: () -> Unit,
-    onOpenLanguages: () -> Unit,
+    onOpenPlayback: () -> Unit,
     onOpenWatchHistory: () -> Unit,
     onOpenThemes: () -> Unit,
+    onOpenWebControl: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -168,256 +226,289 @@ fun SettingsScreen(
         return
     }
     val manages = state.canManageApp
-    val isTv = LocalIsTv.current
-    val wide = isTv || LocalConfiguration.current.screenWidthDp >= WIDE_DP
-    val firstFocus = remember { FocusRequester() }
-    var current by remember { mutableStateOf(if (manages) SettingsItem.SERVERS else SettingsItem.LANGUAGES) }
-    if (isTv) LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+    // Coming back from an area's page, focus returns to its row.
+    val firstFocus = rememberInitialFocus()
+    var current by remember { mutableStateOf(if (manages) SettingsArea.SERVERS else SettingsArea.PLAYBACK) }
+    fun Modifier.tracks(area: SettingsArea) = onFocusChanged { if (it.isFocused) current = area }
 
-    fun Modifier.tracks(item: SettingsItem) = onFocusChanged { if (it.isFocused) current = item }
-    fun about(item: SettingsItem) = if (wide) null else description(item, state)
-
-    Row(modifier.fillMaxSize().background(theme.background)) {
-        // The header stays put while the rows scroll under it, so it is never left half clipped.
-        Column(Modifier.then(if (wide) Modifier.weight(0.56f) else Modifier.weight(1f)).fillMaxHeight()) {
-        PageHeader(
-            "Settings",
-            modifier = Modifier.padding(start = pagePadding, end = if (wide) 24.dp else pagePadding, top = if (isTv) 32.dp else 16.dp),
-        )
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(start = pagePadding, end = if (wide) 24.dp else pagePadding, top = 4.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            // App-wide: only the owner and admins see these.
-            if (manages) {
-                item(key = "library") { SectionLabel("Library") }
-                item(key = "servers") {
-                    FocusTile(
-                        title = "Media servers",
-                        subtitle = about(SettingsItem.SERVERS),
-                        icon = Icons.Filled.Dns,
-                        value = serversValue(state.servers),
-                        trailing = TileTrailing.Chevron,
-                        onClick = onOpenServers,
-                        modifier = Modifier.fillMaxWidth().focusRequester(firstFocus).tracks(SettingsItem.SERVERS),
-                    )
-                }
-                item(key = "channels") {
-                    FocusTile(
-                        title = "Channels",
-                        subtitle = about(SettingsItem.CHANNELS),
-                        icon = Icons.Filled.LiveTv,
-                        trailing = TileTrailing.Chevron,
-                        onClick = onOpenChannels,
-                        modifier = Modifier.fillMaxWidth().tracks(SettingsItem.CHANNELS),
-                    )
-                }
-            }
-            item(key = "playback") { SectionLabel("Playback") }
-            item(key = "languages") {
-                FocusTile(
-                    title = "Audio and subtitles",
-                    subtitle = about(SettingsItem.LANGUAGES),
-                    icon = Icons.Filled.Subtitles,
-                    value = state.tracks.audioLanguages.firstOrNull()?.let(::languageName),
-                    trailing = TileTrailing.Chevron,
-                    onClick = onOpenLanguages,
-                    modifier = Modifier.fillMaxWidth().let { if (manages) it else it.focusRequester(firstFocus) }.tracks(SettingsItem.LANGUAGES),
+    SettingsPage(
+        title = "Settings",
+        modifier = modifier,
+        aside = if (settingsGuided) ({ AreaAside(current, state) }) else null,
+    ) {
+        if (manages) {
+            item(key = "servers") {
+                LinkRow(
+                    title = "Servers",
+                    summary = serversSummary(state.servers),
+                    icon = Icons.Filled.Dns,
+                    onClick = onOpenServers,
+                    modifier = Modifier.focusRequester(firstFocus).tracks(SettingsArea.SERVERS),
                 )
             }
-            item(key = "history") {
-                FocusTile(
-                    title = "Watch history",
-                    subtitle = about(SettingsItem.HISTORY),
-                    icon = Icons.Filled.History,
-                    trailing = TileTrailing.Chevron,
-                    onClick = onOpenWatchHistory,
-                    modifier = Modifier.fillMaxWidth().tracks(SettingsItem.HISTORY),
+            item(key = "channels") {
+                LinkRow(
+                    title = "Channels",
+                    summary = when (state.channels.total) {
+                        0 -> "None yet"
+                        1 -> "1 channel"
+                        else -> "%,d channels".format(state.channels.total)
+                    },
+                    icon = Icons.Filled.LiveTv,
+                    onClick = onOpenChannels,
+                    modifier = Modifier.tracks(SettingsArea.CHANNELS),
                 )
-            }
-            item(key = "appearance") { SectionLabel("Appearance") }
-            item(key = "theme") {
-                FocusTile(
-                    title = "Themes",
-                    subtitle = about(SettingsItem.THEME),
-                    icon = Icons.Filled.Palette,
-                    value = state.theme?.name ?: DEFAULT_THEME_NAME,
-                    trailing = TileTrailing.Chevron,
-                    onClick = onOpenThemes,
-                    modifier = Modifier.fillMaxWidth().tracks(SettingsItem.THEME),
-                )
-            }
-            if (manages) {
-                item(key = "network") { SectionLabel("Network") }
-                item(key = "web") {
-                    val toggle = { viewModel.setWebServerEnabled(!state.webServerEnabled) }
-                    FocusTile(
-                        title = "Web control",
-                        subtitle = about(SettingsItem.WEB),
-                        icon = if (state.webServerEnabled) Icons.Filled.Wifi else Icons.Filled.WifiOff,
-                        value = if (state.webServerEnabled) "On" else "Off",
-                        toggle = state.webServerEnabled,
-                        onClick = toggle,
-                        onPrevious = toggle,
-                        onNext = toggle,
-                        modifier = Modifier.fillMaxWidth().tracks(SettingsItem.WEB),
-                    )
-                }
-                if (!wide) {
-                    item(key = "paired") { SectionLabel("Paired browsers") }
-                    pairedBrowsers(state.pairedClients)
-                }
             }
         }
+        item(key = "playback") {
+            LinkRow(
+                title = "Playback",
+                summary = state.tracks.audioLanguages.firstOrNull()?.let(::languageName) ?: "Default",
+                icon = Icons.Filled.Subtitles,
+                onClick = onOpenPlayback,
+                modifier = Modifier.let { if (manages) it else it.focusRequester(firstFocus) }.tracks(SettingsArea.PLAYBACK),
+            )
         }
-        if (wide) {
-            Box(Modifier.width(1.dp).fillMaxHeight().background(theme.line))
-            InfoPanel(current, state, Modifier.weight(0.44f).fillMaxHeight())
+        item(key = "history") {
+            LinkRow(
+                title = "Watch history",
+                summary = if (state.liveTvSync == WatchSync.OFF && state.onDemandSync == WatchSync.OFF) "Off" else "On",
+                icon = Icons.Filled.History,
+                onClick = onOpenWatchHistory,
+                modifier = Modifier.tracks(SettingsArea.HISTORY),
+            )
+        }
+        item(key = "theme") {
+            LinkRow(
+                title = "Themes",
+                summary = state.theme?.name ?: DefaultTheme.spec.name,
+                icon = Icons.Filled.Palette,
+                onClick = onOpenThemes,
+                modifier = Modifier.tracks(SettingsArea.THEME),
+            )
+        }
+        if (manages) {
+            item(key = "web") {
+                LinkRow(
+                    title = "Web control",
+                    summary = webSummary(state),
+                    icon = if (state.webServerEnabled) Icons.Filled.Wifi else Icons.Filled.WifiOff,
+                    onClick = onOpenWebControl,
+                    modifier = Modifier.tracks(SettingsArea.WEB),
+                )
+            }
         }
     }
 }
 
-/** What the focused row does, at reading size, with what belongs to it. */
+/**
+ * On TV, under the title: the focused area at a glance. Themes shows the theme it wears; the
+ * other areas show a readout of what they hold, the way a set's information panel reads.
+ */
 @Composable
-private fun InfoPanel(item: SettingsItem, state: SettingsUiState, modifier: Modifier) {
+private fun AreaAside(area: SettingsArea, state: SettingsUiState) {
     val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
-    LazyColumn(
-        modifier.background(theme.surface),
-        contentPadding = PaddingValues(horizontal = if (isTv) 40.dp else 24.dp, vertical = if (isTv) 40.dp else 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        androidx.compose.material3.Text(title(area), style = typography.headlineSmall, color = theme.text)
+        when (area) {
+            SettingsArea.SERVERS -> ServersReadout(state)
+            SettingsArea.CHANNELS -> ChannelsReadout(state.channels, state.removedChannels)
+            SettingsArea.PLAYBACK -> PlaybackReadout(state.tracks)
+            SettingsArea.HISTORY -> HistoryReadout(state.liveTvSync, state.onDemandSync, state.dashboard)
+            SettingsArea.THEME -> ThemePreview(state.theme ?: DefaultTheme.spec, Modifier.fillMaxWidth())
+            SettingsArea.WEB -> WebReadout(state)
+        }
+    }
+}
+
+/**
+ * All the servers as one readout, the same size however many there are: how their syncing
+ * stands, what their libraries hold together, and how many servers there are and how many need
+ * attention. Each server's own readout is on its page.
+ */
+@Composable
+private fun ServersReadout(state: SettingsUiState) {
+    val servers = state.servers
+    if (servers.isEmpty()) {
+        ReadoutFrame { ReadoutFact(Icons.Filled.Dns, "No server yet", quiet = true) }
+        return
+    }
+    val trouble = servers.count { !it.isSignedIn || it.lastSyncError != null }
+    val totals = state.serverCounts.values.flatten().groupBy({ it.type }, { it.count }).mapValues { it.value.sum() }
+    ReadoutFrame {
+        when {
+            state.syncProgress.isNotEmpty() ->
+                StatusLine(onAir = false, label = "Syncing", text = if (servers.size > 1) "${state.syncProgress.size} of ${servers.size}" else "")
+            trouble > 0 -> Attention(if (servers.size > 1) "$trouble of ${servers.size}" else "")
+            else -> {
+                // The newest sync speaks for all of them.
+                val latest = servers.filter { it.lastSyncUtcMs != null }.maxByOrNull { it.lastSyncUtcMs!! }
+                val ago = latest?.syncedAgo(state.nowUtcMs)
+                StatusLine(onAir = ago != null, label = if (ago != null) "Synced" else "Not synced yet", text = ago.orEmpty())
+            }
+        }
+        ReadoutFigures {
+            ReadoutFigure(totals[MediaType.MOVIE] ?: 0, if (totals[MediaType.MOVIE] == 1) "movie" else "movies")
+            ReadoutFigure(totals[MediaType.SERIES] ?: 0, "series")
+            ReadoutFigure(totals[MediaType.EPISODE] ?: 0, if (totals[MediaType.EPISODE] == 1) "episode" else "episodes")
+        }
+        ReadoutRule()
+        ReadoutFacts {
+            ReadoutFact(Icons.Filled.Dns, "${servers.size}", if (servers.size == 1) "server" else "servers")
+            if (trouble > 0) ReadoutFact(Icons.Filled.ErrorOutline, "$trouble", if (trouble == 1) "needs attention" else "need attention")
+        }
+    }
+}
+
+/** A problem as a status line: the warning mark and the field label in the accent, so it reads without color too. */
+@Composable
+private fun Attention(text: String) {
+    val theme = LocalAnstelleTheme.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    androidx.compose.foundation.layout.Row(
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item(key = "title") {
+        androidx.compose.material3.Icon(
+            Icons.Filled.ErrorOutline,
+            contentDescription = null,
+            tint = theme.accent,
+            modifier = Modifier.size(16.dp),
+        )
+        androidx.compose.material3.Text("NEEDS ATTENTION", style = typography.labelMedium, color = theme.accent, maxLines = 1)
+        if (text.isNotEmpty()) androidx.compose.material3.Text(text.uppercase(), style = typography.labelMedium, color = theme.textMuted, maxLines = 1)
+    }
+}
+
+/** How many channels air, who made them, and how they're kept. */
+@Composable
+private fun ChannelsReadout(stats: ChannelStats, removed: Int) {
+    ReadoutFrame {
+        StatusLine(onAir = stats.visible > 0, label = "On air", text = "${stats.visible} of ${stats.total}")
+        ReadoutFigures {
+            ReadoutFigure(stats.total, if (stats.total == 1) "channel" else "channels", lead = true)
+            ReadoutFigure(stats.custom, "custom")
+            ReadoutFigure(stats.library, "from your library")
+        }
+        ReadoutRule()
+        ReadoutFacts {
+            ReadoutFact(Icons.Filled.Star, "${stats.favorites}", if (stats.favorites == 1) "favorite" else "favorites")
+            ReadoutFact(Icons.Filled.Folder, "${stats.groups}", if (stats.groups == 1) "group" else "groups")
+            ReadoutFact(Icons.Filled.VisibilityOff, "${stats.hidden}", "hidden")
+            if (removed > 0) ReadoutFact(Icons.Filled.Restore, "$removed", "removed")
+        }
+    }
+}
+
+/** The audio languages in order, then the subtitle mode and its languages. */
+@Composable
+private fun PlaybackReadout(prefs: TrackPrefs) {
+    ReadoutFrame {
+        ReadoutHeading(Icons.Filled.Audiotrack, "Audio", prefs.audioLanguages.size.takeIf { it > 1 }?.let { "$it in order" })
+        if (prefs.audioLanguages.isEmpty()) {
+            ReadoutFact(Icons.Filled.Audiotrack, "Each program's default track", quiet = true)
+        } else {
+            Languages(prefs.audioLanguages)
+        }
+        ReadoutRule()
+        ReadoutHeading(Icons.Filled.ClosedCaption, "Subtitles", modeName(prefs.subtitleMode))
+        when {
+            prefs.subtitleMode == SubtitleMode.OFF -> ReadoutFact(Icons.Filled.ClosedCaptionDisabled, "Turned on while watching", quiet = true)
+            prefs.subtitleLanguages.isEmpty() -> ReadoutFact(Icons.Filled.ErrorOutline, "No language chosen")
+            else -> Languages(prefs.subtitleLanguages)
+        }
+    }
+}
+
+/** A language list in order: the first four, then how many more. */
+@Composable
+private fun Languages(codes: List<String>) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        codes.take(SHOWN_LANGUAGES).forEachIndexed { i, code -> ReadoutRank(i + 1, languageName(code)) }
+        if (codes.size > SHOWN_LANGUAGES) ReadoutFact(Icons.Filled.MoreHoriz, "${codes.size - SHOWN_LANGUAGES} more", quiet = true)
+    }
+}
+
+/** What Live TV and On Demand send to Jellyfin, each as checks, then whether the dashboard keeps anything. */
+@Composable
+private fun HistoryReadout(liveTv: WatchSync, onDemand: WatchSync, dashboard: Boolean) {
+    ReadoutFrame {
+        for ((place, sync) in listOf(SyncPlace.LIVE_TV to liveTv, SyncPlace.ON_DEMAND to onDemand)) {
+            ReadoutHeading(place.icon, place.title, syncName(sync))
+            ReadoutFacts {
+                ReadoutCheck(sync == WatchSync.STATUS || sync == WatchSync.BOTH, "Status")
+                ReadoutCheck(sync == WatchSync.PROGRESS || sync == WatchSync.BOTH, "Progress")
+            }
+            ReadoutRule()
+        }
+        ReadoutHeading(Icons.Filled.InsertChart, "Dashboard", if (dashboard) "On" else "Off")
+        ReadoutCheck(dashboard, "Shows what you watch most")
+    }
+}
+
+/** Whether the web UI runs, where to open it, and the browsers paired with it. */
+@Composable
+private fun WebReadout(state: SettingsUiState) {
+    val theme = LocalAnstelleTheme.current
+    val status = state.webServer
+    val running = state.webServerEnabled && status.running
+    ReadoutFrame {
+        StatusLine(
+            onAir = running,
+            label = when {
+                !state.webServerEnabled -> "Off"
+                running -> "On"
+                status.error != null -> "Not running"
+                else -> "Starting"
+            },
+            text = "",
+        )
+        status.urls.firstOrNull()?.takeIf { running }?.let { url ->
             androidx.compose.material3.Text(
-                title(item),
+                url.removePrefix("http://"),
                 style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
                 color = theme.text,
+                maxLines = 1,
             )
         }
-        item(key = "about") {
-            androidx.compose.material3.Text(
-                if (item == SettingsItem.HISTORY) HISTORY_INTRO else description(item, state),
-                style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
-                color = theme.textMuted,
-            )
-        }
-        when (item) {
-            SettingsItem.SERVERS -> {
-                if (state.servers.isNotEmpty()) item(key = "list") { SectionLabel("Connected") }
-                items(state.servers, key = { "server-${it.id}" }) { server ->
-                    val trouble = !server.isSignedIn || server.lastSyncError != null
-                    Fact(server.name, listOfNotNull(server.userName, if (trouble) "needs attention" else null).joinToString(" · "), trouble)
+        ReadoutFigures { ReadoutFigure(state.pairedClients.size, if (state.pairedClients.size == 1) "paired browser" else "paired browsers") }
+        if (state.pairedClients.isNotEmpty()) {
+            ReadoutRule()
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (client in state.pairedClients.take(SHOWN_BROWSERS)) {
+                    ReadoutFact(Icons.Filled.Computer, client.name, client.lastAddress)
                 }
             }
-            SettingsItem.WEB -> {
-                val urls = state.webServer.urls.takeIf { state.webServerEnabled && state.webServer.running }.orEmpty()
-                if (urls.isNotEmpty()) {
-                    item(key = "urls") { SectionLabel("Open in a browser") }
-                    items(urls, key = { it }) { url -> Fact(url, null, false) }
-                }
-                item(key = "paired") { SectionLabel("Paired browsers · ${state.pairedClients.size}") }
-                if (state.pairedClients.isEmpty()) {
-                    item(key = "none") { Fact("None yet", "A browser pairs with the PIN this screen shows.", false) }
-                }
-                items(state.pairedClients, key = { "client-${it.id}" }) { client ->
-                    Fact(client.name, listOfNotNull(client.lastAddress, client.userAgent?.take(60)).joinToString(" · "), false)
-                }
-            }
-            SettingsItem.THEME -> item(key = "preview") {
-                tv.anstelle.feature.settings.appearance.ThemePreview(state.theme ?: tv.anstelle.core.theme.DefaultTheme.spec, Modifier.fillMaxWidth().padding(top = 8.dp))
-            }
-            SettingsItem.HISTORY -> {
-                item(key = "in-use") { SectionLabel("In use") }
-                item(key = "live") { Fact("Live TV · ${syncName(state.liveTvSync)}", syncDescription(SyncPlace.LIVE_TV, state.liveTvSync), false) }
-                item(key = "ondemand") { Fact("On Demand · ${syncName(state.onDemandSync)}", syncDescription(SyncPlace.ON_DEMAND, state.onDemandSync), false) }
-            }
-            else -> Unit
         }
     }
 }
 
-/** One line of the info panel: a name and what is known about it, marked when something is wrong. */
-@Composable
-private fun Fact(name: String, detail: String?, warn: Boolean) {
-    val theme = LocalAnstelleTheme.current
-    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (warn) {
-            androidx.compose.material3.Icon(Icons.Filled.ErrorOutline, contentDescription = "Needs attention", tint = theme.accent, modifier = Modifier.size(18.dp))
-        }
-        Column {
-            androidx.compose.material3.Text(name, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, color = theme.text)
-            if (!detail.isNullOrEmpty()) {
-                androidx.compose.material3.Text(detail, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, color = theme.textMuted)
-            }
-        }
-    }
+private fun title(area: SettingsArea) = when (area) {
+    SettingsArea.SERVERS -> "Servers"
+    SettingsArea.CHANNELS -> "Channels"
+    SettingsArea.PLAYBACK -> "Playback"
+    SettingsArea.HISTORY -> "Watch history"
+    SettingsArea.THEME -> "Themes"
+    SettingsArea.WEB -> "Web control"
 }
 
-private fun LazyListScope.pairedBrowsers(clients: List<PairedClientEntity>) {
-    if (clients.isEmpty()) {
-        item(key = "paired-none") { SettingsNote("No browsers paired yet. Turn on web control and open its address in a browser.") }
-    }
-    items(clients, key = { it.id }) { client ->
-        FocusTile(
-            title = client.name,
-            subtitle = listOfNotNull(client.lastAddress, client.userAgent?.take(60)).joinToString(" · "),
-            icon = Icons.Filled.Computer,
-            onClick = {},
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
+private const val SHOWN_LANGUAGES = 4
+private const val SHOWN_BROWSERS = 4
 
-@Composable
-private fun SettingsNote(text: String) {
-    androidx.compose.material3.Text(
-        text,
-        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-        color = LocalAnstelleTheme.current.textMuted,
-        modifier = Modifier.padding(vertical = 4.dp),
-    )
-}
-
-private fun title(item: SettingsItem) = when (item) {
-    SettingsItem.SERVERS -> "Media servers"
-    SettingsItem.CHANNELS -> "Channels"
-    SettingsItem.LANGUAGES -> "Audio and subtitles"
-    SettingsItem.HISTORY -> "Watch history"
-    SettingsItem.THEME -> "Themes"
-    SettingsItem.WEB -> "Web control"
-}
-
-private fun description(item: SettingsItem, state: SettingsUiState): String = when (item) {
-    SettingsItem.SERVERS -> when {
-        state.servers.isEmpty() -> "Connect a Jellyfin server to start building channels."
-        else -> "AnstelleTV builds its channels from the Jellyfin libraries you connect here."
-    }
-    SettingsItem.CHANNELS -> "Lineups, numbers, groups, logos and favorites."
-    SettingsItem.LANGUAGES -> playbackSummary(state.tracks)
-    SettingsItem.HISTORY -> watchHistorySummary(state.liveTvSync, state.onDemandSync)
-    SettingsItem.THEME -> "Change the colors, fonts and guide rows of every screen."
-    SettingsItem.WEB -> {
-        val server = state.webServer
-        when {
-            !state.webServerEnabled -> "Off. Turn it on to let browsers on your network manage AnstelleTV."
-            server.running && server.urls.isNotEmpty() -> "Browsers on your network can manage AnstelleTV and watch channels. Open ${server.urls.first()}."
-            server.error != null -> "Not running: ${server.error}"
-            else -> "Starting…"
-        }
-    }
-}
-
-private fun serversValue(servers: List<MediaServer>): String = when {
-    servers.isEmpty() -> "None"
+private fun serversSummary(servers: List<MediaServer>): String = when {
+    servers.isEmpty() -> "None connected"
     servers.any { !it.isSignedIn || it.lastSyncError != null } -> "Needs attention"
     servers.size == 1 -> servers.first().name
-    else -> "${servers.size} connected"
+    else -> "${servers.size} servers"
 }
 
-private const val HISTORY_INTRO = "What Live TV and On Demand save to this profile's Jellyfin user."
-
-private const val WIDE_DP = 600
-
-private const val DEFAULT_THEME_NAME = "Rose"
-private const val BUILT_IN_THEMES = 16
+private fun webSummary(state: SettingsUiState): String {
+    val server = state.webServer
+    return when {
+        !state.webServerEnabled -> "Off"
+        server.running && server.urls.isNotEmpty() -> "On at ${server.urls.first()}"
+        server.error != null -> "Not running"
+        else -> "Starting"
+    }
+}

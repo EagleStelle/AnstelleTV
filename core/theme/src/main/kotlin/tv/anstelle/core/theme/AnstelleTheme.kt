@@ -28,6 +28,16 @@ val ControlShape = RoundedCornerShape(2.dp)
 val PanelShape = RoundedCornerShape(4.dp)
 
 /**
+ * The color of a destructive action (delete, remove, hand over): one red outside every theme, so
+ * a dangerous control looks the same whatever the profile wears (user decision). It fills the
+ * control, with [OnDangerColor] on it, so it reads on dark and light grounds alike.
+ */
+val DangerColor = Color(0xFFD32F2F)
+
+/** Text and icons on [DangerColor]. */
+val OnDangerColor = Color.White
+
+/**
  * Applies a guide theme to both Material 3 (phone layouts) and Compose for TV (TV layouts),
  * so components from either library pick up the same palette. Everything is flat: no tonal
  * tint on surfaces, no shadows; depth comes from the surface steps alone.

@@ -4,22 +4,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -45,9 +41,14 @@ import tv.anstelle.core.model.ServerProblem
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AnstelleTextField
-import tv.anstelle.core.theme.components.FocusTile
 import tv.anstelle.core.theme.components.NumberBlock
 import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsNotice
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.section
+import tv.anstelle.core.theme.components.settingsEdge
 import tv.anstelle.core.theme.ControlShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -198,14 +199,16 @@ class AddServerViewModel @Inject constructor(
 }
 
 /**
- * Connect a Jellyfin server: addresses, then Quick Connect or a password. For a profile it
- * skips to signing in at the server's address, and [onProfile] gets the profile.
+ * Connect a Jellyfin server: its address, then Quick Connect or a password. For a profile it
+ * skips to signing in at the server's address, and [onProfile] gets the profile. [trail] names
+ * the pages above it; the first server, before any profile, has none.
  */
 @Composable
 fun AddServerScreen(
     onSignedIn: (Long) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    trail: List<String> = listOf("Settings", "Servers"),
     onProfile: (profileId: Long) -> Unit = {},
     viewModel: AddServerViewModel = hiltViewModel(),
 ) {
@@ -216,24 +219,26 @@ fun AddServerScreen(
         if (profileId != null) onProfile(profileId) else onSignedIn(signedIn.serverId)
     }
     androidx.activity.compose.BackHandler { if (!viewModel.back()) onBack() }
+    val pages = if (state.forProfile) listOf("Profiles") else trail
 
     when (state.step) {
-        AddServerStep.ADDRESS -> AddressStep(state, viewModel, modifier)
-        AddServerStep.SIGN_IN -> SignInStep(state, viewModel, modifier)
-        AddServerStep.QUICK_CONNECT -> QuickConnectStep(state, viewModel, modifier)
+        AddServerStep.ADDRESS -> AddressStep(state, viewModel, pages, modifier)
+        AddServerStep.SIGN_IN -> SignInStep(state, viewModel, pages, modifier)
+        AddServerStep.QUICK_CONNECT -> QuickConnectStep(state, viewModel, pages, modifier)
     }
 }
 
 @Composable
-private fun AddressStep(state: AddServerUiState, viewModel: AddServerViewModel, modifier: Modifier) {
+private fun AddressStep(state: AddServerUiState, viewModel: AddServerViewModel, trail: List<String>, modifier: Modifier) {
     val firstFocus = rememberInitialFocus()
     SettingsPage(
         title = when {
-            state.newProfile -> "Add a profile"
-            state.linkProfileName != null -> "Sign in for ${state.linkProfileName}"
-            else -> "Add a Jellyfin server"
+            state.newProfile -> "Add profile"
+            state.linkProfileName != null -> "Sign in"
+            else -> "Add server"
         },
-        subtitle = if (state.forProfile) "Reaching the server…" else "Enter the server's address: an IP address or a web address.",
+        trail = trail,
+        about = if (state.forProfile) "Reaching the server…" else "Enter the address of your Jellyfin server: an IP address or a web address.",
         modifier = modifier,
     ) {
         item(key = "address") {
@@ -246,50 +251,43 @@ private fun AddressStep(state: AddServerUiState, viewModel: AddServerViewModel, 
                 enabled = !state.busy,
                 isLast = true,
                 onDone = viewModel::connect,
-                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = settingsEdge, vertical = 8.dp).focusRequester(firstFocus),
             )
         }
-        item(key = "error") { state.error?.let { MessageText(it, isError = true) } }
+        item(key = "error") { state.error?.let { SettingsNotice(it, isError = true) } }
         item(key = "connect") {
-            OsdButton(
-                text = if (state.busy) "Connecting…" else "Connect",
-                onClick = viewModel::connect,
-                icon = Icons.Filled.Link,
-                primary = true,
-            )
+            SettingsButtons {
+                OsdButton(text = if (state.busy) "Connecting…" else "Connect", onClick = viewModel::connect, icon = Icons.Filled.Link, primary = true)
+            }
         }
     }
 }
 
 @Composable
-private fun SignInStep(state: AddServerUiState, viewModel: AddServerViewModel, modifier: Modifier) {
+private fun SignInStep(state: AddServerUiState, viewModel: AddServerViewModel, trail: List<String>, modifier: Modifier) {
     val candidate = state.candidate ?: return
     val firstFocus = rememberInitialFocus()
+    val quick = candidate.quickConnectEnabled
     SettingsPage(
-        title = when {
-            state.newProfile -> "Add a profile"
-            state.linkProfileName != null -> "${candidate.info.name} for ${state.linkProfileName}"
-            else -> "Sign in to ${candidate.info.name}"
-        },
-        subtitle = when {
+        title = if (state.newProfile) "Add profile" else "Sign in",
+        trail = trail,
+        about = when {
             state.newProfile ->
                 "Sign in as someone on ${candidate.info.name}: the new profile takes that user's name, picture, watched marks and resume points, and sees only what that user may. Set a maturity rating on the profile's page afterwards."
             state.linkProfileName != null ->
                 "Sign in as the Jellyfin user for ${state.linkProfileName} on ${candidate.info.name}. There the profile takes that user's watched marks and resume points, and sees only what that user may."
-            else -> "Jellyfin ${candidate.info.version} at ${candidate.info.url}"
+            else -> "${candidate.info.name}: Jellyfin ${candidate.info.version} at ${candidate.info.url}"
         },
         modifier = modifier,
     ) {
-        if (candidate.quickConnectEnabled) {
+        if (quick) {
+            section("Quick Connect")
             item(key = "quick") {
-                FocusTile(
-                    title = "Use Quick Connect",
-                    icon = Icons.Filled.QrCode2,
-                    onClick = viewModel::startQuickConnect,
-                    modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
-                )
+                SettingsButtons {
+                    OsdButton("Use Quick Connect", onClick = viewModel::startQuickConnect, icon = Icons.Filled.QrCode2, primary = true, modifier = Modifier.focusRequester(firstFocus))
+                }
             }
-            item(key = "or") { MessageText("Or sign in with a password:") }
+            section("Password")
         }
         item(key = "user") {
             AnstelleTextField(
@@ -297,7 +295,7 @@ private fun SignInStep(state: AddServerUiState, viewModel: AddServerViewModel, m
                 onValueChange = viewModel::setUsername,
                 label = "Username",
                 enabled = !state.busy,
-                modifier = Modifier.fillMaxWidth().let { if (candidate.quickConnectEnabled) it else it.focusRequester(firstFocus) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = settingsEdge, vertical = 4.dp).let { if (quick) it else it.focusRequester(firstFocus) },
             )
         }
         item(key = "password") {
@@ -309,37 +307,37 @@ private fun SignInStep(state: AddServerUiState, viewModel: AddServerViewModel, m
                 isLast = true,
                 enabled = !state.busy,
                 onDone = viewModel::signInWithPassword,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = settingsEdge, vertical = 4.dp),
             )
         }
-        item(key = "error") { state.error?.let { MessageText(it, isError = true) } }
+        item(key = "error") { state.error?.let { SettingsNotice(it, isError = true) } }
         item(key = "signin") {
-            OsdButton(
-                text = if (state.busy) "Signing in…" else "Sign in",
-                onClick = viewModel::signInWithPassword,
-                icon = Icons.AutoMirrored.Filled.Login,
-                primary = true,
-            )
+            SettingsButtons {
+                OsdButton(
+                    text = if (state.busy) "Signing in…" else "Sign in",
+                    onClick = viewModel::signInWithPassword,
+                    icon = Icons.AutoMirrored.Filled.Login,
+                    primary = !quick,
+                )
+            }
         }
-
     }
 }
 
 @Composable
-private fun QuickConnectStep(state: AddServerUiState, viewModel: AddServerViewModel, modifier: Modifier) {
+private fun QuickConnectStep(state: AddServerUiState, viewModel: AddServerViewModel, trail: List<String>, modifier: Modifier) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val firstFocus = rememberInitialFocus()
     SettingsPage(
         title = "Quick Connect",
-        subtitle = "In Jellyfin on another device, open your profile, choose Quick Connect and enter this code.",
-        modifier = modifier,
-    ) {
-        item(key = "code") {
+        trail = trail,
+        about = "In Jellyfin on another device, open your profile, choose Quick Connect and enter this code.",
+        aside = {
             // The code on blocks, like the PIN and the channel number entry; hollow slots while it loads.
-            Row(Modifier.padding(vertical = 24.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 val code = state.quickConnectCode
-                val slot = Modifier.width(if (isTv) 60.dp else 44.dp).height(if (isTv) 80.dp else 60.dp)
+                val slot = Modifier.width(if (isTv) 52.dp else 44.dp).height(if (isTv) 72.dp else 60.dp)
                 for (i in 0 until (code?.length ?: 6)) {
                     val char = code?.getOrNull(i)
                     if (char != null) {
@@ -349,15 +347,14 @@ private fun QuickConnectStep(state: AddServerUiState, viewModel: AddServerViewMo
                     }
                 }
             }
-        }
-        item(key = "waiting") { MessageText(if (state.quickConnectCode == null) "Getting a code…" else "Waiting for approval…") }
+        },
+        modifier = modifier,
+    ) {
+        item(key = "waiting") { SettingsNotice(if (state.quickConnectCode == null) "Getting a code…" else "Waiting for approval…") }
         item(key = "cancel") {
-            FocusTile(
-                title = "Back",
-                onClick = { viewModel.back() },
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
-            )
+            SettingsButtons {
+                OsdButton("Cancel", onClick = { viewModel.back() }, icon = Icons.Filled.Close, modifier = Modifier.focusRequester(firstFocus))
+            }
         }
     }
 }

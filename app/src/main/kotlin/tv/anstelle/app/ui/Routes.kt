@@ -59,6 +59,7 @@ const val PlayerRouteNoChannel = -1
 @Serializable data object ChannelGroupsRoute
 @Serializable data object PlaybackLanguagesRoute
 @Serializable data object WatchHistoryRoute
+@Serializable data object WebControlRoute
 
 /** The themes [profileId] can wear; 0 for the profile watching. */
 @Serializable data class ThemesRoute(val profileId: Long = 0)

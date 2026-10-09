@@ -1,18 +1,16 @@
 package tv.anstelle.feature.settings.channels
 
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.FormatListNumbered
+import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -29,11 +27,18 @@ import kotlinx.coroutines.launch
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelSegment
 import tv.anstelle.core.model.ChannelGroup
-import tv.anstelle.core.theme.components.AnstelleTextField
-import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.feature.settings.servers.MessageText
-import tv.anstelle.feature.settings.servers.SectionLabel
-import tv.anstelle.feature.settings.servers.SettingsPage
+import tv.anstelle.core.theme.components.ConfirmSheet
+import tv.anstelle.core.theme.components.EditSheet
+import tv.anstelle.core.theme.components.LocalSettingsSheets
+import tv.anstelle.core.theme.components.MenuAction
+import tv.anstelle.core.theme.components.MenuRow
+import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsNotice
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.TextRow
+import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.section
 import javax.inject.Inject
 
 @Immutable
@@ -54,9 +59,9 @@ class ChannelNumbersViewModel @Inject constructor(
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
 
-    fun setStart(segment: ChannelSegment, text: String) = save(text, state.value.segments[segment]) { start -> repository.setNumberStart(segment, start) }
+    fun setStart(segment: ChannelSegment, text: String) = save(text) { start -> repository.setNumberStart(segment, start) }
 
-    fun setSegmentStart(group: ChannelGroup, text: String) = save(text, group.numberStart) { start -> repository.setSegmentStart(group.id, start) }
+    fun setSegmentStart(group: ChannelGroup, text: String) = save(text) { start -> repository.setSegmentStart(group.id, start) }
 
     fun rename(group: ChannelGroup, name: String) = act { if (name.isNotBlank() && name.trim() != group.name) repository.renameGroup(group.id, name) }
 
@@ -64,14 +69,14 @@ class ChannelNumbersViewModel @Inject constructor(
 
     fun delete(group: ChannelGroup) = act { repository.deleteGroup(group.id) }
 
-    private fun save(text: String, current: Int?, action: suspend (Int) -> Unit) {
+    /** Saves a start typed in; returns the problem with it, or null. */
+    private fun save(text: String, action: suspend (Int) -> Unit): String? {
         val start = text.trim().toIntOrNull()
-        if (start == current) return
         if (start == null || start !in ChannelRepository.MIN_NUMBER..ChannelRepository.MAX_NUMBER) {
-            _message.value = "Channel numbers are ${ChannelRepository.MIN_NUMBER} to ${ChannelRepository.MAX_NUMBER}."
-            return
+            return "A start is a number from ${ChannelRepository.MIN_NUMBER} to ${ChannelRepository.MAX_NUMBER}."
         }
         act { action(start) }
+        return null
     }
 
     private fun act(action: suspend () -> Unit) {
@@ -88,7 +93,7 @@ class ChannelNumbersViewModel @Inject constructor(
     }
 }
 
-/** Where each group of channels is numbered from: 1000, 1001, 1002… */
+/** Segments, where each one's channel numbers start: the library's four, then the user's own with Add segment. */
 @Composable
 fun ChannelNumbersScreen(
     modifier: Modifier = Modifier,
@@ -96,69 +101,63 @@ fun ChannelNumbersScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val digits = { text: String -> text.filter(Char::isDigit).take(4) }
+    val firstFocus = rememberInitialFocus(ready = state.segments.isNotEmpty())
     SettingsPage(
-        title = "Channel numbers",
-        subtitle = "Each group counts up from its start (any number from ${ChannelRepository.MIN_NUMBER} to ${ChannelRepository.MAX_NUMBER}). " +
-            "Changing a start renumbers its channels. A channel you renumber keeps its number; one you build outside a segment " +
-            "takes the first free number after every start.",
+        title = "Segments",
+        trail = listOf("Settings", "Channels"),
+        about = "A segment numbers its channels A to Z from its start. Change a start to move them all.",
         modifier = modifier,
     ) {
-        item(key = "message") { message?.let { MessageText(it, isError = true) } }
-        item(key = "library") { SectionLabel("Made from your library") }
+        item(key = "message") { message?.let { SettingsNotice(it, isError = true) } }
+        section("Library segments")
         for (segment in ChannelSegment.entries) {
             val start = state.segments[segment] ?: continue
             item(key = segment.name) {
-                StartField("${segment.groupName} start at", start) { viewModel.setStart(segment, it) }
+                TextRow(
+                    title = segment.groupName,
+                    value = start.toString(),
+                    summary = "Starts at $start",
+                    label = "Start",
+                    keyboardType = KeyboardType.Number,
+                    filter = digits,
+                    onSave = { viewModel.setStart(segment, it) },
+                    icon = Icons.Filled.FormatListNumbered,
+                    modifier = if (segment == ChannelSegment.entries.first { it in state.segments }) Modifier.focusRequester(firstFocus) else Modifier,
+                )
             }
         }
-        if (state.own.isNotEmpty()) item(key = "own") { SectionLabel("Your segments") }
+        section("Custom segments")
         for (group in state.own) {
-            item(key = "segment-${group.id}") { SegmentFields(group, viewModel) }
+            item(key = "segment-${group.id}") {
+                val sheets = LocalSettingsSheets.current
+                val start = group.numberStart ?: 0
+                MenuRow(
+                    title = group.name,
+                    summary = "Starts at $start",
+                    icon = Icons.Filled.FormatListNumbered,
+                    actions = listOf(
+                        MenuAction("Rename", Icons.Filled.DriveFileRenameOutline) {
+                            sheets.show(
+                                EditSheet("Rename ${group.name}", null, "Name", group.name, KeyboardType.Text, { it.take(40) }) { name ->
+                                    if (name.isBlank()) "Give the segment a name." else null.also { viewModel.rename(group, name) }
+                                },
+                            )
+                        },
+                        MenuAction("Change start", Icons.Filled.Numbers) {
+                            sheets.show(EditSheet("${group.name} start", "Its channels are numbered from here.", "Start", start.toString(), KeyboardType.Number, digits) { viewModel.setSegmentStart(group, it) })
+                        },
+                        MenuAction("Delete", Icons.Filled.Delete, danger = true) {
+                            sheets.show(ConfirmSheet("Delete ${group.name}?", "Its channels stay but lose this group and get new numbers.", "Delete", Icons.Filled.Delete) { viewModel.delete(group) })
+                        },
+                    ),
+                )
+            }
         }
         item(key = "add") {
-            FocusTile(
-                title = "Add a segment",
-                subtitle = "A named group with numbers of its own. Put channels in it with their Group setting.",
-                icon = Icons.Filled.CreateNewFolder,
-                onClick = viewModel::addSegment,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            SettingsButtons {
+                OsdButton("Add segment", onClick = viewModel::addSegment, icon = Icons.Filled.CreateNewFolder)
+            }
         }
     }
-}
-
-@Composable
-private fun SegmentFields(group: ChannelGroup, viewModel: ChannelNumbersViewModel) {
-    var name by rememberSaveable(group.name) { mutableStateOf(group.name) }
-    var confirmDelete by remember { mutableStateOf(false) }
-    AnstelleTextField(
-        value = name,
-        onValueChange = { name = it },
-        label = "Segment name",
-        isLast = true,
-        onDone = { viewModel.rename(group, name) },
-        modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.hasFocus && name != group.name) viewModel.rename(group, name) },
-    )
-    StartField("${group.name} start at", group.numberStart ?: 0) { viewModel.setSegmentStart(group, it) }
-    FocusTile(
-        title = if (confirmDelete) "Select again to delete ${group.name}" else "Delete ${group.name}",
-        subtitle = "Its channels stay, without a group, and keep their numbers.",
-        icon = Icons.Filled.Delete,
-        onClick = { if (confirmDelete) viewModel.delete(group) else confirmDelete = true },
-        modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) confirmDelete = false },
-    )
-}
-
-@Composable
-private fun StartField(label: String, start: Int, onSave: (String) -> Unit) {
-    var text by rememberSaveable(start) { mutableStateOf(start.toString()) }
-    AnstelleTextField(
-        value = text,
-        onValueChange = { value -> text = value.filter(Char::isDigit).take(4) },
-        label = label,
-        keyboardType = KeyboardType.Number,
-        isLast = true,
-        onDone = { onSave(text) },
-        modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.hasFocus && text != start.toString()) onSave(text) },
-    )
 }

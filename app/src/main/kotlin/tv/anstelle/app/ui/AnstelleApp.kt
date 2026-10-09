@@ -72,6 +72,7 @@ import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.scanlines
 
 import tv.anstelle.core.theme.components.AnstelleMark
+import tv.anstelle.core.theme.components.PageFocusScope
 import tv.anstelle.core.theme.components.Wordmark
 import tv.anstelle.feature.dashboard.DashboardScreen
 import tv.anstelle.feature.guide.GuideScreen
@@ -85,6 +86,7 @@ import tv.anstelle.feature.settings.appearance.ThemeEditorScreen
 import tv.anstelle.feature.settings.appearance.ThemesScreen
 import tv.anstelle.feature.settings.AdminOnly
 import tv.anstelle.feature.settings.SettingsScreen
+import tv.anstelle.feature.settings.WebControlScreen
 import tv.anstelle.feature.settings.channels.AddToChannelScreen
 import tv.anstelle.feature.settings.channels.ChannelDetailScreen
 import tv.anstelle.feature.settings.channels.ChannelGroupsScreen
@@ -165,18 +167,22 @@ private fun FirstServer(modifier: Modifier) {
     val activity = LocalActivity.current
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = AddServerRoute(), modifier = modifier) {
-        composable<AddServerRoute> { AddServerScreen(onSignedIn = {}, onBack = { activity?.finish() }) }
+        composable<AddServerRoute> { AddServerScreen(onSignedIn = {}, onBack = { activity?.finish() }, trail = emptyList()) }
     }
 }
 
 /**
- * An app-wide destination (media servers, channels, web control): only the owner and admins see
+ * An app-wide destination (servers, channels, web control): only the owner and admins see
  * a way in. A member who lands on one anyway goes back.
  */
 private inline fun <reified T : Any> NavGraphBuilder.adminOnly(
     navController: NavHostController,
     noinline content: @Composable (NavBackStackEntry) -> Unit,
-) = composable<T> { entry -> AdminOnly(onLeave = { navController.leave() }) { content(entry) } }
+) = page<T> { entry -> AdminOnly(onLeave = { navController.leave() }) { content(entry) } }
+
+/** A menu screen: coming back to it, focus lands on the row it was left on (see [PageFocusScope]). */
+private inline fun <reified T : Any> NavGraphBuilder.page(noinline content: @Composable (NavBackStackEntry) -> Unit) =
+    composable<T> { entry -> PageFocusScope { content(entry) } }
 
 private fun NavHostController.leave() {
     if (!popBackStack()) navigateTopLevel(TopLevelDestination.Guide)
@@ -199,7 +205,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
             )
         }
         // The page itself asks for the profile's own PIN and closes on a profile the viewer may not change.
-        composable<ProfileEditRoute> {
+        page<ProfileEditRoute> {
             ProfileEditScreen(
                 onOpenThemes = { navController.navigate(ThemesRoute(it)) },
                 onLinkAccount = { profileId, serverId -> navController.navigate(AddServerRoute(serverId, linkProfileId = profileId)) },
@@ -236,23 +242,24 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         adminOnly<AddToChannelRoute>(navController) { AddToChannelScreen(onGone = { navController.popBackStack() }) }
         composable<DashboardRoute> { DashboardScreen(onTurnedOff = { navController.navigateTopLevel(TopLevelDestination.Guide) }) }
         navigation<SettingsGraph>(startDestination = SettingsRoute) {
-            // Each profile's own: theme, languages, watch history. The settings menu locks the shared rows itself.
-            composable<ThemesRoute> { ThemesScreen(onEdit = { navController.navigate(ThemeEditorRoute(it)) }) }
-            composable<ThemeEditorRoute> { ThemeEditorScreen(onGone = { navController.popBackStack() }) }
-            composable<SettingsRoute> {
+            // Each profile's own: theme, playback, watch history. The settings home shows the shared rows only to the owner and admins.
+            page<ThemesRoute> { ThemesScreen(onEdit = { navController.navigate(ThemeEditorRoute(it)) }) }
+            page<ThemeEditorRoute> { ThemeEditorScreen(onGone = { navController.popBackStack() }) }
+            page<SettingsRoute> {
                 SettingsScreen(
                     onOpenServers = { navController.navigate(ServersRoute) },
                     onOpenChannels = { navController.navigate(ChannelsRoute) },
-                    onOpenLanguages = { navController.navigate(PlaybackLanguagesRoute) },
+                    onOpenPlayback = { navController.navigate(PlaybackLanguagesRoute) },
                     onOpenWatchHistory = { navController.navigate(WatchHistoryRoute) },
                     onOpenThemes = { navController.navigate(ThemesRoute()) },
+                    onOpenWebControl = { navController.navigate(WebControlRoute) },
                 )
             }
-            composable<PlaybackLanguagesRoute> {
+            page<PlaybackLanguagesRoute> {
                 PlaybackLanguagesScreen(onAddLanguage = { navController.navigate(LanguagePickerRoute(subtitles = it == LanguageList.SUBTITLES)) })
             }
-            composable<WatchHistoryRoute> { WatchHistoryScreen() }
-            composable<LanguagePickerRoute> { LanguagePickerScreen(onPicked = { navController.popBackStack() }) }
+            page<WatchHistoryRoute> { WatchHistoryScreen() }
+            page<LanguagePickerRoute> { LanguagePickerScreen(onPicked = { navController.popBackStack() }) }
             // App-wide: the owner's and admins'.
             adminOnly<ChannelsRoute>(navController) {
                 ChannelsScreen(
@@ -283,6 +290,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onBack = { navController.popBackStack() },
                 )
             }
+            adminOnly<WebControlRoute>(navController) { WebControlScreen() }
             adminOnly<RemovedChannelsRoute>(navController) { RemovedChannelsScreen() }
             adminOnly<ChannelNumbersRoute>(navController) { ChannelNumbersScreen() }
             adminOnly<ChannelGroupsRoute>(navController) { ChannelGroupsScreen() }
@@ -298,7 +306,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onRemoved = { navController.popBackStack() },
                 )
             }
-            composable<AddServerRoute> { entry ->
+            page<AddServerRoute> { entry ->
                 val linking = entry.toRoute<AddServerRoute>().linkProfileId > 0
                 val screen = @Composable {
                     AddServerScreen(

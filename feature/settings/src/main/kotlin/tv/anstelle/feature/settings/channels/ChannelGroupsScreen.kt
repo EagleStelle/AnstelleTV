@@ -1,24 +1,20 @@
 package tv.anstelle.feature.settings.channels
 
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -30,11 +26,16 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import tv.anstelle.core.data.channels.ChannelRepository
-import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.AnstelleTextField
-import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.feature.settings.servers.MessageText
-import tv.anstelle.feature.settings.servers.SettingsPage
+import tv.anstelle.core.theme.components.ConfirmSheet
+import tv.anstelle.core.theme.components.EditSheet
+import tv.anstelle.core.theme.components.LocalSettingsSheets
+import tv.anstelle.core.theme.components.MenuAction
+import tv.anstelle.core.theme.components.MenuRow
+import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsNotice
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.rememberInitialFocus
 import javax.inject.Inject
 
 @Immutable
@@ -70,94 +71,68 @@ class ChannelGroupsViewModel @Inject constructor(
     }
 }
 
-/** Guide groups: create, rename, order and delete. */
+/** Groups in Live TV's order: New group, then each group's menu renames, moves or deletes it. */
 @Composable
 fun ChannelGroupsScreen(
     modifier: Modifier = Modifier,
     viewModel: ChannelGroupsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val firstFocus = remember { FocusRequester() }
-    if (LocalIsTv.current) LaunchedEffect(state.loaded) { if (state.loaded) runCatching { firstFocus.requestFocus() } }
-    var newName by rememberSaveable { mutableStateOf("") }
-    var open by rememberSaveable { mutableStateOf<Long?>(null) }
+    val firstFocus = rememberInitialFocus(ready = state.loaded)
 
     SettingsPage(
         title = "Groups",
-        subtitle = "The guide shows groups as tabs, in this order. Set a channel's group on its page.",
+        trail = listOf("Settings", "Channels"),
+        about = "Each group is a tab in Live TV, in this order.",
         modifier = modifier,
     ) {
         item(key = "new") {
-            AnstelleTextField(
-                value = newName,
-                onValueChange = { newName = it },
-                label = "New group name",
-                isLast = true,
-                onDone = {
-                    viewModel.create(newName)
-                    newName = ""
-                },
-                // With groups to edit, focus starts on the first one instead of opening the keyboard.
-                modifier = Modifier.fillMaxWidth().let { if (state.loaded && state.groups.isEmpty()) it.focusRequester(firstFocus) else it },
-            )
-        }
-        item(key = "create") {
-            FocusTile(
-                title = "Create group",
-                icon = Icons.Filled.CreateNewFolder,
-                onClick = {
-                    viewModel.create(newName)
-                    newName = ""
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (state.loaded && state.groups.isEmpty()) item(key = "empty") { MessageText("No groups yet.") }
-        state.groups.forEachIndexed { index, group ->
-            val isOpen = open == group.id
-            item(key = "group-${group.id}") {
-                FocusTile(
-                    title = group.name,
-                    subtitle = "%d %s · select to %s".format(group.channelCount, if (group.channelCount == 1) "channel" else "channels", if (isOpen) "close" else "edit"),
-                    icon = if (isOpen) Icons.Filled.FolderOpen else Icons.Filled.Folder,
-                    onClick = { open = if (isOpen) null else group.id },
-                    modifier = Modifier.fillMaxWidth().let { if (index == 0) it.focusRequester(firstFocus) else it },
+            val sheets = LocalSettingsSheets.current
+            val button = remember { FocusRequester() }
+            SettingsButtons {
+                OsdButton(
+                    "New group",
+                    onClick = {
+                        sheets.show(
+                            EditSheet("New group", null, "Name", "", KeyboardType.Text, { it.take(40) }) { name ->
+                                if (name.isBlank()) "Give the group a name." else null.also { viewModel.create(name) }
+                            },
+                            from = button,
+                        )
+                    },
+                    icon = Icons.Filled.CreateNewFolder,
+                    modifier = Modifier.focusRequester(button).let { if (state.groups.isEmpty()) it.focusRequester(firstFocus) else it },
                 )
             }
-            if (isOpen) {
-                item(key = "rename-${group.id}") {
-                    var name by rememberSaveable(group.name) { mutableStateOf(group.name) }
-                    AnstelleTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = "Name",
-                        isLast = true,
-                        onDone = { viewModel.rename(group.id, name) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                if (index > 0) {
-                    item(key = "up-${group.id}") {
-                        FocusTile("Move up", onClick = { viewModel.move(group.id, -1) }, icon = Icons.Filled.ArrowUpward, modifier = Modifier.fillMaxWidth())
-                    }
-                }
-                if (index < state.groups.lastIndex) {
-                    item(key = "down-${group.id}") {
-                        FocusTile("Move down", onClick = { viewModel.move(group.id, 1) }, icon = Icons.Filled.ArrowDownward, modifier = Modifier.fillMaxWidth())
-                    }
-                }
-                item(key = "delete-${group.id}") {
-                    FocusTile(
-                        title = "Delete group",
-                        subtitle = "Its channels stay, without a group.",
-                        icon = Icons.Filled.Delete,
-                        onClick = {
-                            viewModel.delete(group.id)
-                            open = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+        }
+        if (state.loaded && state.groups.isEmpty()) item(key = "empty") { SettingsNotice("No groups yet.") }
+        state.groups.forEachIndexed { index, group ->
+            item(key = "group-${group.id}") {
+                val sheets = LocalSettingsSheets.current
+                MenuRow(
+                    title = group.name,
+                    summary = if (group.channelCount == 1) "1 channel" else "${group.channelCount} channels",
+                    icon = Icons.Filled.Folder,
+                    actions = buildList {
+                        add(
+                            MenuAction("Rename", Icons.Filled.DriveFileRenameOutline) {
+                                sheets.show(
+                                    EditSheet("Rename ${group.name}", null, "Name", group.name, KeyboardType.Text, { it.take(40) }) { name ->
+                                        if (name.isBlank()) "Give the group a name." else null.also { viewModel.rename(group.id, name) }
+                                    },
+                                )
+                            },
+                        )
+                        if (index > 0) add(MenuAction("Move up", Icons.Filled.ArrowUpward) { viewModel.move(group.id, -1) })
+                        if (index < state.groups.lastIndex) add(MenuAction("Move down", Icons.Filled.ArrowDownward) { viewModel.move(group.id, 1) })
+                        add(
+                            MenuAction("Delete", Icons.Filled.Delete, danger = true) {
+                                sheets.show(ConfirmSheet("Delete ${group.name}?", "Its channels stay, without a group.", "Delete", Icons.Filled.Delete) { viewModel.delete(group.id) })
+                            },
+                        )
+                    },
+                    modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
+                )
             }
         }
     }

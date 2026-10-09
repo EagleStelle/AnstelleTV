@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -50,6 +51,7 @@ fun AnstelleTextField(
     isPassword: Boolean = false,
     isLast: Boolean = false,
     enabled: Boolean = true,
+    leadingIcon: ImageVector? = null,
     onDone: () -> Unit = {},
 ) {
     val theme = LocalAnstelleTheme.current
@@ -94,6 +96,7 @@ fun AnstelleTextField(
         enabled = enabled,
         singleLine = true,
         label = { Text(label) },
+        leadingIcon = leadingIcon?.let { { androidx.compose.material3.Icon(it, contentDescription = null) } },
         placeholder = placeholder?.let { { Text(it, color = theme.textMuted) } },
         visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(
@@ -122,6 +125,8 @@ fun AnstelleTextField(
             disabledBorderColor = theme.line,
             focusedLabelColor = theme.accent,
             unfocusedLabelColor = theme.textMuted,
+            focusedLeadingIconColor = theme.accent,
+            unfocusedLeadingIconColor = theme.textMuted,
             cursorColor = theme.accent,
             selectionColors = TextSelectionColors(handleColor = theme.accent, backgroundColor = theme.accentContainer),
             focusedContainerColor = theme.surface,

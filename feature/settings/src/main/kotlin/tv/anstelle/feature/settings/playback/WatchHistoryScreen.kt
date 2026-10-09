@@ -1,27 +1,17 @@
 package tv.anstelle.feature.settings.playback
 
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flatMapLatest
-import tv.anstelle.core.data.ProfileRepository
-import tv.anstelle.core.data.stats.DashboardHistory
-import tv.anstelle.feature.dashboard.DashboardOffDialog
-import tv.anstelle.feature.settings.activeProfileId
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.InsertChart
 import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -29,19 +19,28 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.SettingKey
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
+import tv.anstelle.core.data.stats.DashboardHistory
 import tv.anstelle.core.model.WatchSync
 import tv.anstelle.core.model.codeOf
-import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.feature.settings.servers.SettingsPage
+import tv.anstelle.core.theme.components.ChoiceRow
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.SwitchRow
+import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.section
+import tv.anstelle.feature.dashboard.DashboardOffDialog
+import tv.anstelle.feature.settings.activeProfileId
 import javax.inject.Inject
 
 /** Where playback happens, each with its own [WatchSync] setting for each profile. */
@@ -91,18 +90,15 @@ class WatchHistoryViewModel @Inject constructor(
         viewModelScope.launch { history.turnOff(profiles.activeProfileId().first(), keepHistory) }
     }
 
-    /** Steps through [SyncOrder], wrapping at either end. */
-    fun step(place: SyncPlace, by: Int) {
-        val next = SyncOrder[(SyncOrder.indexOf(state.value.of(place)) + by).mod(SyncOrder.size)]
-        viewModelScope.launch { settings.set(place.key(profiles.activeProfileId().first()), next.code) }
+    fun set(place: SyncPlace, sync: WatchSync) {
+        viewModelScope.launch { settings.set(place.key(profiles.activeProfileId().first()), sync.code) }
     }
 }
 
 /**
- * What Live TV and On demand save to the server: one row each, its choice on the right and
- * what that choice does under the title. A tap or OK moves to the next choice (Status,
- * Progress, Both, Off, then round again); on TV left and right step either way. Then the
- * dashboard, kept on this device: turning it off asks whether to keep or delete its history.
+ * What Live TV and On Demand save to the profile's Jellyfin user, each a choice with what it does
+ * under every option; then the dashboard, kept on this device. Turning it off asks whether to
+ * keep or delete its history.
  */
 @Composable
 fun WatchHistoryScreen(
@@ -110,43 +106,38 @@ fun WatchHistoryScreen(
     viewModel: WatchHistoryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val isTv = LocalIsTv.current
-    val firstFocus = remember { FocusRequester() }
+    val firstFocus = rememberInitialFocus(ready = state.loaded)
     var asking by remember { mutableStateOf(false) }
-    if (isTv) LaunchedEffect(state.loaded) { if (state.loaded) runCatching { firstFocus.requestFocus() } }
 
     Box(modifier) {
         SettingsPage(
             title = "Watch history",
-            subtitle = "What Live TV and On Demand save to this profile's Jellyfin user, and what its dashboard keeps.",
+            trail = listOf("Settings"),
+            about = "Live TV and On Demand tell your Jellyfin server what you've watched. The dashboard shows what you watch most, and stays on this device.",
         ) {
+            section("Jellyfin")
             for (place in SyncPlace.entries) {
                 item(key = place.name) {
-                    val sync = state.of(place)
-                    FocusTile(
+                    ChoiceRow(
                         title = place.title,
-                        subtitle = syncDescription(place, sync),
+                        value = state.of(place),
+                        choices = SyncOrder,
+                        label = ::syncName,
+                        detail = { syncDescription(place, it) },
+                        about = "What ${place.title} saves to your Jellyfin user.",
+                        onSelect = { viewModel.set(place, it) },
                         icon = place.icon,
-                        value = syncName(sync),
-                        onClick = { viewModel.step(place, 1) },
-                        onPrevious = if (isTv) ({ viewModel.step(place, -1) }) else null,
-                        onNext = if (isTv) ({ viewModel.step(place, 1) }) else null,
-                        modifier = Modifier.fillMaxWidth().let { if (place == SyncPlace.entries.first()) it.focusRequester(firstFocus) else it },
+                        modifier = if (place == SyncPlace.entries.first()) Modifier.focusRequester(firstFocus) else Modifier,
                     )
                 }
             }
+            section("This device")
             item(key = "dashboard") {
-                val toggle = { if (state.dashboard) asking = true else viewModel.turnOnDashboard() }
-                FocusTile(
+                SwitchRow(
                     title = "Dashboard",
-                    subtitle = if (state.dashboard) "Your watch time and favorites, kept on this device." else "Nothing is kept for your dashboard.",
+                    checked = state.dashboard,
+                    onCheckedChange = { on -> if (on) viewModel.turnOnDashboard() else asking = true },
                     icon = Icons.Filled.InsertChart,
-                    value = if (state.dashboard) "On" else "Off",
-                    toggle = state.dashboard,
-                    onClick = toggle,
-                    onPrevious = if (isTv) toggle else null,
-                    onNext = if (isTv) toggle else null,
-                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }

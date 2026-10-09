@@ -1,27 +1,20 @@
 package tv.anstelle.feature.profiles
 
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Password
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -49,14 +42,19 @@ import tv.anstelle.core.model.ProfileRights
 import tv.anstelle.core.model.ProfileRole
 import tv.anstelle.core.model.RatingLevel
 import tv.anstelle.core.model.RatingLimits
-import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.FocusTile
-import tv.anstelle.core.theme.components.MenuPage
+import tv.anstelle.core.theme.components.ChoiceRow
+import tv.anstelle.core.theme.components.ConfirmSheet
+import tv.anstelle.core.theme.components.DangerButton
+import tv.anstelle.core.theme.components.LinkRow
+import tv.anstelle.core.theme.components.LocalSettingsSheets
 import tv.anstelle.core.theme.components.PinEntry
-import tv.anstelle.core.theme.components.SectionLabel
-import tv.anstelle.core.theme.components.TileTrailing
+import tv.anstelle.core.theme.components.SettingsButtons
+import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.SwitchRow
+import tv.anstelle.core.theme.components.foot
 import tv.anstelle.core.theme.components.lockedOutMessage
 import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.section
 import tv.anstelle.core.theme.components.wrongPinMessage
 import javax.inject.Inject
 
@@ -158,14 +156,10 @@ class ProfileEditViewModel @Inject constructor(
         }
     }
 
-    /** Steps through the library's ratings, from no limit down to the lowest. */
-    fun stepLimit(by: Int) {
-        val state = state.value
-        val profile = state.profile ?: return
-        if (!state.canSetParental) return
-        val choices = RatingLimits.choices(state.levels)
-        val index = choices.indexOf(profile.maxRatingScore).takeIf { it >= 0 } ?: 0
-        act { profiles.setRatingLimit(profileId, choices[(index + by).mod(choices.size)]) }
+    /** Sets the highest rating the profile may watch; null is no limit. */
+    fun setLimit(score: Int?) {
+        if (!state.value.canSetParental) return
+        act { profiles.setRatingLimit(profileId, score) }
     }
 
     fun toggleAdmin() {
@@ -235,7 +229,6 @@ fun ProfileEditScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val newPin by viewModel.newPin.collectAsStateWithLifecycle()
     val ownPin by viewModel.ownPin.collectAsStateWithLifecycle()
-    val isTv = LocalIsTv.current
     val profile = state.profile
     // Gone, or no longer the viewer's to change (handing the owner role on, say).
     LaunchedEffect(state.loaded, profile, state.canEdit) { if (state.loaded && (profile == null || !state.canEdit)) onGone() }
@@ -270,19 +263,25 @@ fun ProfileEditScreen(
     }
 
     val firstFocus = rememberInitialFocus()
-    var confirmDelete by remember { mutableStateOf(false) }
-    var confirmOwner by remember { mutableStateOf(false) }
-    MenuPage(title = profile.name, modifier = modifier) {
+    SettingsPage(
+        title = profile.name,
+        trail = listOf("Profiles"),
+        about = listOfNotNull(
+            "A PIN is asked when switching to this profile.",
+            "Admins manage servers, channels and members.".takeIf { state.canSetAdmin },
+            "Programs rated over the Parental Rating still air on their channels, blacked out.".takeIf { state.canSetParental },
+        ).joinToString(" "),
+        modifier = modifier,
+    ) {
         // Profile: what the profile itself sets, the same rows for everyone who may edit it.
-        item(key = "profile") { SectionLabel("Profile") }
+        section("Profile")
         item(key = "theme") {
-            FocusTile(
+            LinkRow(
                 title = "Theme",
+                summary = state.themeName,
                 icon = Icons.Filled.Palette,
-                value = state.themeName,
-                trailing = TileTrailing.Chevron,
                 onClick = { onOpenThemes(profile.id) },
-                modifier = Modifier.fillMaxWidth().focusRequester(firstFocus),
+                modifier = Modifier.focusRequester(firstFocus),
             )
         }
         // One sign-in per server: the Jellyfin user the profile plays as there. With one server the
@@ -290,85 +289,87 @@ fun ProfileEditScreen(
         for (server in state.servers) {
             val account = state.accounts.firstOrNull { it.serverId == server.id }
             item(key = "user-${server.id}") {
-                FocusTile(
+                LinkRow(
                     title = if (state.servers.size == 1) "Authentication" else server.name,
-                    icon = Icons.Filled.Key,
-                    value = when {
+                    summary = when {
                         account != null && !account.signedIn -> "Signed out"
                         account != null -> account.userName
                         else -> "Not signed in"
                     },
-                    trailing = TileTrailing.Chevron,
+                    icon = Icons.Filled.Key,
                     onClick = { onLinkAccount(profile.id, server.id) },
-                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
         item(key = "pin") {
-            FocusTile(
-                title = if (profile.hasPin) "Change PIN" else "Set PIN",
+            val sheets = LocalSettingsSheets.current
+            SwitchRow(
+                title = "PIN",
+                checked = profile.hasPin,
+                onCheckedChange = { on ->
+                    if (on) {
+                        viewModel.startNewPin()
+                    } else {
+                        sheets.show(ConfirmSheet("Remove the PIN?", "Switching to this profile no longer asks for one.", "Remove", Icons.Filled.LockOpen, viewModel::removePin))
+                    }
+                },
                 icon = Icons.Filled.Lock,
-                trailing = TileTrailing.Chevron,
-                onClick = viewModel::startNewPin,
-                modifier = Modifier.fillMaxWidth(),
             )
         }
         if (profile.hasPin) {
-            item(key = "pin-remove") {
-                FocusTile(title = "Remove PIN", icon = Icons.Filled.LockOpen, onClick = viewModel::removePin, modifier = Modifier.fillMaxWidth())
+            item(key = "pin-change") {
+                LinkRow(title = "Change PIN", icon = Icons.Filled.Password, onClick = viewModel::startNewPin)
             }
         }
         // Permissions: what the owner or an admin sets for the profile. Only they see the group,
         // and each row only when the viewer may change it.
-        if (state.canSetAdmin || state.canSetParental) {
-            item(key = "permissions") { SectionLabel("Permissions") }
-        }
+        if (state.canSetAdmin || state.canSetParental) section("Permissions")
         if (state.canSetAdmin) {
             item(key = "admin") {
-                FocusTile(
-                    title = "Set Admin",
+                SwitchRow(
+                    title = "Admin",
+                    checked = profile.role == ProfileRole.ADMIN,
+                    onCheckedChange = { viewModel.toggleAdmin() },
                     icon = Icons.Filled.AdminPanelSettings,
-                    value = if (profile.role == ProfileRole.ADMIN) "On" else "Off",
-                    toggle = profile.role == ProfileRole.ADMIN,
-                    onClick = viewModel::toggleAdmin,
-                    onPrevious = viewModel::toggleAdmin,
-                    onNext = viewModel::toggleAdmin,
-                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
         // Parental controls belong to members; an admin has none.
         if (state.canSetParental) {
             item(key = "limit") {
-                FocusTile(
+                ChoiceRow(
                     title = "Parental Rating",
+                    value = profile.maxRatingScore,
+                    choices = RatingLimits.choices(state.levels),
+                    label = { RatingLimits.label(it, state.levels) },
+                    onSelect = viewModel::setLimit,
                     icon = Icons.Filled.Shield,
-                    value = RatingLimits.label(profile.maxRatingScore, state.levels),
-                    onClick = { viewModel.stepLimit(1) },
-                    onPrevious = if (isTv) ({ viewModel.stepLimit(-1) }) else null,
-                    onNext = if (isTv) ({ viewModel.stepLimit(1) }) else null,
-                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
         if (state.canSetAdmin) {
             item(key = "make-owner") {
-                FocusTile(
-                    title = if (confirmOwner) "Select again to transfer" else "Transfer ownership",
-                    icon = Icons.Filled.SwapHoriz,
-                    onClick = { if (confirmOwner) viewModel.makeOwner() else confirmOwner = true },
-                    modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) confirmOwner = false },
-                )
+                SettingsButtons {
+                    DangerButton(
+                        text = "Transfer ownership",
+                        question = "Make ${profile.name} the owner?",
+                        explanation = "You stay an admin. The owner edits every profile and is the only one who makes admins.",
+                        confirm = "Transfer",
+                        icon = Icons.Filled.SwapHoriz,
+                        onConfirm = viewModel::makeOwner,
+                    )
+                }
             }
         }
-        // Deleting stands apart at the foot of the page, under no heading, so it never reads as part of a group.
+        // Deleting stands apart at the foot of the page, under no heading.
         if (state.canDelete) {
-            item(key = "delete") {
-                FocusTile(
-                    title = if (confirmDelete) "Select again to delete" else "Delete profile",
-                    icon = Icons.Filled.Delete,
-                    onClick = { if (confirmDelete) viewModel.delete() else confirmDelete = true },
-                    modifier = Modifier.padding(top = 24.dp).fillMaxWidth().onFocusChanged { if (!it.isFocused) confirmDelete = false },
+            foot {
+                DangerButton(
+                    text = "Delete profile",
+                    question = "Delete ${profile.name}?",
+                    explanation = "Its Jellyfin sign-ins are signed out and its settings removed.",
+                    confirm = "Delete",
+                    onConfirm = viewModel::delete,
                 )
             }
         }
