@@ -64,7 +64,7 @@ class AddToChannelViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val pick = repository.pickFor(itemId)
-            val channels = repository.observeChannels().first()
+            val channels = repository.observeChannels().first().filterNot { it.channel.fromLibrary }
             val including = pick?.let { repository.channelsIncluding(it.pick.remoteId) }.orEmpty()
             _state.value = AddToChannelUiState(pick, channels, including, loaded = true)
         }
@@ -84,7 +84,7 @@ class AddToChannelViewModel @Inject constructor(
         val place = placement.state.value
         place.problem?.let { throw IllegalArgumentException(it) }
         val id = repository.create(pick.title, Lineup(emptyList(), includes = listOf(pick.pick)), PlaybackOrder.EPISODE_ORDER, 1, place.groupId!!, place.segment!!)
-        val channels = repository.observeChannels().first()
+        val channels = repository.observeChannels().first().filterNot { it.channel.fromLibrary }
         val number = channels.firstOrNull { it.channel.id == id }?.channel?.number
         _state.update {
             it.copy(
@@ -115,8 +115,8 @@ class AddToChannelViewModel @Inject constructor(
 }
 
 /**
- * Makes channels always air a show or movie: a checkbox per channel (checked once it airs it),
- * or New channel builds a channel around it in the group and segment above it.
+ * Makes custom channels always air a show or movie: a checkbox per channel (checked once it
+ * airs it), or New channel builds a channel around it in the group and segment above it.
  */
 @Composable
 fun AddToChannelScreen(

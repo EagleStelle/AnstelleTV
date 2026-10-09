@@ -76,8 +76,9 @@ class ChannelsViewModel @Inject constructor(
 /**
  * Every channel, the same for every profile: a search over them, the button that builds one, how
  * Live TV groups them and segments number them, how many On Demand deals into its banner, then
- * the channels someone built and the ones made from the library, each opening its own page. While
- * a search is typed, the page lists only the channels it finds.
+ * the channels someone built and the ones made from the library, each opening its own page.
+ * Library-channel pages only offer Favorite and Visible. While a search is typed, the page lists
+ * only the channels it finds.
  */
 @Composable
 fun ChannelsScreen(
@@ -96,8 +97,7 @@ fun ChannelsScreen(
     SettingsPage(
         title = "Channels",
         trail = listOf("Settings"),
-        about = "Shared by every profile. Groups are the tabs in Live TV; segments set the channel numbers. " +
-            "Library channels update on their own until you change them.",
+        about = "Shared by every profile. Groups are the tabs in Live TV; segments set the channel numbers.",
         modifier = modifier,
     ) {
         item(key = "search") { SettingsSearch(query, onQueryChange = { query = it }, label = "Find a channel") }
@@ -161,7 +161,7 @@ fun ChannelsScreen(
 /** "Custom channels  3": a section's name with how many it holds, once it holds any. */
 private fun counted(name: String, count: Int) = if (count == 0) name else "$name  $count"
 
-/** Channels by number, each opening its page; a library channel someone changed says so. */
+/** Channels by number, each opening its page. */
 private fun LazyListScope.channelRows(channels: List<ChannelSummary>, onOpenChannel: (Long) -> Unit) {
     items(channels, key = { it.channel.id }) { summary ->
         val channel = summary.channel
@@ -170,7 +170,6 @@ private fun LazyListScope.channelRows(channels: List<ChannelSummary>, onOpenChan
             summary = listOfNotNull(
                 summary.groupName,
                 playbackLabel(channel.playbackOrder, channel.blockSize),
-                "edited".takeIf { channel.fromLibrary && !channel.isManaged },
                 "favorite".takeIf { channel.isFavorite },
                 "hidden".takeIf { channel.isHidden },
                 summary.seasonLabel?.let { if (summary.inSeason) "on air $it" else "off season, on air $it" },

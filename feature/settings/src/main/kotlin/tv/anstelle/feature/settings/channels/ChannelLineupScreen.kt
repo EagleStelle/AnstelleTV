@@ -119,6 +119,8 @@ data class LineupUiState(
     val error: String? = null,
     val busy: Boolean = false,
     val loaded: Boolean = false,
+    /** A library channel was reached through a restored or otherwise stale route. */
+    val locked: Boolean = false,
     /** Set once saved: the channel's id. */
     val savedChannelId: Long? = null,
 )
@@ -156,9 +158,13 @@ class ChannelLineupViewModel @Inject constructor(
                 .groupBy({ it.first }, { it.second })
                 .mapValues { (_, names) -> names.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER).take(3).joinToString(", ") }
             if (channelId != 0L) {
+                val channel = repository.observeChannel(channelId).first()
+                if (channel?.fromLibrary == true) {
+                    _state.update { it.copy(name = channel.name, locked = true, loaded = true) }
+                    return@launch
+                }
                 lineup = repository.lineup(channelId)
-                val name = repository.observeChannel(channelId).first()?.name.orEmpty()
-                _state.update { it.copy(name = name) }
+                _state.update { it.copy(name = channel?.name.orEmpty()) }
             }
             _state.update { it.copy(loaded = true) }
             changed()
@@ -413,6 +419,10 @@ fun ChannelLineupScreen(
     LaunchedEffect(state.savedChannelId) { state.savedChannelId?.let { onSaved(it, state.isNew) } }
     androidx.activity.compose.BackHandler { if (!viewModel.back()) onBack() }
     if (!state.loaded) return
+    if (state.locked) {
+        LaunchedEffect(Unit) { onBack() }
+        return
+    }
     val panes = rememberSaveableStateHolder()
     // The pages above this one: the channel's own page for a lineup, the channel list for a new one.
     val trail = listOf("Settings", "Channels") + listOfNotNull(state.name.takeIf { !state.isNew && it.isNotEmpty() })

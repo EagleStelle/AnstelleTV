@@ -24,7 +24,6 @@ import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelGroupEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
-import tv.anstelle.core.database.entity.DismissedChannelEntity
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.ChannelGroup
 import tv.anstelle.core.model.ChannelKind
@@ -58,6 +57,9 @@ data class Airing(val startUtcMs: Long, val endUtcMs: Long, val title: String?)
 
 /** What "Add to channel" adds for an item: the show for an episode, else the item itself. */
 data class ChannelPick(val pick: Pick, val title: String)
+
+/** Thrown when an operation other than hiding or favoriting targets a library channel. */
+class LibraryChannelLockedException : IllegalStateException("Library channels can only be hidden or favorited.")
 
 /** Channels, their lineups and groups, and the channels made from the library. */
 @Singleton
@@ -144,6 +146,7 @@ class ChannelRepository @Inject constructor(
     suspend fun setLineup(channelId: Long, lineup: Lineup) {
         lineup.problem()?.let { throw IllegalArgumentException(it) }
         withContext(io) {
+            requireCustomChannel(channelId)
             val keep = channelDao.dayparts(channelId).mapNotNull { it.ruleLogicGroup }
             val first = (keep.maxOrNull() ?: -1) + 1
             channelDao.replaceBaseRules(channelId, LineupRows.encode(channelId, null, lineup, firstGroup = first), keep)
@@ -223,6 +226,7 @@ class ChannelRepository @Inject constructor(
 
     suspend fun setGroup(channelId: Long, groupId: Long?) = withContext(io) {
         database.withTransaction {
+            requireCustomChannel(channelId)
             channelDao.setGroup(channelId, groupId, time.nowUtcMs())
             channelDao.stopManaging(channelId)
         }
@@ -231,7 +235,7 @@ class ChannelRepository @Inject constructor(
     /** Moves the channel into [segment] (a [Segment.key]), which numbers it from then on. */
     suspend fun setSegment(channelId: Long, segment: String) = withContext(io) {
         database.withTransaction {
-            val channel = channelDao.byId(channelId) ?: return@withTransaction
+            val channel = requireCustomChannel(channelId)
             if (channel.segmentKey() == segment) return@withTransaction
             require(segmentExists(segment)) { "Pick a segment." }
             channelDao.setSegment(channelId, segment, time.nowUtcMs())
@@ -240,12 +244,11 @@ class ChannelRepository @Inject constructor(
         }
     }
 
-    /** Deletes the channel. A channel made from the library stays gone until it is brought back. */
+    /** Deletes a channel built by hand. */
     suspend fun delete(channelId: Long) = withContext(io) {
-        val channel = channelDao.byId(channelId) ?: return@withContext
+        val channel = requireCustomChannel(channelId)
         database.withTransaction {
             channelDao.delete(channel)
-            channel.autoKey?.let { channelDao.dismiss(DismissedChannelEntity(it)) }
             renumber()
         }
         logos.delete(channel.logoUri)
@@ -255,14 +258,14 @@ class ChannelRepository @Inject constructor(
     /** Stores an uploaded logo. Throws [IOException] when [bytes] is not an image. */
     suspend fun setLogo(channelId: Long, bytes: ByteArray) = withContext(io) {
         if (bytes.size > ChannelLogos.MAX_UPLOAD_BYTES) throw IOException("The image is larger than ${ChannelLogos.MAX_UPLOAD_BYTES / (1024 * 1024)} MB")
-        val channel = channelDao.byId(channelId) ?: return@withContext
+        val channel = requireCustomChannel(channelId)
         val uri = logos.store(channelId, bytes)
         channelDao.setLogo(channelId, uri, time.nowUtcMs())
         logos.delete(channel.logoUri)
     }
 
     suspend fun clearLogo(channelId: Long) = withContext(io) {
-        val channel = channelDao.byId(channelId) ?: return@withContext
+        val channel = requireCustomChannel(channelId)
         channelDao.setLogo(channelId, null, time.nowUtcMs())
         logos.delete(channel.logoUri)
     }
@@ -458,20 +461,26 @@ class ChannelRepository @Inject constructor(
         }
     }
 
-    /** Applies an edit; an edited library channel stops following the library. */
+    /** Applies an edit to a channel built by hand. */
     private suspend fun edit(channelId: Long, reschedule: Boolean, change: (ChannelEntity) -> ChannelEntity) {
         withContext(io) {
-            val channel = channelDao.byId(channelId) ?: return@withContext
-            channelDao.update(change(channel).copy(isManaged = false, updatedAtUtcMs = time.nowUtcMs()))
+            val channel = requireCustomChannel(channelId)
+            channelDao.update(change(channel).copy(updatedAtUtcMs = time.nowUtcMs()))
         }
         if (reschedule) refresh(channelId)
     }
 
-    /** Marks a lineup edit; an edited library channel stops following the library. */
+    /** Marks a lineup edit on a channel built by hand. */
     private suspend fun touch(channelId: Long) {
-        val channel = channelDao.byId(channelId) ?: return
-        channelDao.update(channel.copy(isManaged = false, updatedAtUtcMs = time.nowUtcMs()))
+        val channel = requireCustomChannel(channelId)
+        channelDao.update(channel.copy(updatedAtUtcMs = time.nowUtcMs()))
     }
+
+    /** A library origin is permanent, including for legacy channels edited before this lock. */
+    private suspend fun requireCustomChannel(channelId: Long): ChannelEntity =
+        requireNotNull(channelDao.byId(channelId)) { "Channel not found." }.also { channel ->
+            if (channel.autoKey != null) throw LibraryChannelLockedException()
+        }
 
     /** Brings the channel's schedule up to date in the background, so the guide follows edits at once. */
     private fun refresh(channelId: Long) {

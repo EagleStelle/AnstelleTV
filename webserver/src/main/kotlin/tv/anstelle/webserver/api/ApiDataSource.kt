@@ -7,6 +7,7 @@ import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ThemeImportException
 import tv.anstelle.core.data.ThemeRepository
 import tv.anstelle.core.data.channels.ChannelRepository
+import tv.anstelle.core.data.channels.LibraryChannelLockedException
 import tv.anstelle.core.database.dao.ChannelDao
 import javax.inject.Inject
 
@@ -58,13 +59,15 @@ internal class RoomApiDataSource @Inject constructor(
     }
 
     override suspend fun setChannelLogo(channelId: Long, bytes: ByteArray): Boolean {
-        if (channelDao.byId(channelId) == null) return false
+        val channel = channelDao.byId(channelId) ?: return false
+        if (channel.autoKey != null) throw LibraryChannelLockedException()
         channels.setLogo(channelId, bytes)
         return true
     }
 
     override suspend fun clearChannelLogo(channelId: Long): Boolean {
-        if (channelDao.byId(channelId) == null) return false
+        val channel = channelDao.byId(channelId) ?: return false
+        if (channel.autoKey != null) throw LibraryChannelLockedException()
         channels.clearLogo(channelId)
         return true
     }

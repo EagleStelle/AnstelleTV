@@ -44,6 +44,7 @@ import kotlinx.coroutines.launch
 import kotlinx.io.readByteArray
 import tv.anstelle.core.common.AppInfo
 import tv.anstelle.core.data.ThemeImportException
+import tv.anstelle.core.data.channels.LibraryChannelLockedException
 import tv.anstelle.core.data.channels.ChannelLogos
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.webserver.api.ApiDataSource
@@ -219,6 +220,9 @@ fun Application.anstelleModule(deps: ServerDependencies) {
                     } catch (e: IOException) {
                         call.respond(HttpStatusCode.BadRequest, ErrorDto("not_an_image", "That file is not a PNG, JPEG, WebP or GIF image."))
                         return@put
+                    } catch (e: LibraryChannelLockedException) {
+                        call.respond(HttpStatusCode.Forbidden, ErrorDto("library_channel_locked", e.message ?: "Library channels cannot be changed."))
+                        return@put
                     }
                     if (stored) call.respond(HttpStatusCode.NoContent) else call.respondNoChannel()
                 }
@@ -226,7 +230,11 @@ fun Application.anstelleModule(deps: ServerDependencies) {
                 delete {
                     call.requireClient(deps) ?: return@delete
                     val id = call.channelIdOrNotFound() ?: return@delete
-                    if (deps.api.clearChannelLogo(id)) call.respond(HttpStatusCode.NoContent) else call.respondNoChannel()
+                    try {
+                        if (deps.api.clearChannelLogo(id)) call.respond(HttpStatusCode.NoContent) else call.respondNoChannel()
+                    } catch (e: LibraryChannelLockedException) {
+                        call.respond(HttpStatusCode.Forbidden, ErrorDto("library_channel_locked", e.message ?: "Library channels cannot be changed."))
+                    }
                 }
             }
 

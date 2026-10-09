@@ -205,9 +205,9 @@ class ChannelDetailViewModel @Inject constructor(
 }
 
 /**
- * One channel: what airs on it now, Watch, then its settings (lineup, playback order, group,
- * segment, favorite, visibility), its name and logo, and deleting it at the foot. Its number
- * comes from its segment and name; it isn't set here.
+ * One channel: what airs on it now, Watch, then its settings. Library channels can only be
+ * favorited or hidden; channels built by hand also have lineup, playback, placement, name,
+ * logo and deletion controls. Its number comes from its segment and name; it isn't set here.
  */
 @Composable
 fun ChannelDetailScreen(
@@ -230,10 +230,6 @@ fun ChannelDetailScreen(
     SettingsPage(
         title = "${channel.number}  ${channel.name}",
         trail = listOf("Settings", "Channels"),
-        about = listOfNotNull(
-            "Made from your library. Once you change it, it stops updating on its own."
-                .takeIf { channel.isManaged },
-        ).joinToString(" "),
         aside = { OnAir(state.airings, state.logo, channel.name) },
         modifier = modifier,
     ) {
@@ -246,7 +242,8 @@ fun ChannelDetailScreen(
                 }
             }
         }
-        item(key = "lineup") {
+        if (!channel.fromLibrary) {
+            item(key = "lineup") {
             LinkRow(
                 title = "Lineup",
                 summary = state.lineupSummary ?: "Counting…",
@@ -272,6 +269,7 @@ fun ChannelDetailScreen(
         item(key = "segment") {
             SegmentChoiceRow(state.segments, channel.segment, viewModel::setSegment, viewModel::newSegment)
         }
+        }
         item(key = "favorite") {
             SwitchRow(
                 title = "Favorite",
@@ -288,6 +286,7 @@ fun ChannelDetailScreen(
                 icon = if (channel.isHidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
             )
         }
+        if (!channel.fromLibrary) {
         section("Name and logo")
         item(key = "name") {
             TextRow(
@@ -325,15 +324,16 @@ fun ChannelDetailScreen(
                 },
             )
         }
-        foot {
-            DangerButton(
-                text = "Delete channel",
-                question = "Delete ${channel.name}?",
-                explanation = if (channel.isManaged) "Its schedule goes too. You can bring it back from Removed channels." else "Its schedule goes too.",
-                confirm = "Delete",
-                onConfirm = viewModel::delete,
-                icon = Icons.Filled.DeleteForever,
-            )
+            foot {
+                DangerButton(
+                    text = "Delete channel",
+                    question = "Delete ${channel.name}?",
+                    explanation = "Its schedule goes too.",
+                    confirm = "Delete",
+                    onConfirm = viewModel::delete,
+                    icon = Icons.Filled.DeleteForever,
+                )
+            }
         }
     }
 }

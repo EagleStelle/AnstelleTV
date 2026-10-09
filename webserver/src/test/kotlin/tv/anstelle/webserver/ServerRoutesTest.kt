@@ -159,6 +159,25 @@ class ServerRoutesTest {
     }
 
     @Test
+    fun libraryChannelLogosCannotBeChanged() = serverTest { server ->
+        val auth = "Bearer ${pair(server)}"
+        val png = byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte())
+        server.api.libraryChannel = true
+
+        val upload = client.put("/api/channels/1/logo") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Image.PNG)
+            setBody(png)
+        }
+        assertEquals(HttpStatusCode.Forbidden, upload.status)
+        assertTrue(upload.bodyAsText().contains("library_channel_locked"))
+
+        val clear = client.delete("/api/channels/1/logo") { header(HttpHeaders.Authorization, auth) }
+        assertEquals(HttpStatusCode.Forbidden, clear.status)
+        assertTrue(clear.bodyAsText().contains("library_channel_locked"))
+    }
+
+    @Test
     fun themesListDownloadAndImport() = serverTest { server ->
         val auth = "Bearer ${pair(server)}"
         assertEquals(HttpStatusCode.Unauthorized, client.get("/api/themes").status)

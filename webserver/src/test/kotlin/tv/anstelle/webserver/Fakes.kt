@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import tv.anstelle.core.common.AppInfo
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ThemeImportException
+import tv.anstelle.core.data.channels.LibraryChannelLockedException
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.webserver.api.ApiDataSource
 import tv.anstelle.webserver.api.ChannelDto
@@ -60,6 +61,7 @@ class FakeAssets(private val files: Map<String, String>) : AssetSource {
 class FakeApi : ApiDataSource {
     /** Logos by channel id; only channel 1 exists. */
     val logos = mutableMapOf<Long, ByteArray>()
+    var libraryChannel = false
 
     override suspend fun profiles() = listOf(ProfileDto(1, "Alex", role = "owner", hasPin = false))
     override suspend fun channels() = listOf(ChannelDto(1, 2, "Sitcoms", null, isHidden = false, isFavorite = true, groupId = null))
@@ -68,6 +70,7 @@ class FakeApi : ApiDataSource {
 
     override suspend fun setChannelLogo(channelId: Long, bytes: ByteArray): Boolean {
         if (channelId != 1L) return false
+        if (libraryChannel) throw LibraryChannelLockedException()
         // Stands in for image decoding: PNG files start with 0x89 'P' 'N' 'G'.
         if (bytes.size < 4 || bytes[1] != 'P'.code.toByte()) throw IOException("Not an image")
         logos[channelId] = bytes
@@ -76,6 +79,7 @@ class FakeApi : ApiDataSource {
 
     override suspend fun clearChannelLogo(channelId: Long): Boolean {
         if (channelId != 1L) return false
+        if (libraryChannel) throw LibraryChannelLockedException()
         logos.remove(channelId)
         return true
     }
@@ -97,6 +101,7 @@ class TestServer(
     val changes: MutableSharedFlow<Set<String>> = MutableSharedFlow(extraBufferCapacity = 8),
 ) {
     val pairing = PairingManager(store, clock)
+    val api = FakeApi()
     val deps = ServerDependencies(
         appInfo = AppInfo("AnstelleTV", "0.1.0", 1, "Test TV", isTv = true, isDebug = true),
         pairing = pairing,
@@ -108,7 +113,7 @@ class TestServer(
                 ),
             ),
         ),
-        api = FakeApi(),
+        api = api,
         databaseChanges = changes,
     )
 }
