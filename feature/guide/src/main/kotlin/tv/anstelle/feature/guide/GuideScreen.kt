@@ -216,8 +216,15 @@ fun GuideScreen(
     val selected by remember(state.channels, state.access) {
         derivedStateOf { selectedProgram(state.channels, strips.value, grid, state.access) }
     }
-    LaunchedEffect(selected?.channel?.id, selected?.mediaItemId) {
-        selected?.let { viewModel.focus(it.channel.id, it.mediaItemId) }
+    LaunchedEffect(selected?.channel?.id) {
+        selected?.let { viewModel.focus(it.channel.id) }
+    }
+    // The preview can't show a program that isn't on now, so the details stay on what it plays.
+    val described by remember(state.channels, state.access) {
+        derivedStateOf { selected?.takeIf { it.isOn(now.value) } ?: playingProgram(playback) }
+    }
+    LaunchedEffect(described?.mediaItemId) {
+        described?.let { viewModel.describe(it.mediaItemId) }
     }
 
     fun inPreview(channel: GuideChannel) = viewModel.playbackState.value.channel?.id == channel.id
@@ -276,7 +283,7 @@ fun GuideScreen(
                         edgeToEdge = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Details(selected, details, playback, state, edgeToEdge = true, modifier = Modifier.fillMaxWidth())
+                    Details(described, details, playback, state, edgeToEdge = true, modifier = Modifier.fillMaxWidth())
                 }
             } else {
                 // The preview and the details meet with no gap: one band of picture across the top.
@@ -287,7 +294,7 @@ fun GuideScreen(
                         onWatch = { playback.channel?.let { openPlayer(it.number) } },
                         modifier = Modifier.fillMaxHeight(),
                     )
-                    Details(selected, details, playback, state, Modifier.weight(1f))
+                    Details(described, details, playback, state, Modifier.weight(1f))
                 }
             }
             Tabs(state.tabs, state.tab, viewModel::selectTab, Modifier.padding(horizontal = if (stacked) side else 0.dp))
@@ -357,6 +364,21 @@ private fun selectedProgram(channels: List<GuideChannel>, strips: Map<Long, Prog
     val i = strip.indexAt(grid.selectedTime)
     if (i < 0) return null
     return SelectedProgram(channel, strip.items[i], strip.titles[i], strip.details[i], strip.starts[i], strip.ends[i], Restriction.titleFor(strip.items[i], access).takeIf { strip.isRestricted(i, access) })
+}
+
+/** What the preview plays, as a program in the guide; null before it has tuned. */
+private fun playingProgram(playback: PlaybackState): SelectedProgram? {
+    val channel = playback.channel ?: return null
+    val on = playback.now ?: return null
+    return SelectedProgram(
+        GuideChannel(channel.id, channel.number, channel.name, channel.logoUri, channel.isFavorite),
+        on.mediaItemId,
+        on.title,
+        on.detail,
+        on.startUtcMs,
+        on.endUtcMs,
+        playback.restriction?.title,
+    )
 }
 
 /** The wall clock, updated twice a minute; read it in drawing or layout to avoid recomposition. */
@@ -475,7 +497,7 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
 }
 
 /**
- * The selected program, or what the preview plays while nothing is selected, over its show's
+ * The selected program while it is on now, otherwise what the preview plays, over its show's
  * backdrop. The show's logo stands in for its title when the server has one. Five lines are
  * kept for the overview whether or not it fills them, so the grid never jumps as the
  * selection moves. A program the profile may not watch shows no artwork or

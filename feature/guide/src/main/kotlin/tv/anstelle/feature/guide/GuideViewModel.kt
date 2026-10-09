@@ -88,7 +88,7 @@ class GuideViewModel @Inject constructor(
 
     private val _details = MutableStateFlow<ProgramDetails?>(null)
 
-    /** The focused program's details, or null for an off-air cell or while loading. */
+    /** The details of the program the header describes, or null off air or while loading. */
     val details: StateFlow<ProgramDetails?> = _details.asStateFlow()
 
     val playbackState = playback.state
@@ -243,11 +243,8 @@ class GuideViewModel @Inject constructor(
         if (wantedTo > wantedFrom) showing(wantedFrom, wantedTo)
     }
 
-    /**
-     * The grid focused a cell: show its details, and pre-warm its channel on the standby
-     * player once focus rests there.
-     */
-    fun focus(channelId: Long, mediaItemId: Long) {
+    /** The details describe [mediaItemId], or an off-air stretch when it is 0. */
+    fun describe(mediaItemId: Long) {
         detailsJob?.cancel()
         if (mediaItemId == 0L) {
             _details.value = null
@@ -257,6 +254,10 @@ class GuideViewModel @Inject constructor(
                 _details.value = guide.details(mediaItemId)
             }
         }
+    }
+
+    /** The grid focused a cell on [channelId]: pre-warm the channel on the standby player once focus rests there. */
+    fun focus(channelId: Long) {
         prewarmJob?.cancel()
         prewarmJob = viewModelScope.launch {
             delay(PREWARM_DEBOUNCE_MS)

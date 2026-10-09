@@ -75,6 +75,8 @@ data class ProgramInfo(
     val isEpisode: Boolean = false,
     /** Something the profile may not watch: banners blur the title and logo. */
     val restricted: Boolean = false,
+    /** The library item, or 0 off air. */
+    val mediaItemId: Long = 0,
 )
 
 /** [RESTRICTED]: the profile may not watch the program on now ([PlaybackState.restriction] says why), so the screen stays black. */
@@ -777,6 +779,7 @@ private fun programInfo(item: MediaItemEntity, startUtcMs: Long, endUtcMs: Long,
     logoUrl = logoUrl,
     isEpisode = item.showTitle != null,
     restricted = restricted,
+    mediaItemId = item.id,
 )
 
 /** The text track type, for screens that don't depend on Media3 directly. */
