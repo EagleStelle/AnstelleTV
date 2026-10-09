@@ -31,9 +31,6 @@ interface ChannelDao {
     @Query("SELECT * FROM channel WHERE id = :id")
     suspend fun byId(id: Long): ChannelEntity?
 
-    @Query("SELECT * FROM channel WHERE number = :number LIMIT 1")
-    suspend fun byNumber(number: Int): ChannelEntity?
-
     @Query("SELECT COALESCE(MAX(number), 0) FROM channel")
     suspend fun maxNumber(): Int
 
@@ -77,17 +74,12 @@ interface ChannelDao {
     @Query("UPDATE channel SET number = :number, updatedAtUtcMs = :atUtcMs WHERE id = :id")
     suspend fun setNumber(id: Long, number: Int, atUtcMs: Long)
 
-    /**
-     * Gives [channel] [number]. A channel that already has the number takes [channel]'s old
-     * number, so numbers stay unique.
-     */
-    @Transaction
-    suspend fun renumber(channel: ChannelEntity, number: Int, atUtcMs: Long) {
-        byNumber(number)?.let { other ->
-            if (other.id != channel.id) setNumber(other.id, channel.number, atUtcMs)
-        }
-        setNumber(channel.id, number, atUtcMs)
-    }
+    @Query("UPDATE channel SET segment = :segment, updatedAtUtcMs = :atUtcMs WHERE id = :id")
+    suspend fun setSegment(id: Long, segment: String?, atUtcMs: Long)
+
+    /** Takes the channels out of a segment that is gone. */
+    @Query("UPDATE channel SET segment = NULL WHERE segment = :segment")
+    suspend fun clearSegment(segment: String)
 
     /** The channels that always include [remoteId] in their own lineup. */
     @Query("SELECT DISTINCT channelId FROM channel_rule WHERE seasonId IS NULL AND op = :includeOp AND value = :remoteId")

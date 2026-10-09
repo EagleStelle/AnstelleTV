@@ -100,6 +100,17 @@ class ChannelRepository @Inject constructor(
     fun observeGroups(): Flow<List<ChannelGroup>> =
         channelDao.observeGroups().map { list -> list.map { ChannelGroup(it.id, it.name, it.sortOrder, it.numberStart) } }
 
+    /** The segments that number channels: the library's, then the ones someone made, in guide order. */
+    fun observeSegments(): Flow<List<Segment>> =
+        combine(observeNumberStarts(), channelDao.observeGroups()) { starts, groups ->
+            ChannelSegment.entries.map { Segment(it.key, it.groupName, starts.getValue(it)) } +
+                groups.mapNotNull { group -> group.numberStart?.let { Segment(Segment.keyOf(group.id), group.name, it) } }
+        }
+
+    /** The group and segment the last channel someone built went into, which the next one starts with; null for none yet. */
+    suspend fun lastPlacement(): Pair<Long?, String?> =
+        settings.get(Settings.NewChannelGroup).takeIf { it != 0L } to settings.get(Settings.NewChannelSegment).ifEmpty { null }
+
     /** The whole library as channel rules see it. */
     suspend fun catalog(): Catalog = withContext(io) { Catalog(itemDao.catalog(), words.words().types) }
 
@@ -168,25 +179,34 @@ class ChannelRepository @Inject constructor(
     }
 
     /**
-     * Creates a custom channel. It takes the first free number from the next thousand after every
-     * segment's start (5000 with the defaults), so it never lands inside a segment. Returns its id.
+     * Creates a channel someone built, under [groupId]'s tab and numbered by [segment] (a
+     * [Segment.key]); the next channel starts with the same two. Returns its id.
      */
-    suspend fun create(name: String, lineup: Lineup, order: PlaybackOrder, blockSize: Int): Long {
+    suspend fun create(name: String, lineup: Lineup, order: PlaybackOrder, blockSize: Int, groupId: Long, segment: String): Long {
         lineup.problem()?.let { throw IllegalArgumentException(it) }
-        val start = nextThousand(segmentStarts())
         val id = withContext(io) {
             database.withTransaction {
-                val number = firstFree(start, channelDao.all().mapTo(HashSet()) { it.number })
-                val id = channelDao.insert(newChannel(number, name, order, groupId = null, autoKey = null, blockSize = blockSize))
+                requireNotNull(channelDao.groupById(groupId)) { "Pick a group." }
+                require(segmentExists(segment)) { "Pick a segment." }
+                val id = channelDao.insert(
+                    newChannel(channelDao.maxNumber() + 1, name, order, groupId, autoKey = null, blockSize = blockSize, segment = segment),
+                )
                 channelDao.insertRules(LineupRows.encode(id, null, lineup))
+                renumber()
                 id
             }
         }
+        settings.set(Settings.NewChannelGroup, groupId)
+        settings.set(Settings.NewChannelSegment, segment)
         refresh(id)
         return id
     }
 
-    suspend fun rename(channelId: Long, name: String) = edit(channelId, reschedule = false) { it.copy(name = name.trim().ifEmpty { it.name }) }
+    suspend fun rename(channelId: Long, name: String) {
+        edit(channelId, reschedule = false) { it.copy(name = name.trim().ifEmpty { it.name }) }
+        // Numbers follow names.
+        withContext(io) { database.withTransaction { renumber() } }
+    }
 
     suspend fun setPlayback(channelId: Long, order: PlaybackOrder, blockSize: Int) =
         edit(channelId, reschedule = true) { it.copy(playbackOrder = order, blockSize = blockSize.coerceIn(1, 4)) }
@@ -205,23 +225,18 @@ class ChannelRepository @Inject constructor(
         database.withTransaction {
             channelDao.setGroup(channelId, groupId, time.nowUtcMs())
             channelDao.stopManaging(channelId)
-            // A channel joining a numbered segment takes its first free number.
-            val start = groupId?.let { channelDao.groupById(it) }?.numberStart
-            val channel = channelDao.byId(channelId)
-            if (start != null && channel != null) {
-                val taken = channelDao.all().filter { it.id != channelId }.mapTo(HashSet()) { it.number }
-                channelDao.setNumber(channelId, firstFree(start, taken), time.nowUtcMs())
-            }
         }
     }
 
-    /** Gives the channel [number]; a channel that had it takes the old number. */
-    suspend fun setNumber(channelId: Long, number: Int) = withContext(io) {
-        require(number in MIN_NUMBER..MAX_NUMBER) { "Channel numbers are $MIN_NUMBER–$MAX_NUMBER" }
-        val channel = channelDao.byId(channelId) ?: return@withContext
+    /** Moves the channel into [segment] (a [Segment.key]), which numbers it from then on. */
+    suspend fun setSegment(channelId: Long, segment: String) = withContext(io) {
         database.withTransaction {
-            channelDao.renumber(channel, number, time.nowUtcMs())
+            val channel = channelDao.byId(channelId) ?: return@withTransaction
+            if (channel.segmentKey() == segment) return@withTransaction
+            require(segmentExists(segment)) { "Pick a segment." }
+            channelDao.setSegment(channelId, segment, time.nowUtcMs())
             channelDao.stopManaging(channelId)
+            renumber()
         }
     }
 
@@ -231,7 +246,7 @@ class ChannelRepository @Inject constructor(
         database.withTransaction {
             channelDao.delete(channel)
             channel.autoKey?.let { channelDao.dismiss(DismissedChannelEntity(it)) }
-            if (channel.isManaged) renumber()
+            renumber()
         }
         logos.delete(channel.logoUri)
         AppLog.i(TAG, "Deleted channel ${channel.number} ${channel.name}")
@@ -267,31 +282,25 @@ class ChannelRepository @Inject constructor(
 
     /**
      * Creates a segment: a group whose channels count up from [start] (by default the next
-     * thousand after every start and channel number, 5000 with the defaults). Returns its id.
+     * thousand after every start and channel number, 5000 with the defaults). Returns its group's
+     * id; [Segment.keyOf] names the segment.
      */
     suspend fun createSegment(name: String, start: Int? = null): Long {
         val first = start ?: nextThousand(segmentStarts() + withContext(io) { channelDao.all().map { it.number } })
-        require(first in MIN_NUMBER..MAX_NUMBER) { "Channel numbers are $MIN_NUMBER–$MAX_NUMBER" }
+        require(first in MIN_NUMBER..MAX_NUMBER) { "Starts are $MIN_NUMBER–$MAX_NUMBER" }
         return withContext(io) {
             val order = (channelDao.groups().maxOfOrNull { it.sortOrder } ?: -1) + 1
             channelDao.insertGroup(ChannelGroupEntity(name = name.trim(), sortOrder = order, numberStart = first))
         }
     }
 
-    /** Numbers the segment's channels from [start] in their current order, around the numbers other channels hold. */
+    /** Numbers the segment's channels from [start]. */
     suspend fun setSegmentStart(groupId: Long, start: Int) = withContext(io) {
-        require(start in MIN_NUMBER..MAX_NUMBER) { "Channel numbers are $MIN_NUMBER–$MAX_NUMBER" }
+        require(start in MIN_NUMBER..MAX_NUMBER) { "Starts are $MIN_NUMBER–$MAX_NUMBER" }
         val group = channelDao.groupById(groupId) ?: return@withContext
         database.withTransaction {
             channelDao.upsertGroup(group.copy(numberStart = start))
-            val (members, others) = channelDao.all().partition { it.groupId == groupId }
-            val taken = others.mapTo(HashSet()) { it.number }
-            val now = time.nowUtcMs()
-            for (channel in members.sortedBy { it.number }) {
-                val number = firstFree(start, taken)
-                taken += number
-                if (number != channel.number) channelDao.setNumber(channel.id, number, now)
-            }
+            renumber()
         }
     }
 
@@ -303,11 +312,23 @@ class ChannelRepository @Inject constructor(
     /** The thousand after the highest of [numbers]: 5000 after 4000 or 4036. */
     private fun nextThousand(numbers: List<Int>): Int = (((numbers.maxOrNull() ?: 0) / 1000 + 1) * 1000).coerceAtMost(MAX_NUMBER)
 
-    private fun firstFree(start: Int, taken: Set<Int>): Int = generateSequence(start) { it + 1 }.first { it !in taken }
+    /** Whether [key] names one of the library's segments or one someone made. */
+    private suspend fun segmentExists(key: String): Boolean =
+        ChannelSegment.entries.any { it.key == key } || channelDao.groups().any { it.numberStart != null && Segment.keyOf(it.id) == key }
 
-    /** Deletes the group; its channels stay, without a group. */
+    /**
+     * Deletes the group; its channels stay, without a group. A segment's channels leave it too:
+     * library channels go back to their own segment, the rest are numbered after every segment.
+     */
     suspend fun deleteGroup(groupId: Long) = withContext(io) {
-        channelDao.groupById(groupId)?.let { channelDao.deleteGroup(it) }
+        val group = channelDao.groupById(groupId) ?: return@withContext
+        database.withTransaction {
+            channelDao.deleteGroup(group)
+            if (group.numberStart != null) {
+                channelDao.clearSegment(Segment.keyOf(groupId))
+                renumber()
+            }
+        }
     }
 
     /** Moves a group one place up ([delta] -1) or down (+1) in the guide. */
@@ -325,9 +346,9 @@ class ChannelRepository @Inject constructor(
     fun observeNumberStarts(): Flow<Map<ChannelSegment, Int>> =
         combine(ChannelSegment.entries.map { segment -> settings.observe(Settings.channelNumberStart(segment)).map { segment to it } }) { it.toMap() }
 
-    /** Numbers the segment's channels from [start] and renumbers the library channels. */
+    /** Numbers the segment's channels from [start]. */
     suspend fun setNumberStart(segment: ChannelSegment, start: Int) {
-        require(start in MIN_NUMBER..MAX_NUMBER) { "Channel numbers are $MIN_NUMBER–$MAX_NUMBER" }
+        require(start in MIN_NUMBER..MAX_NUMBER) { "Starts are $MIN_NUMBER–$MAX_NUMBER" }
         settings.set(Settings.channelNumberStart(segment), start)
         withContext(io) { database.withTransaction { renumber() } }
     }
@@ -369,12 +390,12 @@ class ChannelRepository @Inject constructor(
             val catalog = Catalog(itemDao.catalog(), words.words().types)
             val generator = ChannelGenerator(words.words())
             val keepable = ChannelGenerator(words.words(), scale = ChannelGenerator.KEEP_SCALE).generate(catalog).mapTo(HashSet()) { it.key }
-            sync(generator.generate(catalog), keepable, generator)
+            sync(generator.generate(catalog), keepable)
         }
     }
 
     /** [keepable] are the keys made at [ChannelGenerator.KEEP_SCALE] of the thresholds: a managed channel among them stays. */
-    private suspend fun sync(generated: List<GeneratedChannel>, keepable: Set<String>, generator: ChannelGenerator): Int {
+    private suspend fun sync(generated: List<GeneratedChannel>, keepable: Set<String>): Int {
         val existing = channelDao.all()
         val keep = existing.filter { it.isManaged && it.autoKey in keepable }.mapTo(HashSet()) { it.id }
         val actions = GeneratedChannelSync.plan(existing.map { it.synced() }, generated, channelDao.dismissedKeys().toSet(), keep)
@@ -390,7 +411,7 @@ class ChannelRepository @Inject constructor(
                 val id = channelDao.insert(newChannel(number++, channel.name, channel.order, groups[channel.segment], channel.key))
                 channelDao.insertRules(LineupRows.encode(id, null, channel.lineup))
             }
-            renumber(generator)
+            renumber()
             actions.add.size + updated + removed.size
         }
         removed.forEach { logos.delete(it.logoUri) }
@@ -422,12 +443,19 @@ class ChannelRepository @Inject constructor(
         }
     }
 
-    /** Numbers the managed channels from each segment's start in guide order, around the numbers other channels hold. */
-    private suspend fun renumber(generator: ChannelGenerator = ChannelGenerator(words.words())) {
+    /**
+     * Numbers every channel A to Z from its segment's start, around the numbers lower segments
+     * gave out; a channel in no segment counts from the next thousand after every start.
+     */
+    private suspend fun renumber() {
+        val starts = LinkedHashMap<String, Int>()
+        for (segment in ChannelSegment.entries) starts[segment.key] = settings.get(Settings.channelNumberStart(segment))
+        for (group in channelDao.groups()) group.numberStart?.let { starts[Segment.keyOf(group.id)] = it }
+        val channels = channelDao.all().map { NumberedChannel(it.id, it.segmentKey(), it.name, it.number) }
         val now = time.nowUtcMs()
-        val starts = ChannelSegment.entries.associateWith { settings.get(Settings.channelNumberStart(it)) }
-        val changes = GeneratedChannelSync.numbers(channelDao.all().map { it.synced() }, generator.order) { starts.getValue(it) }
-        for ((id, number) in changes) channelDao.setNumber(id, number, now)
+        for ((id, number) in ChannelNumbering.numbers(channels, starts, outside = nextThousand(starts.values.toList()))) {
+            channelDao.setNumber(id, number, now)
+        }
     }
 
     /** Applies an edit; an edited library channel stops following the library. */
@@ -458,7 +486,7 @@ class ChannelRepository @Inject constructor(
     }
 
 
-    /** A channel made from the library ([autoKey] set, managed) or built by hand. */
+    /** A channel made from the library ([autoKey] set, managed, in its own segment) or built by hand. */
     private fun newChannel(
         number: Int,
         name: String,
@@ -466,6 +494,7 @@ class ChannelRepository @Inject constructor(
         groupId: Long?,
         autoKey: String?,
         blockSize: Int = 1,
+        segment: String? = null,
     ): ChannelEntity {
         val now = time.nowUtcMs()
         return ChannelEntity(
@@ -483,6 +512,7 @@ class ChannelRepository @Inject constructor(
             isManaged = autoKey != null,
             createdAtUtcMs = now,
             updatedAtUtcMs = now,
+            segment = segment,
         )
     }
 
@@ -513,6 +543,11 @@ internal fun ChannelEntity.toModel() = Channel(
     isFavorite = isFavorite,
     groupId = groupId,
     isManaged = isManaged && autoKey != null,
+    fromLibrary = autoKey != null,
+    segment = segmentKey(),
 )
 
-private fun ChannelEntity.synced() = SyncedChannel(id, autoKey, isManaged, number, name)
+/** The segment that numbers it: the one picked for it, else a library channel's own. */
+private fun ChannelEntity.segmentKey(): String? = segment ?: autoKey?.let(ChannelGenerator::segmentOf)?.key
+
+private fun ChannelEntity.synced() = SyncedChannel(id, autoKey, isManaged)

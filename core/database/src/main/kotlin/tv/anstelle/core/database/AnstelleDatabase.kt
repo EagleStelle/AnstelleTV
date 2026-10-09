@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.LibraryDao
 import tv.anstelle.core.database.dao.LiveTvDao
@@ -84,7 +86,7 @@ abstract class AnstelleDatabase : RoomDatabase() {
     abstract fun settingDao(): SettingDao
 
     companion object {
-        const val VERSION = 9
+        const val VERSION = 10
         const val NAME = "anstelle.db"
 
         /** Tables the web UI can subscribe to for live updates. */
@@ -104,9 +106,21 @@ abstract class AnstelleDatabase : RoomDatabase() {
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                 // Schemas from before the first public release hold nothing worth migrating.
                 .fallbackToDestructiveMigrationFrom(true, *PRE_RELEASE_VERSIONS)
+                .addMigrations(MIGRATION_9_10)
                 .apply { if (allowDestructiveMigration) fallbackToDestructiveMigration(dropAllTables = true) }
                 .build()
 
         private val PRE_RELEASE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8)
+
+        /** Every channel gets a segment; one in a segment someone made stays in it. */
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `channel` ADD COLUMN `segment` TEXT")
+                db.execSQL(
+                    "UPDATE `channel` SET `segment` = 'group:' || `groupId` " +
+                        "WHERE `groupId` IN (SELECT `id` FROM `channel_group` WHERE `numberStart` IS NOT NULL)",
+                )
+            }
+        }
     }
 }

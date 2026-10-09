@@ -85,9 +85,15 @@ object Settings {
      */
     fun ratingTable(serverId: Long) = SettingKey.StringKey("ratings.table.$serverId", "")
 
-    /** The number the library channels of [segment] count up from. */
+    /** The number the channels of [segment] count up from. */
     fun channelNumberStart(segment: tv.anstelle.core.data.channels.ChannelSegment) =
-        SettingKey.IntKey("channels.start.${segment.name.lowercase()}", segment.defaultStart)
+        SettingKey.IntKey("channels.start.${segment.key}", segment.defaultStart)
+
+    /** The group the last channel someone built went into, which the next one starts with; 0 for none yet. */
+    val NewChannelGroup = SettingKey.LongKey("channels.new.group", 0L)
+
+    /** The segment the last channel someone built went into, by key; empty for none yet. */
+    val NewChannelSegment = SettingKey.StringKey("channels.new.segment", "")
 }
 
 @Singleton

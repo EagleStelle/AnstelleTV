@@ -135,7 +135,7 @@ object ProfileRights {
 
     fun needsPin(viewer: Profile, target: Profile): Boolean = viewer.id == target.id && target.hasPin
 
-    /** App-wide settings: media servers, channels, web control and the dashboard. */
+    /** App-wide settings: servers, channels, web control and the dashboard. */
     fun canManageApp(viewer: Profile): Boolean = viewer.role != ProfileRole.MEMBER
 
     fun canAdd(viewer: Profile): Boolean = canManageApp(viewer)
@@ -178,6 +178,10 @@ data class Channel(
     val groupId: Long?,
     /** A channel made from the library that still follows it (until someone edits it). */
     val isManaged: Boolean,
+    /** Made from the library, edited since or not; false for a channel someone built. */
+    val fromLibrary: Boolean = isManaged,
+    /** The key of the segment that numbers it, or null when it is in none. */
+    val segment: String? = null,
 )
 
 @Serializable

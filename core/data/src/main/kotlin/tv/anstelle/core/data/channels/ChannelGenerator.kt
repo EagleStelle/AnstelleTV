@@ -19,6 +19,10 @@ enum class ChannelSegment(val groupName: String, val defaultStart: Int) {
     DECADES("Decades", 2000),
     GENRES("Genres", 3000),
     THEMES("Themes", 4000),
+    ;
+
+    /** How a channel names it as its segment ("genres"). */
+    val key: String get() = name.lowercase(Locale.ROOT)
 }
 
 /** A channel made from the library. [key] identifies it across syncs; [name] is what the guide shows. */

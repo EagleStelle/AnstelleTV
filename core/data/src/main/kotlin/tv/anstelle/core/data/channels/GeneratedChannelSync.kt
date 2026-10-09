@@ -5,10 +5,8 @@ data class SyncedChannel(
     val id: Long,
     /** The generated channel it was made from, or null for a channel built by hand. */
     val autoKey: String?,
-    /** True until someone edits it; only managed channels are updated, removed and renumbered. */
+    /** True until someone edits it; only managed channels are updated and removed. */
     val isManaged: Boolean,
-    val number: Int,
-    val name: String,
 )
 
 /** What a sync does to one profile's channels. */
@@ -46,27 +44,5 @@ object GeneratedChannelSync {
             refresh = refresh,
             remove = remove,
         )
-    }
-
-    /**
-     * New numbers for managed channels: each segment's channels count up from its [start] in
-     * [order] of `(key, name)` (1000, 1001, 1002…), skipping numbers other channels or earlier
-     * segments hold. Returns only the channels whose number changes.
-     */
-    fun numbers(channels: List<SyncedChannel>, order: Comparator<Pair<String, String>>, start: (ChannelSegment) -> Int): Map<Long, Int> {
-        val (managed, others) = channels.partition { it.isManaged && it.autoKey?.let(ChannelGenerator::segmentOf) != null }
-        val taken = others.mapTo(HashSet()) { it.number }
-        val bySegment = managed.groupBy { ChannelGenerator.segmentOf(it.autoKey!!)!! }
-        val changes = LinkedHashMap<Long, Int>()
-        for (segment in ChannelSegment.entries) {
-            var next = start(segment)
-            for (channel in bySegment[segment].orEmpty().sortedWith(compareBy(order) { it.autoKey!! to it.name })) {
-                while (next in taken) next++
-                taken += next
-                if (channel.number != next) changes[channel.id] = next
-                next++
-            }
-        }
-        return changes
     }
 }

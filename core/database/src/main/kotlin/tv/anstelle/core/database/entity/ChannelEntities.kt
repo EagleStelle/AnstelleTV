@@ -65,6 +65,12 @@ data class ChannelEntity(
     val isManaged: Boolean,
     val createdAtUtcMs: Long,
     val updatedAtUtcMs: Long,
+    /**
+     * The segment that numbers it: a library segment's key (`genres`) or `group:<id>` for one
+     * someone made. Null for a library channel left in its own segment, or a channel built
+     * before every channel had one.
+     */
+    val segment: String? = null,
 )
 
 /**
