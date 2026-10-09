@@ -115,7 +115,6 @@ class ProfilePickerViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            repository.ensureActiveProfile()
             combine(repository.observeProfiles(), repository.observeActiveProfile()) { all, active -> all to active }
                 .collect { (all, active) -> _state.update { it.copy(profiles = all, active = active, loaded = true) } }
         }

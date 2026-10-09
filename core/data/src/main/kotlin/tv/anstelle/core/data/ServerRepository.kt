@@ -28,7 +28,6 @@ import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.jellyfin.ServerProbe
 import tv.anstelle.core.jellyfin.auth.AuthSession
 import tv.anstelle.core.jellyfin.auth.JellyfinAuth
-import tv.anstelle.core.jellyfin.auth.JellyfinUser
 import tv.anstelle.core.jellyfin.auth.TokenStore
 import tv.anstelle.core.jellyfin.sync.LibraryRules
 import tv.anstelle.core.model.MediaServer
@@ -127,9 +126,10 @@ class ServerRepository @Inject constructor(
         password: String,
         target: SignInFor = SignInFor.Server,
     ): QuickConnectState.SignedIn {
+        val url = candidate.info.url
         val device = deviceFor(target)
-        val session = auth.signInWithPassword(candidate.info.url, username.trim(), password, device)
-        return save(candidate, session, target, device)
+        val session = auth.signInWithPassword(url, username.trim(), password, device)
+        return save(candidate, session, target, device) { ownerDevice -> auth.signInWithPassword(url, username.trim(), password, ownerDevice) }
     }
 
     /** Starts Quick Connect, waits for approval, then signs in like [signInWithPassword]. Cancel the flow to give up. */
@@ -140,7 +140,14 @@ class ServerRepository @Inject constructor(
         emit(QuickConnectState.WaitingForApproval(code.code))
         while (!auth.isQuickConnectApproved(url, code.secret, device)) delay(QUICK_CONNECT_POLL_MS)
         val session = auth.finishQuickConnect(url, code.secret, device)
-        emit(save(candidate, session, target, device))
+        emit(save(candidate, session, target, device) { ownerDevice -> approvedSession(url, session.accessToken, ownerDevice) })
+    }
+
+    /** Another session for the user signed in with [accessToken], as [device]: a Quick Connect code that user approves. */
+    private suspend fun approvedSession(url: String, accessToken: String, device: String): AuthSession {
+        val code = auth.startQuickConnect(url, device)
+        auth.authorizeQuickConnect(url, accessToken, code.code)
+        return auth.finishQuickConnect(url, code.secret, device)
     }
 
     private fun deviceFor(target: SignInFor): String? = if (target == SignInFor.Server) null else ProfileRepository.newDevice()
@@ -172,9 +179,16 @@ class ServerRepository @Inject constructor(
 
     /**
      * Stores the server and its token. The same server added again (by any address) updates
-     * the existing entry, so its libraries and channels stay.
+     * the existing entry, so its libraries and channels stay. The first server's user is also
+     * the first profile, the owner, signed in as a device of its own by [ownerSession].
      */
-    private suspend fun save(candidate: ServerCandidate, session: AuthSession, target: SignInFor, device: String?): QuickConnectState.SignedIn = withContext(io) {
+    private suspend fun save(
+        candidate: ServerCandidate,
+        session: AuthSession,
+        target: SignInFor,
+        device: String?,
+        ownerSession: suspend (device: String) -> AuthSession,
+    ): QuickConnectState.SignedIn = withContext(io) {
         val info = candidate.info
         if (session.serverId != null && session.serverId != info.id) {
             throw ServerConnectException(ServerProblem.ID_MISMATCH, "Signed in to a different server than expected")
@@ -190,6 +204,7 @@ class ServerRepository @Inject constructor(
             syncNow(server.id)
             return@withContext QuickConnectState.SignedIn(server.id, profileId)
         }
+        val owner = if (profiles.hasProfiles()) null else ProfileRepository.newDevice().let { ownerSession(it) to it }
         val userChanged = existing != null && existing.userId != session.userId
         val id = serverDao.upsert(
             MediaServerEntity(
@@ -210,8 +225,7 @@ class ServerRepository @Inject constructor(
         val serverId = existing?.id ?: id
         tokens.put(info.id, session.accessToken)
         AppLog.i(TAG, "Signed in to ${info.name} ${info.version} as ${session.userName}")
-        // The first profile is this user: it takes their name and picture.
-        profiles.adoptServerUser(serverId, JellyfinUser(session.userId, session.userName, session.imageTag))
+        owner?.let { (user, userDevice) -> profiles.createOwner(serverId, user, userDevice) }
         // Another user sees other libraries and items: fetch everything again.
         syncNow(serverId, fullRefresh = userChanged, forceReconcile = true)
         QuickConnectState.SignedIn(serverId)

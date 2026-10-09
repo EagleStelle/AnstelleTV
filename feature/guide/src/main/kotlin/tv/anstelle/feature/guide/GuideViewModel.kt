@@ -128,7 +128,7 @@ class GuideViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val profile = profiles.ensureActiveProfile()
+            val profile = profiles.activeProfile()
             profileId = profile.id
             tab.value = settings.get(Settings.guideTab(profile.id))
             combine(

@@ -38,13 +38,23 @@ class StartupViewModel @Inject constructor(
     /** Null until the profile and its theme are known. */
     val session: StateFlow<AppSession?> = _session.asStateFlow()
 
+    private val _needsServer = MutableStateFlow(false)
+
+    /** True while no profile exists: the app opens on connecting a server, whose user becomes the owner. */
+    val needsServer: StateFlow<Boolean> = _needsServer.asStateFlow()
+
     private val _theme = MutableStateFlow(DefaultTheme.resolved)
     val theme: StateFlow<ResolvedTheme> = _theme.asStateFlow()
 
     init {
         viewModelScope.launch {
             themes.seedBuiltIns()
-            val active = profiles.ensureActiveProfile()
+            if (!profiles.hasProfiles()) {
+                _needsServer.value = true
+                profiles.observeProfiles().first { it.isNotEmpty() }
+                _needsServer.value = false
+            }
+            val active = profiles.activeProfile()
             val picker = profiles.observeProfiles().first().size > 1 || active.hasPin
             // The first frame already wears the profile's theme.
             _theme.value = themes.observeActiveTheme().first()?.let(ResolvedTheme::from) ?: DefaultTheme.resolved

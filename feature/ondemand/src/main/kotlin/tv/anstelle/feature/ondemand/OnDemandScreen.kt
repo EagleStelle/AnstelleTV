@@ -145,7 +145,7 @@ class OnDemandViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val profile = profiles.ensureActiveProfile()
+            val profile = profiles.activeProfile()
             combine(
                 channels.observeChannels(),
                 channels.observeGroups(),

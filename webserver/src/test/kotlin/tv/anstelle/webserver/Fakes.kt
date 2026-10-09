@@ -61,7 +61,7 @@ class FakeApi : ApiDataSource {
     /** Logos by channel id; only channel 1 exists. */
     val logos = mutableMapOf<Long, ByteArray>()
 
-    override suspend fun profiles() = listOf(ProfileDto(1, "Home", role = "owner", hasPin = false))
+    override suspend fun profiles() = listOf(ProfileDto(1, "Alex", role = "owner", hasPin = false))
     override suspend fun channels() = listOf(ChannelDto(1, 2, "Sitcoms", null, isHidden = false, isFavorite = true, groupId = null))
 
     override suspend fun channelLogo(channelId: Long): ByteArray? = logos[channelId]

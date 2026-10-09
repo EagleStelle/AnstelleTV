@@ -1,5 +1,6 @@
 package tv.anstelle.app.ui
 
+import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -108,6 +109,7 @@ import tv.anstelle.feature.settings.servers.ServersScreen
 fun AnstelleApp(isTv: Boolean, onLightTheme: (Boolean) -> Unit) {
     val startup: StartupViewModel = hiltViewModel()
     val session by startup.session.collectAsStateWithLifecycle()
+    val needsServer by startup.needsServer.collectAsStateWithLifecycle()
     val theme by startup.theme.collectAsStateWithLifecycle()
     LaunchedEffect(theme.spec.isLight) { onLightTheme(theme.spec.isLight) }
     AnstelleTheme(isTv = isTv, theme = theme) {
@@ -120,6 +122,10 @@ fun AnstelleApp(isTv: Boolean, onLightTheme: (Boolean) -> Unit) {
                 .scanlines(if (effects.scanlines) effects.scanlineAlpha else 0f)
                 .semantics { testTagsAsResourceId = true },
         ) {
+            if (needsServer) {
+                FirstServer(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing))
+                return@Box
+            }
             val current = session ?: return@Box
             key(current) {
                 val navController = rememberNavController()
@@ -146,6 +152,19 @@ fun AnstelleApp(isTv: Boolean, onLightTheme: (Boolean) -> Unit) {
             }
             PairingOverlay()
         }
+    }
+}
+
+/**
+ * Before any profile exists: connecting the first server, full screen. Its user becomes the
+ * owner, and the app opens on that profile.
+ */
+@Composable
+private fun FirstServer(modifier: Modifier) {
+    val activity = LocalActivity.current
+    val navController = rememberNavController()
+    NavHost(navController = navController, startDestination = AddServerRoute(), modifier = modifier) {
+        composable<AddServerRoute> { AddServerScreen(onSignedIn = {}, onBack = { activity?.finish() }) }
     }
 }
 

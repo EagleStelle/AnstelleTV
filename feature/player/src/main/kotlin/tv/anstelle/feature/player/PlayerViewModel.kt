@@ -58,7 +58,7 @@ class PlayerViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val profile = profiles.ensureActiveProfile()
+            val profile = profiles.activeProfile()
             combine(channels.observeChannels(), profiles.observeAccess(profile.id)) { list, access -> list to access }.collect { (list, access) ->
                 val tunable = profiles.tunable(list, access)
                 playback.setLineup(tunable)

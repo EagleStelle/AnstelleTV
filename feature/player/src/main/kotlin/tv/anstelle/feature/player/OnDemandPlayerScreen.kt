@@ -107,7 +107,7 @@ class OnDemandPlayerViewModel @Inject constructor(
         // Many TV devices decode one video at a time: the channel the guide was previewing stops.
         channels.stop()
         viewModelScope.launch {
-            val profile = profiles.ensureActiveProfile()
+            val profile = profiles.activeProfile()
             playback.play(itemId, startMs, profiles.access(profile.id))
         }
     }

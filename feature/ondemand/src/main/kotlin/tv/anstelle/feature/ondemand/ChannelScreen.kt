@@ -120,7 +120,7 @@ class ChannelViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val profile = profiles.ensureActiveProfile()
+            val profile = profiles.activeProfile()
             profileId = profile.id
             val access = profiles.access(profile.id)
             val now = time.nowUtcMs()

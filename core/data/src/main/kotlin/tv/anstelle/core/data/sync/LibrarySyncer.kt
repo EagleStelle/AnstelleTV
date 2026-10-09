@@ -134,7 +134,7 @@ class LibrarySyncer @Inject constructor(
         if (options.forceReconcile || options.fullRefresh || reconcileDue) reconcile(server, libraries, source)
         findHidden(server, libraries)
         // Profiles are Jellyfin users: names and pictures changed there follow.
-        profiles.refreshFromJellyfin(server, token)
+        profiles.refreshFromJellyfin(server)
     }
 
     /**

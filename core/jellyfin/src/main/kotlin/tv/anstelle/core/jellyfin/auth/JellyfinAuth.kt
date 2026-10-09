@@ -67,6 +67,11 @@ class JellyfinAuth @Inject constructor(
         return result.toSession()
     }
 
+    /** Approves Quick Connect [code] as the user signed in with [accessToken]. */
+    suspend fun authorizeQuickConnect(url: String, accessToken: String, code: String) {
+        jellyfinCall("Approving Quick Connect") { clients.api(url, accessToken).authenticationApi.authorizeQuickConnect(code) }
+    }
+
     /** Who [accessToken] is signed in as now; their name and picture may have changed in Jellyfin. */
     suspend fun currentUser(url: String, accessToken: String, device: String? = null): JellyfinUser = jellyfinCall("Reading the user") {
         val user = clients.api(url, accessToken, device).userApi.getCurrentUser().content

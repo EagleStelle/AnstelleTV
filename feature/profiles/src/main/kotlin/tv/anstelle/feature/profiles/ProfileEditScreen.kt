@@ -296,8 +296,6 @@ fun ProfileEditScreen(
                     value = when {
                         account != null && !account.signedIn -> "Signed out"
                         account != null -> account.userName
-                        // A profile with no user of its own anywhere is the servers' own sign-in.
-                        state.accounts.isEmpty() -> server.userName
                         else -> "Not signed in"
                     },
                     trailing = TileTrailing.Chevron,

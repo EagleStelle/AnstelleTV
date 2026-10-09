@@ -145,8 +145,8 @@ enum class WatchSync(override val code: Int, val marksWatched: Boolean, val save
 }
 
 /**
- * What a profile may do in the app. There is always exactly one [OWNER]: the first profile
- * set up, until it hands the role to another profile. Only the owner and admins change
+ * What a profile may do in the app. There is always exactly one [OWNER]: the first profile,
+ * made from the first server's user, until it hands the role to another profile. Only the owner and admins change
  * app-wide settings (media servers, channels, web control).
  */
 enum class ProfileRole(override val code: Int) : CodedEnum {

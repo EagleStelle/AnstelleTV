@@ -60,10 +60,6 @@ interface ProfileDao {
     @Query("SELECT * FROM profile_account WHERE profileId = :profileId AND serverId = :serverId")
     suspend fun account(profileId: Long, serverId: Long): ProfileAccountEntity?
 
-    /** Profiles with no Jellyfin user of their own anywhere: they are the servers' own sign-ins. */
-    @Query("SELECT * FROM profile WHERE id NOT IN (SELECT profileId FROM profile_account)")
-    suspend fun withoutAccounts(): List<ProfileEntity>
-
     @Upsert
     suspend fun upsertAccount(account: ProfileAccountEntity)
 

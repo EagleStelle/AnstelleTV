@@ -273,7 +273,7 @@ private fun SignInStep(state: AddServerUiState, viewModel: AddServerViewModel, m
         },
         subtitle = when {
             state.newProfile ->
-                "Profiles are Jellyfin users. Sign in as someone on ${candidate.info.name}: the new profile takes that user's name, picture, watched marks and resume points, and sees only what that user may. Set a maturity rating on the profile's page afterwards."
+                "Sign in as someone on ${candidate.info.name}: the new profile takes that user's name, picture, watched marks and resume points, and sees only what that user may. Set a maturity rating on the profile's page afterwards."
             state.linkProfileName != null ->
                 "Sign in as the Jellyfin user for ${state.linkProfileName} on ${candidate.info.name}. There the profile takes that user's watched marks and resume points, and sees only what that user may."
             else -> "Jellyfin ${candidate.info.version} at ${candidate.info.url}"

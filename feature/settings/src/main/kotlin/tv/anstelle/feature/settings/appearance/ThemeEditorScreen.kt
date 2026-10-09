@@ -178,7 +178,7 @@ class ThemeEditorViewModel @Inject constructor(
     }
 
     fun use() {
-        viewModelScope.launch { themes.use(profiles.ensureActiveProfile().id, themeId) }
+        viewModelScope.launch { themes.use(profiles.activeProfile().id, themeId) }
     }
 
     fun delete() {
