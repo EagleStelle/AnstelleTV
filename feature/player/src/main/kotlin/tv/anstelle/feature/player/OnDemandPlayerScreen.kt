@@ -44,11 +44,13 @@ import androidx.compose.ui.Modifier
 
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -146,7 +148,8 @@ class OnDemandPlayerViewModel @Inject constructor(
 private enum class DemandPanel { CONTROLS, AUDIO, SUBTITLES }
 
 /**
- * Full-screen on-demand playback: OK plays or pauses, left and right jump back 10 s and ahead
+ * Full-screen on-demand playback: OK brings a hidden banner in with pause highlighted and plays
+ * or pauses while it shows, left and right jump back 10 s and ahead
  * 30 s, the remote's previous and next keys step through the show's episodes. The banner always
  * carries its keys (audio and subtitles on the left; then previous, 10 s back, pause, 30 s ahead
  * and next, in the remote's own order, pause in the middle); up, down or Menu moves focus into
@@ -197,24 +200,51 @@ LaunchedEffect(overlay) { hiddenByUser = false }
                 runCatching { focus.requestFocus() }
             }
             DemandPanel.CONTROLS -> {
-                withFrameNanos { }
-                runCatching { (returnKey ?: playKey).requestFocus() }
+                // The banner may be hidden: bring it in, then take the key once it is composed.
+                overlay++
+                (returnKey ?: playKey).requestWhenShown()
             }
             else -> Unit
         }
     }
+
+    // The picture itself holds focus, not one of the banner's keys.
+    var pictureFocused by remember { mutableStateOf(false) }
+    // A Back press the banner took on key-down; its key-up hides the banner.
+    var backHeld by remember { mutableStateOf(false) }
 
     Box(
         modifier
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(focus)
+            // Back hides the banner in one press: left to the focus system, it would first only move focus off the key.
+            .onPreviewKeyEvent { event ->
+                if (event.key != Key.Back) return@onPreviewKeyEvent false
+                val shown = panel != null || !hiddenByUser && (overlayVisible || !state.playing)
+                if (event.type == KeyEventType.KeyDown && shown) backHeld = true
+                if (!backHeld) return@onPreviewKeyEvent false
+                if (event.type == KeyEventType.KeyUp) {
+                    backHeld = false
+                    panel = null
+                    hiddenByUser = true
+                }
+                true
+            }
             .onKeyEvent { event ->
+                // With the keys up, OK is theirs; if none holds focus, it puts focus back on one.
+                if (panel == DemandPanel.CONTROLS && pictureFocused && event.key in ConfirmKeys) {
+                    if (event.type == KeyEventType.KeyUp) runCatching { (returnKey ?: playKey).requestFocus() }
+                    return@onKeyEvent true
+                }
                 if (panel != null) return@onKeyEvent false
                 if (event.key in ConfirmKeys) {
                     // On key-up, so a control focused by this press doesn't take its release as a click.
                     if (event.type == KeyEventType.KeyUp) {
-                        if (event.key == Key.Menu || event.key == Key.Info) panel = DemandPanel.CONTROLS else viewModel.togglePlay()
+                        // A hidden banner comes in with pause highlighted; a shown one leaves OK to play or pause.
+                        val shown = !hiddenByUser && (overlayVisible || !state.playing)
+                        val menu = event.key == Key.Menu || event.key == Key.Info
+                        if (menu || !shown) panel = DemandPanel.CONTROLS else viewModel.togglePlay()
                         overlay++
                     }
                     return@onKeyEvent true
@@ -232,6 +262,7 @@ LaunchedEffect(overlay) { hiddenByUser = false }
                 overlay++
                 true
             }
+            .onFocusChanged { pictureFocused = it.isFocused }
             .focusable()
             .pointerInput(Unit) {
                 // A tap hides the banner while it shows, and brings it back while it is hidden.

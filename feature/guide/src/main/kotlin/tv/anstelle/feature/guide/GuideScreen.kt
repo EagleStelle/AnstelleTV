@@ -49,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -225,7 +226,23 @@ fun GuideScreen(
             if (span > 0) viewModel.showing(start, start + span)
         }
     }
-    if (isTv) LaunchedEffect(Unit) { runCatching { gridFocus.requestFocus() } }
+    // Every time the guide opens, what airs now on the selected channel is selected, and on TV highlighted with focus.
+    val hasChannels = state.channels.isNotEmpty()
+    LaunchedEffect(hasChannels) {
+        if (!hasChannels) return@LaunchedEffect
+        if (follow == null) {
+            val channelId = state.channels.firstOrNull { it.id == grid.selectedChannel }?.id
+                ?: state.channels.first().id
+            grid.selectNow(channelId, System.currentTimeMillis())
+        }
+        if (isTv) {
+            // The grid composes after the channels arrive; take focus once it is there.
+            repeat(20) {
+                withFrameNanos { }
+                if (runCatching { gridFocus.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
+            }
+        }
+    }
 
     val selected by remember(state.channels, state.access) {
         derivedStateOf { selectedProgram(state.channels, strips.value, grid, state.access) }

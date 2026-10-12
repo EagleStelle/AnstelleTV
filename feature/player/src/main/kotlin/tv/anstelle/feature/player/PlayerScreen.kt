@@ -53,6 +53,7 @@ import androidx.compose.ui.draw.drawBehind
 
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -186,12 +187,18 @@ fun PlayerScreen(
                 runCatching { focus.requestFocus() }
             }
             Panel.CONTROLS -> {
-                withFrameNanos { }
-                runCatching { (returnKey ?: audioKey).requestFocus() }
+                // The banner may be hidden: bring it in, then take the key once it is composed.
+                bannerRequest++
+                (returnKey ?: audioKey).requestWhenShown()
             }
             else -> Unit
         }
     }
+
+    // The picture itself holds focus, not one of the banner's keys.
+    var pictureFocused by remember { mutableStateOf(false) }
+    // A Back press the banner took on key-down; its key-up hides the banner.
+    var backHeld by remember { mutableStateOf(false) }
 
     val swipeThreshold = with(LocalDensity.current) { 96.dp.toPx() }
     Box(
@@ -199,8 +206,19 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(focus)
-            // Any key pressed with the banner's keys in use holds the banner up a while longer.
             .onPreviewKeyEvent { event ->
+                // Back hides the banner in one press: left to the focus system, it would first only move focus off the key.
+                if (event.key == Key.Back) {
+                    if (event.type == KeyEventType.KeyDown && bannerVisible) backHeld = true
+                    if (!backHeld) return@onPreviewKeyEvent false
+                    if (event.type == KeyEventType.KeyUp) {
+                        backHeld = false
+                        panel = null
+                        bannerVisible = false
+                    }
+                    return@onPreviewKeyEvent true
+                }
+                // Any key pressed with the banner's keys in use holds the banner up a while longer.
                 if (panel != null && event.type == KeyEventType.KeyDown) bannerRequest++
                 false
             }
@@ -209,8 +227,12 @@ fun PlayerScreen(
                 val inKeys = panel == Panel.CONTROLS
                 // OK opens things on key-up: on key-down, the newly focused control would get the key-up as a click.
                 if (event.key in ConfirmKeys) {
-                    // With the keys up, OK is theirs.
-                    if (inKeys) return@onKeyEvent false
+                    // With the keys up, OK is theirs; if none holds focus, it puts focus back on one.
+                    if (inKeys && !pictureFocused) return@onKeyEvent false
+                    if (inKeys) {
+                        if (event.type == KeyEventType.KeyUp) runCatching { (returnKey ?: audioKey).requestFocus() }
+                        return@onKeyEvent true
+                    }
                     if (event.type == KeyEventType.KeyUp) {
                         val menu = event.key == Key.Info || event.key == Key.Menu
                         if (entry.isNotEmpty() && !menu) viewModel.commitEntry() else panel = Panel.CONTROLS
@@ -244,6 +266,7 @@ fun PlayerScreen(
                 }
                 true
             }
+            .onFocusChanged { pictureFocused = it.isFocused }
             .focusable()
             // A tap hides the banner while it shows, and brings it back while it is hidden.
             .pointerInput(Unit) {

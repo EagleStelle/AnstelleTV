@@ -66,6 +66,17 @@ import tv.anstelle.core.theme.components.OsdBadge
 import tv.anstelle.core.theme.components.SegmentLadder
 
 /**
+ * Focuses a banner key that may not be on screen yet: a hidden banner composes its keys only
+ * once it slides in, so this tries again for a few frames until one takes focus.
+ */
+internal suspend fun FocusRequester.requestWhenShown() {
+    repeat(20) {
+        withFrameNanos { }
+        if (runCatching { requestFocus() }.getOrDefault(false)) return
+    }
+}
+
+/**
  * On phones and tablets, a player turns the screen sideways and hides the system bars while
  * it is open (a swipe from the edge shows them for a moment). Leaving puts both back. A TV is
  * already landscape and has no bars.
