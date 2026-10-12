@@ -28,10 +28,15 @@ const val PlayerRouteNoChannel = -1
 /** On demand and the channel pages below it, so the On demand tab stays selected on all of them. */
 @Serializable data object OnDemandGraph
 @Serializable data object OnDemandRoute
-@Serializable data class OnDemandChannelRoute(val channelId: Long)
 
-/** Full-screen on-demand playback of [itemId] from [positionMs]. */
-@Serializable data class OnDemandPlayRoute(val itemId: Long, val positionMs: Long = 0)
+/** A channel's page, about the airing at [atUtcMs] (a program picked in the guide), or 0 for the one on now. */
+@Serializable data class OnDemandChannelRoute(val channelId: Long, val atUtcMs: Long = 0)
+
+/**
+ * Full-screen on-demand playback of [itemId] from [positionMs]. [channelId] and [atUtcMs] name
+ * the airing it was picked from, whose channel page the player's On Demand key opens; 0 for none.
+ */
+@Serializable data class OnDemandPlayRoute(val itemId: Long, val positionMs: Long = 0, val channelId: Long = 0, val atUtcMs: Long = 0)
 
 /** Makes a channel always air the show (or movie) of [itemId]. */
 @Serializable data class AddToChannelRoute(val itemId: Long)

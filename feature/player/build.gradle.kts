@@ -7,4 +7,6 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     // BackHandler closes the controls panel.
     implementation(libs.androidx.activity.compose)
+    // The on-demand banner's episode stills.
+    implementation(libs.coil.compose)
 }

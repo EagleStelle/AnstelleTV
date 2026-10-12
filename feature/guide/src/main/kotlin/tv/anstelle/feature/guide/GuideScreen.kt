@@ -133,7 +133,8 @@ internal data class SelectedProgram(
 fun GuideScreen(
     onWatch: (channelNumber: Int) -> Unit,
     onStartOver: (channelNumber: Int) -> Unit,
-    onPlayOnDemand: (itemId: Long, positionMs: Long) -> Unit,
+    /** Plays [itemId] on demand; [channelId] and [atUtcMs] are the airing it was picked from. */
+    onPlayOnDemand: (itemId: Long, positionMs: Long, channelId: Long, atUtcMs: Long) -> Unit,
     /** Null for a member: adding to a channel is the owner's and admins'. */
     onAddToChannel: ((itemId: Long) -> Unit)?,
     /** Null for a member, who has no channels or servers to set up. */
@@ -386,7 +387,7 @@ fun GuideScreen(
                     viewModel.openingPlayer()
                     onStartOver(program.channel.number)
                 },
-                onPlay = { position -> onPlayOnDemand(program.mediaItemId, position) },
+                onPlay = { position -> onPlayOnDemand(program.mediaItemId, position, program.channel.id, program.startUtcMs) },
                 onAddToChannel = { onAddToChannel?.invoke(program.mediaItemId) },
                 onDismiss = {
                     actions = null

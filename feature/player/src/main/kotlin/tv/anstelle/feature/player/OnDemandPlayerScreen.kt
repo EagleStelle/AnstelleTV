@@ -12,14 +12,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Audiotrack
 
 import androidx.compose.material.icons.filled.Forward30
@@ -30,6 +36,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -41,7 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -53,6 +60,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,11 +76,18 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import coil3.compose.AsyncImage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.lineUnderLogo
+import tv.anstelle.core.data.ondemand.EpisodeEntry
+import tv.anstelle.core.data.ondemand.OnDemandRepository
+import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.data.playback.ChannelPlayer
 import tv.anstelle.core.data.playback.OnDemandPlayer
 import tv.anstelle.core.data.playback.OnDemandState
@@ -81,16 +96,25 @@ import tv.anstelle.core.data.playback.TRACK_TYPE_AUDIO
 import tv.anstelle.core.data.playback.TRACK_TYPE_TEXT
 import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.data.profiles.Restriction
+import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.player.SubtitleStyle
+import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AirMarker
+import tv.anstelle.core.theme.components.FocusSurface
+import tv.anstelle.core.theme.components.OsdTab
 import tv.anstelle.core.theme.components.RestrictedMark
+import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.StandInSize
 import tv.anstelle.core.theme.components.TitleLogo
 
 import javax.inject.Inject
+
+/** The show playing, for the banner's episode strip: every episode the profile may watch, and where it stopped in each. */
+@Immutable
+internal data class ShowEpisodes(val episodes: List<EpisodeEntry>, val resume: Map<Long, Long> = emptyMap())
 
 @HiltViewModel
 class OnDemandPlayerViewModel @Inject constructor(
@@ -98,6 +122,7 @@ class OnDemandPlayerViewModel @Inject constructor(
     profiles: ProfileRepository,
     channels: ChannelPlayer,
     private val playback: OnDemandPlayer,
+    private val onDemand: OnDemandRepository,
 ) : ViewModel() {
     /** Match the `itemId` and `positionMs` arguments of the navigation route. */
     private val itemId: Long = checkNotNull(savedState.get<Long>("itemId"))
@@ -106,14 +131,39 @@ class OnDemandPlayerViewModel @Inject constructor(
     val state = playback.state
     val player get() = playback.player
 
+    private val _episodes = MutableStateFlow<ShowEpisodes?>(null)
+
+    /** The show's episodes once the strip first opens; null before. */
+    internal val episodes: StateFlow<ShowEpisodes?> = _episodes.asStateFlow()
+
+    private var access: ProfileAccess? = null
+    private var profileId = 0L
+
     init {
         // Many TV devices decode one video at a time: the channel the guide was previewing stops.
         channels.stop()
         viewModelScope.launch {
             val profile = profiles.activeProfile()
-            playback.play(itemId, startMs, profiles.access(profile.id))
+            profileId = profile.id
+            val profileAccess = profiles.access(profile.id)
+            access = profileAccess
+            playback.play(itemId, startMs, profileAccess)
         }
     }
+
+    /** Reads the show playing for the episode strip: its episodes once, the resume points every time it opens. */
+    fun loadEpisodes() {
+        val playing = state.value.itemId.takeIf { it != 0L } ?: return
+        val profileAccess = access ?: return
+        viewModelScope.launch {
+            val list = _episodes.value?.episodes?.takeIf { known -> known.any { it.id == playing } } ?: onDemand.episodeList(playing, profileAccess)
+            _episodes.value = ShowEpisodes(list, _episodes.value?.resume.orEmpty())
+            _episodes.value = ShowEpisodes(list, onDemand.resumePoints(playing, list, profileId))
+        }
+    }
+
+    /** Plays another episode of the show from [positionMs]. */
+    fun playEpisode(itemId: Long, positionMs: Long) = playback.playEpisode(itemId, positionMs)
 
     val positionMs: Long get() = playback.positionMs
     val durationMs: Long get() = playback.durationMs
@@ -145,7 +195,8 @@ class OnDemandPlayerViewModel @Inject constructor(
     }
 }
 
-private enum class DemandPanel { CONTROLS, AUDIO, SUBTITLES }
+/** Where the banner's keys are: [CONTROLS] has focus on them, the others show a track list or the show's episodes in their place. */
+private enum class DemandPanel { CONTROLS, AUDIO, SUBTITLES, EPISODES }
 
 /**
  * Full-screen on-demand playback: OK brings a hidden banner in with pause highlighted and plays
@@ -153,14 +204,21 @@ private enum class DemandPanel { CONTROLS, AUDIO, SUBTITLES }
  * 30 s, the remote's previous and next keys step through the show's episodes. The banner always
  * carries its keys (audio and subtitles on the left; then previous, 10 s back, pause, 30 s ahead
  * and next, in the remote's own order, pause in the middle); up, down or Menu moves focus into
- * them. Phones tap for the banner and drag its bar to seek.
+ * them. Coming and going with it, the top corners hold the way back to the program's channel
+ * page ([onOpenOnDemand], top start) and, for an episode, Episodes (top end), which swaps the
+ * keys for the show's seasons and a strip of its episodes. Phones tap for the banner and drag
+ * its bar to seek.
  */
 @Composable
 fun OnDemandPlayerScreen(
+    /** Null when the item wasn't picked from a channel's airing: then there is no page to go back to. */
+    onOpenOnDemand: (() -> Unit)?,
     modifier: Modifier = Modifier,
     viewModel: OnDemandPlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val episodes by viewModel.episodes.collectAsStateWithLifecycle()
+    val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val focus = remember { FocusRequester() }
     var panel by remember { mutableStateOf<DemandPanel?>(null) }
@@ -175,14 +233,18 @@ fun OnDemandPlayerScreen(
         onStopOrDispose { viewModel.pause() }
     }
     LandscapeFullScreen()
-    LaunchedEffect(overlay, state.playing, panel) {
+    // Opening the player brings the banner up with a key highlighted on TV.
+    LaunchedEffect(Unit) { if (isTv) panel = DemandPanel.CONTROLS }
+    LaunchedEffect(overlay, state.playing) {
         overlayVisible = true
-        if (state.playing && panel == null) {
+        if (state.playing) {
+            // With no key pressed for a while, the banner goes, highlighted key and all.
             delay(OVERLAY_MS)
             overlayVisible = false
+            panel = null
         }
     }
-LaunchedEffect(overlay) { hiddenByUser = false }
+    LaunchedEffect(overlay) { hiddenByUser = false }
     // Back hides the banner, whatever has focus in it, and only then leaves the player.
     BackHandler(enabled = panel != null || !hiddenByUser && (overlayVisible || !state.playing)) {
         panel = null
@@ -191,6 +253,7 @@ LaunchedEffect(overlay) { hiddenByUser = false }
     val playKey = remember { FocusRequester() }
     val audioKey = remember { FocusRequester() }
     val subtitlesKey = remember { FocusRequester() }
+    val episodesKey = remember { FocusRequester() }
     // The key that opened a track list gets focus back when the list closes.
     var returnKey by remember { mutableStateOf<FocusRequester?>(null) }
     LaunchedEffect(panel) {
@@ -204,7 +267,7 @@ LaunchedEffect(overlay) { hiddenByUser = false }
                 overlay++
                 (returnKey ?: playKey).requestWhenShown()
             }
-            else -> Unit
+            else -> overlay++
         }
     }
 
@@ -220,6 +283,8 @@ LaunchedEffect(overlay) { hiddenByUser = false }
             .focusRequester(focus)
             // Back hides the banner in one press: left to the focus system, it would first only move focus off the key.
             .onPreviewKeyEvent { event ->
+                // Any key pressed with the banner's keys in use holds the banner up a while longer.
+                if (panel != null && event.key != Key.Back && event.type == KeyEventType.KeyDown) overlay++
                 if (event.key != Key.Back) return@onPreviewKeyEvent false
                 val shown = panel != null || !hiddenByUser && (overlayVisible || !state.playing)
                 if (event.type == KeyEventType.KeyDown && shown) backHeld = true
@@ -295,8 +360,18 @@ LaunchedEffect(overlay) { hiddenByUser = false }
                 state = state,
                 viewModel = viewModel,
                 modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { overlayHeight = it.height },
+                episodes = if (panel != DemandPanel.EPISODES) {
+                    null
+                } else {
+                    {
+                        EpisodeStrip(episodes, playingId = state.itemId) { episode, resumeMs ->
+                            if (episode.id != state.itemId) viewModel.playEpisode(episode.id, resumeMs)
+                            panel = null
+                        }
+                    }
+                },
                 keys = when (panel) {
-                    null, DemandPanel.CONTROLS -> {
+                    null, DemandPanel.CONTROLS, DemandPanel.EPISODES -> {
                         {
                             OsdKey("Audio", Icons.Filled.Audiotrack, onClick = {
                                 returnKey = audioKey
@@ -355,6 +430,151 @@ LaunchedEffect(overlay) { hiddenByUser = false }
                     }
                 },
             )
+            // The top corners, which the live player gives its ident: the way back to the program's page, and the show's episodes.
+            onOpenOnDemand?.let { open ->
+                Box(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .cornerShade(theme.banner, atStart = true)
+                        .padding(start = osdSide - KEY_PADDING, top = osdEdge, end = 32.dp, bottom = 24.dp),
+                ) {
+                    OsdKey("On Demand", Icons.AutoMirrored.Filled.ArrowBack, onClick = open)
+                }
+            }
+            if (state.isEpisode) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .cornerShade(theme.banner)
+                        .padding(start = 32.dp, top = osdEdge, end = osdSide - KEY_PADDING, bottom = 24.dp),
+                ) {
+                    OsdKey(
+                        "Episodes",
+                        Icons.AutoMirrored.Filled.ViewList,
+                        onClick = {
+                            if (panel == DemandPanel.EPISODES) {
+                                // Again, it gives the banner its keys back, focus staying here.
+                                returnKey = episodesKey
+                                panel = DemandPanel.CONTROLS
+                            } else {
+                                viewModel.loadEpisodes()
+                                panel = DemandPanel.EPISODES
+                            }
+                        },
+                        modifier = Modifier.focusRequester(episodesKey),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The banner's keys while Episodes is open, the way a track list takes their place: EPISODES in
+ * rose with the show's season tabs, then a strip of its episodes, opened on the one playing
+ * (focused on TV). OK or a tap plays one from where it was left; the one playing just closes it.
+ */
+@Composable
+private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode: EpisodeEntry, resumeMs: Long) -> Unit) {
+    val theme = LocalAnstelleTheme.current
+    val isTv = LocalIsTv.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    val list = show?.episodes
+    val seasons = remember(list) { list.orEmpty().groupBy { it.seasonLabel } }
+    val playingSeason = remember(list, playingId) { list?.firstOrNull { it.id == playingId }?.seasonLabel }
+    var season by remember(list) { mutableStateOf(playingSeason ?: seasons.keys.firstOrNull()) }
+    Column(
+        Modifier.fillMaxWidth().padding(top = if (isTv) 2.dp else 0.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isTv) 6.dp else 4.dp),
+    ) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(theme.line))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            androidx.compose.material3.Text("EPISODES", style = typography.labelMedium, color = theme.accent, modifier = Modifier.padding(end = 6.dp))
+            when {
+                // It reads from SQLite at once, so nothing stands in while it loads.
+                list == null -> Unit
+                list.isEmpty() -> androidx.compose.material3.Text("NONE TO WATCH", style = typography.labelMedium, color = theme.textMuted)
+                seasons.size > 1 -> LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(seasons.keys.toList(), key = { it }) { key ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (key == playingSeason) AirMarker(onAir = true, modifier = Modifier.padding(start = 6.dp))
+                            OsdTab(key, selected = key == season, onClick = { season = key }, count = seasons.getValue(key).size, compact = true)
+                        }
+                    }
+                }
+            }
+        }
+        val shown = seasons[season].orEmpty()
+        if (shown.isNotEmpty()) {
+            val target = shown.firstOrNull { it.id == playingId } ?: shown.first()
+            val listState = rememberLazyListState()
+            val targetFocus = remember { FocusRequester() }
+            LaunchedEffect(list) {
+                listState.scrollToItem(shown.indexOf(target))
+                withFrameNanos { }
+                runCatching { targetFocus.requestFocus() }
+            }
+            LazyRow(state = listState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(shown, key = { it.id }) { episode ->
+                    val resume = show?.resume?.get(episode.id)?.takeIf { it < episode.durationMs * RESUME_LIMIT_PERCENT / 100 } ?: 0
+                    EpisodeCard(
+                        episode = episode,
+                        playing = episode.id == playingId,
+                        resumeMs = resume,
+                        onClick = { onPick(episode, resume) },
+                        modifier = if (episode.id == target.id) Modifier.focusRequester(targetFocus) else Modifier,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One episode in the strip, a channel tile's way: its still (with how far it was watched) in a
+ * small inset, its number and title, then PLAYING behind the on-air square or its length.
+ * Focus fills the whole card rose, so the still sits in a rose frame.
+ */
+@Composable
+private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val theme = LocalAnstelleTheme.current
+    val isTv = LocalIsTv.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    FocusSurface(onClick = onClick, color = Color.Transparent, modifier = modifier.width(if (isTv) 174.dp else 132.dp)) { focused ->
+        val ink = if (focused) theme.onAccent else theme.accent
+        Column(Modifier.padding(3.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(ControlShape).background(theme.surfaceHigh)) {
+                episode.stillUrl?.let {
+                    AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
+                if (resumeMs > 0 && episode.durationMs > 0) {
+                    SegmentLadder(
+                        resumeMs.toFloat() / episode.durationMs,
+                        Modifier.align(Alignment.BottomStart).background(theme.background.copy(alpha = 0.8f)).padding(horizontal = 5.dp, vertical = 4.dp),
+                        segments = 12,
+                    )
+                }
+            }
+            Column(Modifier.padding(start = 3.dp, end = 3.dp, bottom = 3.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                androidx.compose.material3.Text(episode.label, style = typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (playing) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        AirMarker(onAir = true, color = ink)
+                        androidx.compose.material3.Text("PLAYING", style = typography.labelMedium, color = ink)
+                    }
+                } else {
+                    val facts = listOfNotNull(episode.facts, resumeMs.takeIf { it > 0 }?.let { "${WatchChoices.span(it)} watched" }).joinToString("  ")
+                    if (facts.isNotEmpty()) {
+                        androidx.compose.material3.Text(
+                            facts,
+                            style = typography.bodySmall,
+                            color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -400,15 +620,19 @@ private fun Overlay(
     viewModel: OnDemandPlayerViewModel,
     modifier: Modifier,
     keys: @Composable RowScope.() -> Unit,
+    /** The episode strip, in the keys' place while Episodes is open. */
+    episodes: (@Composable () -> Unit)? = null,
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     var position by remember { mutableLongStateOf(viewModel.positionMs) }
     var duration by remember { mutableLongStateOf(viewModel.durationMs) }
+    var wallClock by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
             position = viewModel.positionMs
             duration = viewModel.durationMs
+            wallClock = System.currentTimeMillis()
             delay(POSITION_MS)
         }
     }
@@ -424,11 +648,22 @@ private fun Overlay(
             verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 2.dp),
         ) {
             BannerHeader(state.stream) {
-                androidx.compose.material3.Text(
-                    if (state.playing) "ON DEMAND" else "PAUSED",
-                    style = typography.labelMedium,
-                    color = theme.accent,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.Text(
+                        if (state.playing) "ON DEMAND" else "PAUSED",
+                        style = typography.labelMedium,
+                        color = theme.accent,
+                    )
+                    // When it starts and ends on the clock, as the channel's NOW line gives its airing; a pause moves both.
+                    if (duration > 0) {
+                        val startMs = wallClock - position
+                        androidx.compose.material3.Text(
+                            WatchChoices.clockRange(startMs, startMs + duration),
+                            style = typography.labelMedium,
+                            color = theme.textMuted,
+                        )
+                    }
+                }
             }
             TitleLogo(
                 logoUrl = state.logoUrl,
@@ -439,15 +674,7 @@ private fun Overlay(
                 modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp),
             )
             val detail = lineUnderLogo(state.detail, state.title.orEmpty(), state.isEpisode, state.logoUrl != null)
-            if (isTv) {
-                detail?.let { DetailLine(it) }
-            } else if (detail != null || state.next != null) {
-                // This and next on one line, as an OSD pairs them.
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    DetailLine(detail.orEmpty(), Modifier.weight(1f))
-                    state.next?.let { NextLine(it, Modifier.widthIn(max = NEXT_MAX_WIDTH)) }
-                }
-            }
+            detail?.let { DetailLine(it) }
             ProgressRow(
                 positionMs = position,
                 lengthMs = duration,
@@ -462,8 +689,7 @@ private fun Overlay(
                     }
                 },
             )
-            if (isTv) state.next?.let { NextLine(it) }
-            OsdKeys(Modifier.padding(top = if (isTv) 2.dp else 0.dp), keys)
+            if (episodes != null) episodes() else OsdKeys(Modifier.padding(top = if (isTv) 2.dp else 0.dp), keys)
         }
     }
 }
@@ -479,22 +705,6 @@ private fun DetailLine(text: String, modifier: Modifier = Modifier) {
         overflow = TextOverflow.Ellipsis,
         modifier = modifier,
     )
-}
-
-/** What plays next, behind a hollow marker. */
-@Composable
-private fun NextLine(next: String, modifier: Modifier = Modifier) {
-    // Two lines before it truncates; the marker stays level with the first.
-    Row(modifier, verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        AirMarker(onAir = false, modifier = Modifier.padding(top = 4.dp))
-        androidx.compose.material3.Text(
-            "NEXT  $next",
-            style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-            color = LocalAnstelleTheme.current.textMuted,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
 }
 
 @Composable
@@ -518,7 +728,7 @@ private const val AHEAD_MS = 30_000L
 private const val OVERLAY_MS = 3_000L
 private const val POSITION_MS = 500L
 
-/** How much of the detail line NEXT may take on phones and tablets. */
-private val NEXT_MAX_WIDTH = 360.dp
+/** A resume point this close to the end counts as watched through, as on a channel's page in On demand. */
+private const val RESUME_LIMIT_PERCENT = 95
 
 private val ConfirmKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.Menu, Key.Info)

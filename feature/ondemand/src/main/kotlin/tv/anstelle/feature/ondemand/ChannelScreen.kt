@@ -113,6 +113,9 @@ class ChannelViewModel @Inject constructor(
     /** Matches the `channelId` argument of the navigation route. */
     private val channelId: Long = checkNotNull(savedState.get<Long>("channelId"))
 
+    /** Matches the route's `atUtcMs`: the airing the page is about, or 0 for the one on now. */
+    private val atUtcMs: Long = savedState.get<Long>("atUtcMs") ?: 0L
+
     private val _state = MutableStateFlow(ChannelUiState())
     val state: StateFlow<ChannelUiState> = _state.asStateFlow()
 
@@ -124,7 +127,8 @@ class ChannelViewModel @Inject constructor(
             profileId = profile.id
             val access = profiles.access(profile.id)
             val now = time.nowUtcMs()
-            _state.value = ChannelUiState(repository.channelPage(channelId, now, access), loaded = true, openedAtMs = now)
+            val at = atUtcMs.takeIf { it > 0 } ?: now
+            _state.value = ChannelUiState(repository.channelPage(channelId, at, access), loaded = true, openedAtMs = now)
             refreshResume()
         }
     }
@@ -191,8 +195,8 @@ fun ChannelScreen(
 
     val item = page.item
     val topicEpisode = page.episodes.firstOrNull { it.id == item.id }
-    val seasons = remember(page) { page.episodes.groupBy { seasonKey(it.season) } }
-    var season by rememberSaveable { mutableStateOf(topicEpisode?.let { seasonKey(it.season) } ?: seasons.keys.firstOrNull()) }
+    val seasons = remember(page) { page.episodes.groupBy { it.seasonLabel } }
+    var season by rememberSaveable { mutableStateOf(topicEpisode?.seasonLabel ?: seasons.keys.firstOrNull()) }
     val shown = seasons[season].orEmpty()
     val choices = topicChoices(page, state.openedAtMs)
 
@@ -244,7 +248,7 @@ fun ChannelScreen(
         }
         if (seasons.size > 1) {
             item(key = "seasons") {
-                SeasonTabs(seasons, season, topicSeason = topicEpisode?.let { seasonKey(it.season) }) { season = it }
+                SeasonTabs(seasons, season, topicSeason = topicEpisode?.seasonLabel) { season = it }
             }
         } else if (page.episodes.isNotEmpty()) {
             // The keys sit one gap above it, as the hero sits above them.
@@ -471,7 +475,8 @@ private fun airingStatus(page: ChannelPage, nowMs: Long): AiringStatus {
     val tense = if (page.onNow) AiringTense.of(page.startUtcMs, page.endUtcMs, nowMs) else AiringTense.LATER
     return when (tense) {
         AiringTense.ON_NOW -> AiringStatus(true, "On now", "$range  ·  ${WatchChoices.span(page.endUtcMs - nowMs, roundUp = true)} left")
-        AiringTense.LATER -> AiringStatus(false, "Up next", range)
+        // Off air, the page is about what comes next; opened from the guide, about any airing to come.
+        AiringTense.LATER -> AiringStatus(false, if (page.onNow) "Later" else "Up next", range)
         AiringTense.AIRED -> AiringStatus(null, "Aired", range)
     }
 }
@@ -562,13 +567,6 @@ private fun EpisodeRow(
             }
         }
     }
-}
-
-/** The tab a season goes under. */
-private fun seasonKey(season: Int?): String = when (season) {
-    null -> "Other episodes"
-    0 -> "Specials"
-    else -> "Season $season"
 }
 
 /** A resume point this close to the end counts as watched through. */

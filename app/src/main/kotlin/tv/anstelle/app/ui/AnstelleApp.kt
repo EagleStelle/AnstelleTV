@@ -223,7 +223,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
             GuideScreen(
                 onWatch = { navController.navigate(PlayerRoute(it)) },
                 onStartOver = { navController.navigate(PlayerRoute(it, restart = true)) },
-                onPlayOnDemand = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position)) },
+                onPlayOnDemand = { itemId, position, channelId, atUtcMs -> navController.navigate(OnDemandPlayRoute(itemId, position, channelId, atUtcMs)) },
                 onAddToChannel = addToChannel,
                 onOpenSettings = openSettings,
             )
@@ -235,17 +235,37 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onOpenSettings = openSettings,
                 )
             }
-            composable<OnDemandChannelRoute> {
+            composable<OnDemandChannelRoute> { entry ->
+                val page = entry.toRoute<OnDemandChannelRoute>()
                 ChannelScreen(
                     onWatchLive = { navController.navigate(PlayerRoute(it)) },
                     onStartOver = { navController.navigate(PlayerRoute(it, restart = true)) },
-                    onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position)) },
+                    onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position, page.channelId, page.atUtcMs)) },
                     onAddToChannel = addToChannel,
                     onGone = { navController.popBackStack() },
                 )
             }
         }
-        composable<OnDemandPlayRoute> { OnDemandPlayerScreen() }
+        composable<OnDemandPlayRoute> { entry ->
+            val playing = entry.toRoute<OnDemandPlayRoute>()
+            OnDemandPlayerScreen(
+                // Back to the channel's page it was picked on, or that page in the player's place.
+                onOpenOnDemand = if (playing.channelId == 0L) {
+                    null
+                } else {
+                    {
+                        val from = navController.previousBackStackEntry
+                        val onPage = from?.destination?.hasRoute(OnDemandChannelRoute::class) == true &&
+                            from.toRoute<OnDemandChannelRoute>().channelId == playing.channelId
+                        if (onPage) {
+                            navController.popBackStack()
+                        } else {
+                            navController.navigate(OnDemandChannelRoute(playing.channelId, playing.atUtcMs)) { popUpTo<OnDemandPlayRoute> { inclusive = true } }
+                        }
+                    }
+                },
+            )
+        }
         adminOnly<AddToChannelRoute>(navController) { AddToChannelScreen(onGone = { navController.popBackStack() }) }
         composable<DashboardRoute> { DashboardScreen(onTurnedOff = { navController.navigateTopLevel(TopLevelDestination.Guide) }) }
         navigation<SettingsGraph>(startDestination = SettingsRoute) {
@@ -338,9 +358,9 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         }
         composable<PlayerRoute> {
             PlayerScreen(
-                // The channel's page in On demand takes the player's place, so back leaves to where the channel was opened from.
-                onOpenOnDemand = { channelId ->
-                    navController.navigate(OnDemandChannelRoute(channelId)) { popUpTo<PlayerRoute> { inclusive = true } }
+                // The on-demand player takes the channel's place, so back leaves to where the channel was opened from.
+                onPlayOnDemand = { itemId, position, channelId, atUtcMs ->
+                    navController.navigate(OnDemandPlayRoute(itemId, position, channelId, atUtcMs)) { popUpTo<PlayerRoute> { inclusive = true } }
                 },
             )
         }
@@ -348,6 +368,14 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
 }
 
 private fun NavHostController.navigateTopLevel(destination: TopLevelDestination) {
+    // The start destination stays at the bottom of the stack, so going to it is going back to it.
+    // Restoring state on the way would bring back the screens just popped above it whenever they
+    // were opened without a tab, as the on-demand player's On Demand key opens a channel's page.
+    val start = graph.findStartDestination()
+    if (start.hasRoute(destination.route::class)) {
+        popBackStack(start.id, inclusive = false, saveState = true)
+        return
+    }
     navigate(destination.route) {
         popUpTo(graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true

@@ -141,13 +141,15 @@ internal fun Modifier.edgeShade(color: Color, fade: Dp) = drawBehind {
  * (the screen's, where the ident sits) and gone at [CORNER_REACH] times the element's
  * diagonal, a quarter ellipse a little wider than tall, whatever the ident's own shape, so a
  * short row of typed digits gets the same corner vignette as a tall logo. A broadcaster's
- * corner bug sits on a vignette like this, never on a plate.
+ * corner bug sits on a vignette like this, never on a plate. [atStart] sets it in the top-start
+ * corner instead, behind the on-demand player's way back to its page.
  */
-internal fun Modifier.cornerShade(color: Color) = drawBehind {
+internal fun Modifier.cornerShade(color: Color, atStart: Boolean = false) = drawBehind {
     val rx = hypot(size.width, size.height) * CORNER_REACH
     val ry = rx * 0.8f
-    val rtl = layoutDirection == LayoutDirection.Rtl
-    val corner = if (rtl) Offset.Zero else Offset(size.width, 0f)
+    // The screen's left corner: the end in a right-to-left layout, or the start in a left-to-right one.
+    val left = (layoutDirection == LayoutDirection.Rtl) != atStart
+    val corner = if (left) Offset.Zero else Offset(size.width, 0f)
     val brush = Brush.radialGradient(
         0f to color.copy(alpha = SHADE_DEEPEST),
         0.5f to color.copy(alpha = 0.72f),
@@ -158,7 +160,7 @@ internal fun Modifier.cornerShade(color: Color) = drawBehind {
     )
     // A circle of radius ry around the corner, stretched sideways to rx.
     scale(scaleX = rx / ry, scaleY = 1f, pivot = corner) {
-        drawRect(brush, topLeft = Offset(if (rtl) 0f else corner.x - ry, 0f), size = Size(ry, ry))
+        drawRect(brush, topLeft = Offset(if (left) 0f else corner.x - ry, 0f), size = Size(ry, ry))
     }
 }
 
@@ -272,8 +274,8 @@ internal fun OsdKeys(modifier: Modifier = Modifier, content: @Composable RowScop
     }
 }
 
-/** A key's side padding, which [OsdKeys] lets run into the column's margin. */
-private val KEY_PADDING = 12.dp
+/** A key's side padding, which [OsdKeys] lets run into the column's margin, as the corner keys do. */
+internal val KEY_PADDING = 12.dp
 
 /** How much of the muted ink a key keeps while it can't act. */
 private const val DISABLED_ALPHA = 0.45f

@@ -52,6 +52,8 @@ enum class OnDemandStatus { LOADING, PLAYING, ENDED, RESTRICTED, ERROR }
 
 data class OnDemandState(
     val status: OnDemandStatus = OnDemandStatus.LOADING,
+    /** The item playing, or 0 before one starts. */
+    val itemId: Long = 0,
     /** The show's title for an episode. */
     val title: String? = null,
     /** "S1E4 - Pilot", a movie's year, or null. */
@@ -229,6 +231,18 @@ class OnDemandPlayer @Inject constructor(
         }
     }
 
+    /** Plays [itemId], another episode of the show playing, from [positionMs], then the ones after it. */
+    fun playEpisode(itemId: Long, positionMs: Long) {
+        val episode = episodes.firstOrNull { it.id == itemId } ?: return
+        if (episode.id == queue.firstOrNull()?.item?.id) return
+        endSession(atEnd = false)
+        scope.launch {
+            val entry = resolve(episode, forceTranscode = false) ?: return@launch fail("This can't be played.")
+            follow(episode)
+            start(entry, positionMs)
+        }
+    }
+
     /** Jumps to the next episode, when there is one. */
     fun skipToNext() {
         val player = exo ?: return
@@ -308,6 +322,7 @@ class OnDemandPlayer @Inject constructor(
         _state.update {
             it.copy(
                 status = OnDemandStatus.PLAYING,
+                itemId = item.id,
                 title = programTitle(item.title, item.showTitle),
                 detail = programDetail(item.title, item.showTitle, item.season, item.episode, item.year),
                 logoUrl = entry.logoUrl,

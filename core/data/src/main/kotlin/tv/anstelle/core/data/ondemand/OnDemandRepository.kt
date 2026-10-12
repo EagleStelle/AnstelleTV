@@ -66,7 +66,14 @@ data class EpisodeEntry(
     /** The episode's own still, or null. */
     val stillUrl: String?,
     val durationMs: Long,
-)
+) {
+    /** The tab the episode's season goes under. */
+    val seasonLabel: String get() = when (season) {
+        null -> "Other episodes"
+        0 -> "Specials"
+        else -> "Season $season"
+    }
+}
 
 /** A movie or episode, ready to play. */
 data class ItemPage(
@@ -99,8 +106,6 @@ data class ChannelPage(
     val item: ItemPage,
     /** The show's episodes the profile may watch, in order; empty for a movie. */
     val episodes: List<EpisodeEntry>,
-    /** The show's Jellyfin id, for its episodes' resume points; null for a movie. */
-    val seriesRemoteId: String?,
     /**
      * Set when the profile may not watch the program: then its pictures and overview are
      * blacked out and it can't be played on demand.
@@ -193,19 +198,7 @@ class OnDemandRepository @Inject constructor(
             item = itemPage(entity, series, base).let { page ->
                 if (restriction == null) page else page.copy(overview = null, imageUrl = null, artwork = page.artwork.copy(backdropUrl = null))
             },
-            episodes = episodes.map { episode ->
-                EpisodeEntry(
-                    id = episode.id,
-                    remoteId = episode.remoteId,
-                    season = episode.season,
-                    label = programDetail(episode.title, episode.showTitle ?: "", episode.season, episode.episode, episode.year) ?: episode.title,
-                    facts = GuideRepository.durationLabel(episode.durationMs),
-                    overview = episode.overview?.takeIf { it.isNotBlank() },
-                    stillUrl = base?.let { jellyfinImageUrl(it, episode.remoteId, "Primary", episode.primaryImageTag, maxWidth = STILL_WIDTH) },
-                    durationMs = episode.durationMs,
-                )
-            },
-            seriesRemoteId = entity.seriesRemoteId,
+            episodes = episodes.map { it.toEntry(base) },
             restriction = restriction,
         )
     }
@@ -219,24 +212,48 @@ class OnDemandRepository @Inject constructor(
      * of its episodes, by local item id. Empty when the server can't be reached, or when the
      * profile keeps no watch history there.
      */
-    suspend fun resumePoints(page: ChannelPage, profileId: Long): Map<Long, Long> = withContext(io) {
+    suspend fun resumePoints(page: ChannelPage, profileId: Long): Map<Long, Long> = resumePoints(page.item.id, page.episodes, profileId)
+
+    /**
+     * Where [profileId]'s Jellyfin user stopped in [itemId] or, for an episode, in each of
+     * [episodes] of its show, by local item id; empty as for a channel's page.
+     */
+    suspend fun resumePoints(itemId: Long, episodes: List<EpisodeEntry>, profileId: Long): Map<Long, Long> = withContext(io) {
         try {
-            val item = itemDao.byId(page.item.id) ?: return@withContext emptyMap()
+            val item = itemDao.byId(itemId) ?: return@withContext emptyMap()
             val playstate = playstate(item.serverId, profileId) ?: return@withContext emptyMap()
-            val series = page.seriesRemoteId
+            val series = item.seriesRemoteId
             if (series == null) {
                 mapOf(item.id to playstate.resumePositionMs(item.remoteId)).filterValues { it > 0 }
             } else {
-                val ids = page.episodes.associate { it.remoteId to it.id }
+                val ids = episodes.associate { it.remoteId to it.id }
                 playstate.resumePoints(series).mapNotNull { (remoteId, position) -> ids[remoteId]?.let { it to position } }.toMap()
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            AppLog.w(TAG, "No resume points for item ${page.item.id}: ${e.message}")
+            AppLog.w(TAG, "No resume points for item $itemId: ${e.message}")
             emptyMap()
         }
     }
+
+    /** The show of [itemId] as an episode list shows it: every episode the profile may watch, in order; empty for a movie. */
+    suspend fun episodeList(itemId: Long, access: ProfileAccess): List<EpisodeEntry> = withContext(io) {
+        val item = itemDao.byId(itemId) ?: return@withContext emptyList()
+        val base = serverDao.byId(item.serverId)?.baseUrl
+        showEpisodes(item, access).map { it.toEntry(base) }
+    }
+
+    private fun MediaItemEntity.toEntry(base: String?) = EpisodeEntry(
+        id = id,
+        remoteId = remoteId,
+        season = season,
+        label = programDetail(title, showTitle ?: "", season, episode, year) ?: title,
+        facts = GuideRepository.durationLabel(durationMs),
+        overview = overview?.takeIf { it.isNotBlank() },
+        stillUrl = base?.let { jellyfinImageUrl(it, remoteId, "Primary", primaryImageTag, maxWidth = STILL_WIDTH) },
+        durationMs = durationMs,
+    )
 
     /** Where [profileId]'s Jellyfin user stopped watching [itemId], or 0. */
     suspend fun resumePositionMs(itemId: Long, profileId: Long): Long = withContext(io) {

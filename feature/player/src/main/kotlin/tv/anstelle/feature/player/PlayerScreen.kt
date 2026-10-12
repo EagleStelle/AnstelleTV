@@ -4,14 +4,9 @@ import tv.anstelle.core.theme.components.obscured
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -38,6 +33,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Update
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,6 +84,7 @@ import tv.anstelle.core.data.playback.ProgramInfo
 import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.data.playback.TuneStatus
 import tv.anstelle.core.data.lineUnderLogo
+import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.player.SubtitleOverlays
@@ -125,7 +122,8 @@ private enum class Confirm { START_OVER, ON_DEMAND }
  */
 @Composable
 fun PlayerScreen(
-    onOpenOnDemand: (channelId: Long) -> Unit,
+    /** Plays the program on now on demand from [positionMs]; [channelId] and [atUtcMs] are its airing. */
+    onPlayOnDemand: (itemId: Long, positionMs: Long, channelId: Long, atUtcMs: Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
@@ -298,12 +296,8 @@ fun PlayerScreen(
             else -> if (state.buffering || player == null) Message("Tuning…", subtle = true)
         }
 
-        AnimatedVisibility(
-            visible = bannerVisible,
-            enter = slideInVertically(tween(SNAP_MS)) { it / 2 } + fadeIn(tween(SNAP_MS)),
-            exit = slideOutVertically(tween(SNAP_MS)) { it / 2 } + fadeOut(tween(SNAP_MS)),
-            modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { bannerHeight = it.height },
-        ) {
+        // The banner and the ident come and go at once, as on demand's do: a fade would draw their shades through a layer, banded.
+        if (bannerVisible) Box(Modifier.align(Alignment.BottomCenter).onSizeChanged { bannerHeight = it.height }) {
             // Read again whenever the playback state moves: the keys stay on screen across tunes.
             val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.short }
             val subtitles = remember(state, panel) { viewModel.subtitleOptions().firstOrNull { it.selected }?.short }
@@ -365,14 +359,12 @@ fun PlayerScreen(
             )
         }
         // The channel's corner ident comes and goes with the banner; typed digits take its place while they are entered.
-        AnimatedVisibility(
-            visible = entry.isNotEmpty() || (bannerVisible && state.channel != null),
-            enter = slideInVertically(tween(SNAP_MS)) { -it / 4 } + fadeIn(tween(SNAP_MS)),
-            exit = slideOutVertically(tween(SNAP_MS)) { -it / 4 } + fadeOut(tween(SNAP_MS)),
-            modifier = Modifier.align(Alignment.TopEnd),
-        ) {
+        if (entry.isNotEmpty() || (bannerVisible && state.channel != null)) {
             Box(
-                Modifier.cornerShade(theme.banner).padding(start = 32.dp, top = osdEdge, end = osdSide, bottom = 24.dp),
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .cornerShade(theme.banner)
+                    .padding(start = 32.dp, top = osdEdge, end = osdSide, bottom = 24.dp),
                 contentAlignment = Alignment.TopEnd,
             ) {
                 if (entry.isNotEmpty()) NumberEntry(entry) else state.channel?.let { ChannelIdent(it) }
@@ -395,16 +387,24 @@ fun PlayerScreen(
                     ),
                     onDismiss = { confirm = null },
                 ) { ConfirmHeader("Start over?", program?.title) }
-                Confirm.ON_DEMAND -> ActionDialog(
-                    actions = listOf(
-                        DialogAction("Open On Demand", "Leaves the channel for this program's page.", Icons.Filled.PlayArrow) {
-                            confirm = null
-                            state.channel?.let { onOpenOnDemand(it.id) }
-                        },
-                        stay,
-                    ),
-                    onDismiss = { confirm = null },
-                ) { ConfirmHeader("Open On Demand?", program?.title) }
+                Confirm.ON_DEMAND -> {
+                    // The program leaves the channel for the on-demand player, from its start or from where the channel is.
+                    val elapsed = remember { program?.let { System.currentTimeMillis() - it.startUtcMs } ?: 0L }
+                    val choices = listOfNotNull(
+                        program?.let { WatchChoices.onDemand(it.isEpisode) },
+                        program?.takeIf { elapsed >= WatchChoices.MIN_LIVE_POINT_MS }?.let { WatchChoices.resumeOnDemand(elapsed, it.isEpisode) },
+                    )
+                    ActionDialog(
+                        actions = choices.map { choice ->
+                            DialogAction(choice.title, choice.detail, if (choice.positionMs > 0) Icons.Filled.Update else Icons.Filled.PlayArrow) {
+                                confirm = null
+                                val channel = state.channel
+                                if (program != null && channel != null) onPlayOnDemand(program.mediaItemId, choice.positionMs, channel.id, program.startUtcMs)
+                            }
+                        } + stay,
+                        onDismiss = { confirm = null },
+                    ) { ConfirmHeader("Watch on Demand?", program?.title) }
+                }
             }
         }
     }
@@ -752,9 +752,6 @@ private const val BANNER_MS = 3_000L
 /** Left and right seek this far back and ahead. */
 private const val BACK_MS = 10_000L
 private const val AHEAD_MS = 30_000L
-
-/** The banner and panels snap in: short, no bounce. */
-private const val SNAP_MS = 140
 
 /** Narrower touch screens leave NEXT out of the banner. */
 private val NEXT_MIN_WIDTH = 720.dp
