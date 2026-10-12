@@ -44,7 +44,8 @@ class EnginePerformanceTest {
                 dayparts = if (c % 2 == 0) listOf(Daypart(6 * 60, 9 * 60, maxRatingScore = 7)) else emptyList(),
                 zone = zone,
             )
-            val result = ScheduleEngine.generate(inputs, ScheduleEngine.initialState(inputs, start), start + 30 * DAY)
+            val state = ScheduleEngine.staggered(inputs, ScheduleEngine.initialState(inputs, start), start)
+            val result = ScheduleEngine.generate(inputs, state, start + 30 * DAY)
             result.state.encode()
             slots += result.slots.size
         }

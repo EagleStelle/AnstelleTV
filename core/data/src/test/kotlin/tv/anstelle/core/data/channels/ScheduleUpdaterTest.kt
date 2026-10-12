@@ -127,8 +127,10 @@ class ChannelInputsTest {
         val inputs = ChannelInputs.build(ChannelSetup(channel(movies = PlaybackOrder.EPISODE_ORDER), genres(1, "Western"), emptyList(), emptyList()), Catalog(rows), ZoneOffset.UTC)
         val start = Instant.parse("2026-10-06T00:00:00Z").toEpochMilli()
         val ids = ScheduleEngine.generate(inputs, ScheduleEngine.initialState(inputs, start), start + DAY).slots.let { slots -> List(slots.size) { slots.mediaItemId(it) } }
-        // By year, the movie without one last.
-        assertEquals(listOf(501L, 502, 503, 600, 501, 502), ids.take(6))
+        // By year from wherever the order opens, the movie without one last.
+        val order = listOf(501L, 502, 503, 600)
+        val opening = order.indexOf(ids.first())
+        assertEquals(List(6) { order[(opening + it) % order.size] }, ids.take(6))
     }
 }
 
@@ -167,7 +169,8 @@ class ScheduleUpdaterTest {
 
         assertEquals(mapOf(ScheduleOutcome.CREATED to 1), updater.updateAll(ZoneOffset.UTC))
         val created = slots()
-        assertEquals(Instant.parse("2026-10-06T10:00:00Z").toEpochMilli(), created.first().startUtcMs)
+        // Caught midway, as if the channel had been on air for a while.
+        assertTrue(created.first().startUtcMs <= now && now < created.first().endUtcMs)
         assertTrue(created.last().endUtcMs >= now + ScheduleUpdater.HORIZON_MS)
         assertContiguous(created)
         assertTrue(created.all { it.kind == SlotKind.PROGRAM && it.mediaItemId in 1L..40L })
@@ -255,9 +258,37 @@ class ScheduleUpdaterTest {
 
         now += 40 * DAY
         assertEquals(mapOf(ScheduleOutcome.EXTENDED to 1), updater.updateAll(ZoneOffset.UTC))
-        val restart = Instant.parse("2026-11-15T10:00:00Z").toEpochMilli()
-        assertTrue(slots().none { it.startUtcMs in lastEnd until restart })
-        assertEquals(restart, slots().first { it.startUtcMs >= lastEnd }.startUtcMs)
+        // The restart is caught midway too: its first airing runs across now.
+        val restart = slots().first { it.startUtcMs >= lastEnd }
+        assertTrue(restart.startUtcMs <= now && now < restart.endUtcMs)
+        assertEquals(restart, at(now))
+    }
+
+    @Test
+    fun `channels created together start at different points`() = runTest {
+        for (id in 1L..20L) {
+            channels[id] = channel(id).copy(seed = id)
+            rules[id] = genres(id, "Comedy", "Drama")
+        }
+        updater.updateAll(ZoneOffset.UTC)
+        val starts = (1L..20L).map { id -> slots(id).first().startUtcMs }
+        assertTrue(starts.all { it <= now })
+        assertTrue(starts.toSet().size > 15, "$starts")
+        // Each opens its series at an episode of its own.
+        val openings = (1L..20L).map { id -> slots(id).first().mediaItemId!! % 100 }
+        assertTrue(openings.toSet().size > 10, "$openings")
+    }
+
+    @Test
+    fun `an unreadable state starts over without overlapping what aired`() = runTest {
+        channels[1] = channel()
+        rules[1] = genres(1, "Comedy")
+        updater.updateAll(ZoneOffset.UTC)
+        now += 3 * HOUR
+        scheduleDao.states[1] = scheduleDao.states.getValue(1).copy(stateBlob = byteArrayOf(0))
+
+        assertEquals(mapOf(ScheduleOutcome.CREATED to 1), updater.updateAll(ZoneOffset.UTC))
+        assertContiguous(slots())
         assertTrue(at(now).endUtcMs > now)
     }
 }

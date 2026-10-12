@@ -12,15 +12,13 @@ import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.model.SlotKind
 import tv.anstelle.core.scheduler.PastAiring
 import tv.anstelle.core.scheduler.ScheduleEngine
-import java.time.Instant
 import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /** What updating one channel's schedule did. */
 enum class ScheduleOutcome {
-    /** No stored schedule: generated from the start of the current hour. */
+    /** No stored schedule: generated from a staggered start, with now inside the first program. */
     CREATED,
 
     /** The inputs changed: regenerated after the current and next airings. */
@@ -86,25 +84,27 @@ class ScheduleUpdater @Inject constructor(
 
         when {
             stored == null -> {
-                val start = hourStart(now, zone)
-                val result = ScheduleEngine.generate(inputs, ScheduleEngine.initialState(inputs, start), horizon)
-                schedules.save(channel.id, start, result, hash)
+                val state = ScheduleEngine.staggered(inputs, ScheduleEngine.initialState(inputs, now), now)
+                schedules.save(channel.id, state.nextStartUtcMs, ScheduleEngine.generate(inputs, state, horizon), hash)
                 return ScheduleOutcome.CREATED
             }
             stored.inputsHash != hash -> {
-                val cursor = keepUntil(channel.id, now, zone, catalog)
+                val kept = keepUntil(channel.id, now, catalog)
+                val cursor = kept ?: now
                 val removed = scheduleDao.programItemIdsFrom(channel.id, cursor).toLongArray()
                 // The day before the cursor: what the repeat rules go on from.
                 val aired = scheduleDao.programsBetween(channel.id, cursor - maxOf(inputs.config.movieGapMs, DAY_MS), cursor)
                     .map { PastAiring(it.mediaItemId, it.startUtcMs) }
-                val state = ScheduleEngine.rewind(inputs, stored.state, cursor, removed, aired)
-                schedules.save(channel.id, cursor, ScheduleEngine.generate(inputs, state, horizon), hash)
+                var state = ScheduleEngine.rewind(inputs, stored.state, cursor, removed, aired)
+                // Nothing airs now: the schedule ran out, so it restarts like a new one.
+                if (kept == null) state = ScheduleEngine.staggered(inputs, state, now, notBeforeUtcMs = minOf(stored.generatedUntilUtcMs, now))
+                schedules.save(channel.id, state.nextStartUtcMs, ScheduleEngine.generate(inputs, state, horizon), hash)
                 return ScheduleOutcome.REGENERATED
             }
             stored.generatedUntilUtcMs < horizon - EXTEND_MARGIN_MS -> {
                 var state = stored.state
                 // A schedule that ran out while nobody watched restarts now instead of filling the past.
-                if (state.nextStartUtcMs < now) state = state.copy(nextStartUtcMs = maxOf(state.nextStartUtcMs, hourStart(now, zone)))
+                if (state.nextStartUtcMs < now) state = ScheduleEngine.staggered(inputs, state, now, notBeforeUtcMs = state.nextStartUtcMs)
                 schedules.save(channel.id, state.nextStartUtcMs, ScheduleEngine.generate(inputs, state, horizon), hash)
                 return ScheduleOutcome.EXTENDED
             }
@@ -112,9 +112,12 @@ class ScheduleUpdater @Inject constructor(
         }
     }
 
-    /** Where regeneration starts: after the current and next airings, unless they can't stay. */
-    private suspend fun keepUntil(channelId: Long, now: Long, zone: ZoneId, catalog: Catalog): Long {
-        val current = scheduleDao.slotAt(channelId, now)?.takeIf { now < it.endUtcMs } ?: return hourStart(now, zone)
+    /**
+     * Where regeneration starts: after the current and next airings, unless they can't stay.
+     * Null when nothing airs now.
+     */
+    private suspend fun keepUntil(channelId: Long, now: Long, catalog: Catalog): Long? {
+        val current = scheduleDao.slotAt(channelId, now)?.takeIf { now < it.endUtcMs } ?: return null
         if (!keeps(current.kind, current.mediaItemId, catalog)) return current.startUtcMs
         val next = scheduleDao.slotsFrom(channelId, current.endUtcMs, 1).firstOrNull() ?: return current.endUtcMs
         if (!keeps(next.kind, next.mediaItemId, catalog)) return next.startUtcMs
@@ -123,9 +126,6 @@ class ScheduleUpdater @Inject constructor(
 
     private fun keeps(kind: SlotKind, mediaItemId: Long?, catalog: Catalog) =
         kind == SlotKind.PROGRAM && mediaItemId != null && catalog[mediaItemId] != null
-
-    private fun hourStart(utcMs: Long, zone: ZoneId): Long =
-        Instant.ofEpochMilli(utcMs).atZone(zone).truncatedTo(ChronoUnit.HOURS).toInstant().toEpochMilli()
 
     companion object {
         private const val TAG = "Schedules"

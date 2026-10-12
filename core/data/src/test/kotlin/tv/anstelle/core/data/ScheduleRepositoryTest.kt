@@ -36,6 +36,12 @@ class ScheduleRepositoryTest {
         zone = ZoneOffset.UTC,
     )
 
+    /** The series opens at an episode picked from the seed. */
+    private val opening = ScheduleEngine.generate(inputs, ScheduleEngine.initialState(inputs, start), start + 1).slots.mediaItemId(0)!!
+
+    /** The [n]th episode to air, counted from 1. */
+    private fun ep(n: Int): Long = (opening - 1 + n - 1) % 4 + 1
+
     @Test
     fun savedScheduleAnswersNowPlaying() = runTest {
         val result = ScheduleEngine.generate(inputs, ScheduleEngine.initialState(inputs, start), start + 2 * 60 * minute)
@@ -43,10 +49,10 @@ class ScheduleRepositoryTest {
 
         assertEquals(result.slots.size, dao.slots.size)
         assertEquals(result.slots.nowPlaying(9, start + 5 * minute), repository.nowPlaying(9, start + 5 * minute))
-        // Episodes run back to back, so episode 2 starts at 24 min.
+        // Episodes run back to back, so the second one starts at 24 min.
         val second = repository.nowPlaying(9, start + 30 * minute)!!
         assertEquals(SlotKind.PROGRAM, second.kind)
-        assertEquals(2L, second.mediaItemId)
+        assertEquals(ep(2), second.mediaItemId)
         assertEquals(start + 24 * minute, second.slotStartUtcMs)
         assertEquals(6 * minute, second.mediaPositionMs)
         assertNull(repository.nowPlaying(9, start - 1))
@@ -77,13 +83,13 @@ class ScheduleRepositoryTest {
     fun seekingBackMovesTheRestOfTheScheduleLater() = runTest {
         saveTwoHours()
         val until = repository.stored(9)!!.generatedUntilUtcMs
-        // Ten minutes into episode 1, the viewer starts it over.
+        // Ten minutes into the first episode, the viewer starts it over.
         repository.shift(9, start, 10 * minute)
         assertEquals(
-            listOf(Triple(1L, 0L, 10L), Triple(1L, 10L, 34L), Triple(2L, 34L, 58L), Triple(3L, 58L, 82L), Triple(4L, 82L, 106L), Triple(1L, 106L, 130L)),
+            listOf(Triple(ep(1), 0L, 10L), Triple(ep(1), 10L, 34L), Triple(ep(2), 34L, 58L), Triple(ep(3), 58L, 82L), Triple(ep(4), 82L, 106L), Triple(ep(5), 106L, 130L)),
             layout(),
         )
-        assertEquals(1L, repository.nowPlaying(9, start + 10 * minute)!!.mediaItemId)
+        assertEquals(ep(1), repository.nowPlaying(9, start + 10 * minute)!!.mediaItemId)
         assertEquals(0L, repository.nowPlaying(9, start + 10 * minute)!!.mediaPositionMs)
         val stored = repository.stored(9)!!
         assertEquals(until + 10 * minute, stored.generatedUntilUtcMs)
@@ -91,21 +97,21 @@ class ScheduleRepositoryTest {
 
         // Five more minutes back: the part already shown stays one airing.
         repository.shift(9, start + 10 * minute, 5 * minute)
-        assertEquals(listOf(Triple(1L, 0L, 15L), Triple(1L, 15L, 39L), Triple(2L, 39L, 63L)), layout().take(3))
+        assertEquals(listOf(Triple(ep(1), 0L, 15L), Triple(ep(1), 15L, 39L), Triple(ep(2), 39L, 63L)), layout().take(3))
     }
 
     @Test
     fun seekingAheadMovesItEarlierOverWhatAiredBefore() = runTest {
         saveTwoHours()
-        // Episode 2 began at 24 min; 30 minutes ahead it began at -6, over all of episode 1.
+        // The second episode began at 24 min; 30 minutes ahead it began at -6, over all of the first.
         repository.shift(9, start + 24 * minute, -30 * minute)
         assertEquals(
-            listOf(Triple(2L, -6L, 18L), Triple(3L, 18L, 42L), Triple(4L, 42L, 66L), Triple(1L, 66L, 90L)),
+            listOf(Triple(ep(2), -6L, 18L), Triple(ep(3), 18L, 42L), Triple(ep(4), 42L, 66L), Triple(ep(5), 66L, 90L)),
             layout(),
         )
         // A smaller step ahead cuts the airing before it short instead.
         repository.shift(9, start + 18 * minute, -4 * minute)
-        assertEquals(listOf(Triple(2L, -6L, 14L), Triple(3L, 14L, 38L)), layout().take(2))
+        assertEquals(listOf(Triple(ep(2), -6L, 14L), Triple(ep(3), 14L, 38L)), layout().take(2))
         assertEquals(repository.stored(9)!!.state.nextStartUtcMs, dao.slotsOf(9).last().endUtcMs)
     }
 

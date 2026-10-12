@@ -117,7 +117,7 @@ data class EngineState(
     companion object {
         /** Marks "no item" in [lastItemId] and [DeckState.prevId]. */
         const val NO_ID = Long.MIN_VALUE
-        private const val VERSION = 2
+        private const val VERSION = 3
 
         /** Reads [encode] output. Throws [IllegalArgumentException] for an unknown format. */
         fun decode(blob: ByteArray): EngineState = DataInputStream(ByteArrayInputStream(blob)).use { input ->

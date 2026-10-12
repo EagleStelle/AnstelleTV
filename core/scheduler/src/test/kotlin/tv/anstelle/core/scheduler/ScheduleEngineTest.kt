@@ -43,6 +43,13 @@ class ScheduleEngineTest {
     private fun generate(inputs: ScheduleInputs, days: Int, from: Long = start): ScheduleResult =
         ScheduleEngine.generate(inputs, ScheduleEngine.initialState(inputs, from), from + days * DAY)
 
+    /** The first [count] items of [order], played round and round from [first]. */
+    private fun <T> cycle(order: List<T>, first: T, count: Int): List<T> {
+        val opening = order.indexOf(first)
+        assertTrue(opening >= 0, "$first is not in $order")
+        return List(count) { order[(opening + it) % order.size] }
+    }
+
     /** Every pairing of a series playback with a movie playback. */
     private val everyPlayback = PlaybackOrder.entries.flatMap { series -> PlaybackOrder.entries.map { movies -> series to movies } }
 
@@ -102,6 +109,44 @@ class ScheduleEngineTest {
         assertEquals(from, generate(inputs, 1, from).slots.startUtcMs(0))
     }
 
+    @Test
+    fun staggeredStartsCatchTheFirstProgramMidway() {
+        val now = utc(manila, "2026-10-05T20:47:13")
+        val elapsed = (1L..200L).map { seed ->
+            for (order in PlaybackOrder.entries) {
+                val inputs = inputs(order, seed = seed)
+                val state = ScheduleEngine.staggered(inputs, ScheduleEngine.initialState(inputs, now), now)
+                assertEquals(state, ScheduleEngine.staggered(inputs, ScheduleEngine.initialState(inputs, now), now))
+                val slots = ScheduleEngine.generate(inputs, state, now + DAY).slots
+                assertEquals(state.nextStartUtcMs, slots.startUtcMs(0))
+                assertTrue(slots.startUtcMs(0) <= now && now < slots.endUtcMs(0), "$order, seed $seed")
+            }
+            val inputs = inputs(PlaybackOrder.SHUFFLE, seed = seed)
+            val slots = ScheduleEngine.generate(inputs, ScheduleEngine.staggered(inputs, ScheduleEngine.initialState(inputs, now), now), now + 1).slots
+            (now - slots.startUtcMs(0)).toDouble() / (slots.endUtcMs(0) - slots.startUtcMs(0))
+        }
+        // Spread over the whole program, not bunched at its start.
+        assertTrue(elapsed.min() < 0.1 && elapsed.max() > 0.9, "$elapsed")
+        assertTrue(elapsed.count { it < 0.5 } in 60..140, "$elapsed")
+    }
+
+    @Test
+    fun staggeredStartsNeverMoveBeforeWhatStays() {
+        val now = utc(manila, "2026-10-05T20:47:13")
+        for (seed in 1L..50L) {
+            val inputs = inputs(PlaybackOrder.EPISODE_ORDER, seed = seed)
+            val state = ScheduleEngine.staggered(inputs, ScheduleEngine.initialState(inputs, now), now, notBeforeUtcMs = now - MIN)
+            assertTrue(state.nextStartUtcMs in now - MIN..now)
+        }
+    }
+
+    @Test
+    fun staggeredStartsOffAirAtNow() {
+        val inputs = inputs(PlaybackOrder.EPISODE_ORDER, candidates = emptyList())
+        val now = utc(manila, "2026-10-05T20:47:13")
+        assertEquals(now, ScheduleEngine.staggered(inputs, ScheduleEngine.initialState(inputs, now), now).nextStartUtcMs)
+    }
+
     // endregion
 
     @Test
@@ -142,8 +187,36 @@ class ScheduleEngineTest {
             val episodes = (pool.showStart[show] until pool.showEnd[show]).map { pool.id(it) }
             val played = ids.filter { it in episodes }
             assertTrue(played.size > episodes.size, "show $show should wrap")
-            assertEquals(List(played.size) { episodes[it % episodes.size] }, played)
+            assertEquals(cycle(episodes, played.first(), played.size), played)
         }
+    }
+
+    @Test
+    fun seriesOpenAtAnEpisodeOfTheirOwnThenPlayInOrder() {
+        val candidates = show("s", 0, 20, 30 * MIN)
+        for (order in listOf(PlaybackOrder.EPISODE_ORDER, PlaybackOrder.BLOCKS)) {
+            val openings = (1L..100L).map { seed ->
+                val ids = generate(inputs(order, seed = seed, candidates = candidates, blockSize = 2), 1).slots.programIds()
+                assertEquals(cycle(candidates.map { it.id }, ids.first(), ids.size), ids, "$order, seed $seed")
+                ids.first()
+            }
+            assertTrue(openings.toSet().size > 10, "$order: $openings")
+        }
+    }
+
+    @Test
+    fun seriesOpenAtARegularEpisodeBeforeTheirSpecials() {
+        val candidates = show("s", 0, 3, 30 * MIN) +
+            Candidate(id = 10, durationMs = 30 * MIN, showKey = "s", season = 0, episode = 1) +
+            Candidate(id = 11, durationMs = 30 * MIN, showKey = "s")
+        val openings = (1L..60L).map { seed ->
+            generate(inputs(PlaybackOrder.EPISODE_ORDER, seed = seed, candidates = candidates), 1).slots.programIds().first()
+        }
+        assertEquals(setOf(1L, 2, 3), openings.toSet())
+        // A series of specials alone still opens somewhere.
+        val specials = listOf(10L, 11, 12).map { Candidate(id = it, durationMs = 30 * MIN, showKey = "x", season = 0, episode = it.toInt()) }
+        val opened = (1L..60L).map { seed -> generate(inputs(PlaybackOrder.EPISODE_ORDER, seed = seed, candidates = specials), 1).slots.programIds().first() }
+        assertEquals(setOf(10L, 11, 12), opened.toSet())
     }
 
     @Test
@@ -156,7 +229,8 @@ class ScheduleEngineTest {
             Candidate(id = 5, durationMs = 30 * MIN, showKey = "s"),
         )
         val ids = generate(inputs(PlaybackOrder.EPISODE_ORDER, candidates = candidates), 1).slots.programIds()
-        assertEquals(listOf(4L, 3, 2, 1, 5, 4, 3), ids.take(7))
+        assertTrue(ids.first() in setOf(4L, 3, 2), "opens at a special: $ids")
+        assertEquals(cycle(listOf(4L, 3, 2, 1, 5), ids.first(), 7), ids.take(7))
     }
 
     @Test
@@ -210,7 +284,18 @@ class ScheduleEngineTest {
         val candidates = listOf(movie(1, 90 * MIN, year = 2001), movie(2, 90 * MIN, year = 1975), movie(3, 90 * MIN, year = 1990), movie(4, 90 * MIN))
         val ids = generate(inputs(PlaybackOrder.SHUFFLE, candidates = candidates, movies = Playback(PlaybackOrder.EPISODE_ORDER)), 2).slots.programIds()
         // By release date; the movie without one comes last.
-        assertEquals(listOf(2L, 3, 1, 4, 2, 3, 1, 4), ids.take(8))
+        assertEquals(cycle(listOf(2L, 3, 1, 4), ids.first(), 8), ids.take(8))
+    }
+
+    @Test
+    fun moviesInOrderOpenAtAMovieOfTheirOwn() {
+        val candidates = (1..12L).map { movie(it, 90 * MIN, year = 1960 + it.toInt()) }
+        val openings = (1L..60L).map { seed ->
+            val ids = generate(inputs(PlaybackOrder.SHUFFLE, seed = seed, candidates = candidates, movies = Playback(PlaybackOrder.EPISODE_ORDER)), 1).slots.programIds()
+            assertEquals(cycle(candidates.map { it.id }, ids.first(), ids.size), ids, "seed $seed")
+            ids.first()
+        }
+        assertTrue(openings.toSet().size > 6, "$openings")
     }
 
     @Test
@@ -242,7 +327,7 @@ class ScheduleEngineTest {
         for (deck in episodes) assertEquals(candidates.filter { it.id < 1000 }.map { it.id }.toSet(), deck.toSet())
         // …and the movies in release order.
         val films = ids.filter { it >= 1000 }
-        assertEquals(List(films.size) { 1001L + it % 6 }, films)
+        assertEquals(cycle((1001L..1006L).toList(), films.first(), films.size), films)
     }
 
     // endregion
@@ -437,11 +522,12 @@ class ScheduleEngineTest {
         val result = generate(inputs, 1)
         val rows = result.slots.rows()
         val cut = result.slots.startUtcMs(2)
-        // Episode 3 (the first discarded one) was deleted from the library.
-        val shrunk = inputs(PlaybackOrder.EPISODE_ORDER, candidates = show("a", 0, 10).filter { it.id != 3L })
+        // The first discarded episode was deleted from the library.
+        val deleted = rows[2].mediaItemId!!
+        val shrunk = inputs(PlaybackOrder.EPISODE_ORDER, candidates = show("a", 0, 10).filter { it.id != deleted })
         val state = ScheduleEngine.rewind(shrunk, result.state, cut, rows.drop(2).mapNotNull { it.mediaItemId }.toLongArray(), aired(rows.take(2)))
         val next = ScheduleEngine.generate(shrunk, state, cut + DAY).slots.programIds().first()
-        assertEquals(4L, next)
+        assertEquals(deleted % 10 + 1, next)
     }
 
     @Test

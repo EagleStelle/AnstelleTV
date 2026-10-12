@@ -278,7 +278,10 @@ interface ScheduleDao {
         state(channelId)?.let { upsertState(restate(it)) }
     }
 
-    /** Replaces everything from [fromUtcMs] on and stores the new engine state, atomically. */
+    /**
+     * Replaces everything from [fromUtcMs] on and stores the new engine state, atomically. An
+     * airing running across [fromUtcMs] ends there.
+     */
     @Transaction
     suspend fun replaceFrom(
         channelId: Long,
@@ -287,6 +290,7 @@ interface ScheduleDao {
         state: ScheduleStateEntity,
     ) {
         deleteFrom(channelId, fromUtcMs)
+        cutAt(channelId, fromUtcMs)
         insertSlots(slots)
         upsertState(state)
     }

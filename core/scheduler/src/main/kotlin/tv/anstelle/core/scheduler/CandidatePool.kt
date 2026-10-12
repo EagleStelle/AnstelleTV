@@ -26,7 +26,7 @@ class Candidate(
  * positive duration or weight are dropped.
  *
  * Specials (season 0) sort after the regular seasons, and items without a season or episode
- * number sort last, so a series starts at S1E1. Movies without a release date sort last.
+ * number sort last, so S1E1 comes first. Movies without a release date sort last.
  */
 class CandidatePool private constructor(
     internal val ids: LongArray,
@@ -94,6 +94,9 @@ class CandidatePool private constructor(
     companion object {
         internal const val NO_RATING = Int.MIN_VALUE
 
+        /** The season key of specials; seasons without a number sort after it. */
+        internal const val SPECIALS_SEASON = Int.MAX_VALUE - 1
+
         val EMPTY: CandidatePool by lazy { of(emptyList()) }
 
         fun of(candidates: Collection<Candidate>): CandidatePool {
@@ -138,7 +141,7 @@ class CandidatePool private constructor(
 
         private fun seasonKey(season: Int?): Int = when (season) {
             null -> Int.MAX_VALUE
-            0 -> Int.MAX_VALUE - 1
+            0 -> SPECIALS_SEASON
             else -> season
         }
 

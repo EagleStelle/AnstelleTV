@@ -1,6 +1,7 @@
 package tv.anstelle.core.scheduler
 
 import tv.anstelle.core.model.PlaybackOrder
+import tv.anstelle.core.model.SlotKind
 
 class ScheduleResult(val slots: ScheduleSlots, val state: EngineState)
 
@@ -21,6 +22,7 @@ class PastAiring(val itemId: Long, val startUtcMs: Long)
  *   weight decides (a movie is a show of its own). Each kind then follows its own playback:
  *   SHUFFLE deals every eligible episode, or movie, once per deck; EPISODE_ORDER plays the picked
  *   series' next episode, or the next movie by release date; BLOCKS plays 2–4 of those in a row.
+ *   In order, a series opens at an episode and the movies at a movie picked from the seed.
  * - **Repeats:** an item never airs right after itself, and a movie never starts within
  *   `movieGapMs` of its last start, while anything else on the lineup can air instead. When
  *   nothing else can, the gap gives way first, then the repeat.
@@ -29,6 +31,24 @@ object ScheduleEngine {
     /** A fresh state whose first program starts at [startUtcMs]. */
     fun initialState(inputs: ScheduleInputs, startUtcMs: Long): EngineState =
         EngineState(nextStartUtcMs = startUtcMs, rngState = inputs.config.seed)
+
+    /**
+     * [state] moved back so that [nowUtcMs] falls at a random point of its first program, as if
+     * the channel had been on air for a while: channels started together don't all air from the
+     * top. The point comes from the state, so the same state always gives the same start, and it
+     * is never before [notBeforeUtcMs]. Off air starts at [nowUtcMs]. When a daypart or season
+     * edge falls inside the lead, a different first program may air; the start stays staggered.
+     */
+    fun staggered(inputs: ScheduleInputs, state: EngineState, nowUtcMs: Long, notBeforeUtcMs: Long = Long.MIN_VALUE): EngineState {
+        val first = Run(inputs, state.copy(nextStartUtcMs = nowUtcMs)).generate(nowUtcMs + 1).slots
+        val lead = if (first.size > 0 && first.kind(0) == SlotKind.PROGRAM) {
+            val fraction = SplitMix64(Fingerprint().add(state.rngState).add(STAGGER).value).nextDouble()
+            (fraction * (first.endUtcMs(0) - first.startUtcMs(0))).toLong()
+        } else {
+            0L
+        }
+        return state.copy(nextStartUtcMs = maxOf(nowUtcMs - lead, notBeforeUtcMs))
+    }
 
     /**
      * Generates programs from `state.nextStartUtcMs` until one starts at or after [untilUtcMs].
@@ -390,13 +410,17 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
         return shows[low]
     }
 
-    /** The series' first eligible episode at or after its cursor, wrapping around. */
+    /**
+     * The series' first eligible episode at or after its cursor, wrapping around. A series
+     * without a cursor has not aired yet and starts at its [openingEpisode].
+     */
     private fun peekEpisode(show: Int): Int {
         val from = pool.showStart[show]
         val to = pool.showEnd[show]
         val position = pool.showKeys[show]?.let { showCursors[it] }
-        var start = from
-        if (position != null) {
+        val start = if (position == null) {
+            openingEpisode(show)
+        } else {
             // First item at or after the cursor (binary search over the series' sorted range).
             var low = from
             var high = to
@@ -404,11 +428,28 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
                 val mid = (low + high) ushr 1
                 if (pool.compareKey(mid, position) < 0) low = mid + 1 else high = mid
             }
-            start = low
+            low
         }
         for (i in start until to) if (eligible.itemMask[i]) return i
         for (i in from until start) if (eligible.itemMask[i]) return i
         error("Eligible series without an eligible episode")
+    }
+
+    /**
+     * Where a series opens on this channel: one of its regular episodes, picked from the seed
+     * and the series, so channels don't all open at episode 1. Specials and unnumbered episodes
+     * (sorted last) only open a series that has nothing else.
+     */
+    private fun openingEpisode(show: Int): Int {
+        val from = pool.showStart[show]
+        var low = from
+        var high = pool.showEnd[show]
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (pool.seasonKeys[mid] < CandidatePool.SPECIALS_SEASON) low = mid + 1 else high = mid
+        }
+        val count = (if (low > from) low else pool.showEnd[show]) - from
+        return from + Math.floorMod(Fingerprint().add(config.seed).add(pool.showKeys[show]).value, count.toLong()).toInt()
     }
 
     /** Moves the series' cursor past [index]. */
@@ -419,21 +460,23 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
 
     /**
      * The first eligible movie at or after the release cursor that [level] allows, wrapping
-     * around, or -1; moves the cursor past it.
+     * around, or -1; moves the cursor past it. Before the first one, the release order opens at
+     * a movie picked from the seed, so channels don't all open with the oldest.
      */
     private fun nextMovie(level: Int): Int {
         val movies = eligible.movies
         if (movies.isEmpty()) return -1
-        var start = 0
         val position = movieCursor
-        if (position != null) {
+        val start = if (position == null) {
+            Math.floorMod(Fingerprint().add(config.seed).add(MOVIES).value, movies.size.toLong()).toInt()
+        } else {
             var low = 0
             var high = movies.size
             while (low < high) {
                 val mid = (low + high) ushr 1
                 if (pool.compareRelease(movies[mid], position) < 0) low = mid + 1 else high = mid
             }
-            start = low
+            low
         }
         for (k in movies.indices) {
             val index = movies[(start + k) % movies.size]
@@ -470,6 +513,10 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
         const val ANY = 2
     }
 }
+
+/** Keep the stagger and the movies' opening apart from other hashes of the same values. */
+private const val STAGGER = 1L
+private const val MOVIES = 2L
 
 private fun shuffle(values: IntArray, rng: SplitMix64) {
     for (i in values.size - 1 downTo 1) swap(values, i, rng.nextInt(i + 1))
