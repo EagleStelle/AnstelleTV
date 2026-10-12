@@ -60,4 +60,26 @@ class WatchChoicesTest {
         assertEquals("Add movie to a channel", WatchChoices.addToChannel(isMovie = true).title)
         assertEquals("Add show to a channel", WatchChoices.addToChannel(isMovie = false).title)
     }
+
+    @Test
+    fun `an episode list says how much was watched`() {
+        assertEquals("12 min watched", WatchChoices.watchedFact(12 * 60_000L))
+        assertEquals(null, WatchChoices.watchedFact(0))
+    }
+
+    @Test
+    fun `a resume point near the end counts as watched through`() {
+        val minutes24 = 24 * 60_000L
+        val marks = WatchMarks(resume = mapOf(1L to 6 * 60_000L, 2L to 23 * 60_000L), played = setOf(3L))
+        assertEquals(6 * 60_000L, marks.resumeMs(1, minutes24))
+        assertEquals(false, marks.watched(1, minutes24))
+        // 23 of 24 minutes is past 95%: no resume point, watched instead.
+        assertEquals(0L, marks.resumeMs(2, minutes24))
+        assertEquals(true, marks.watched(2, minutes24))
+        assertEquals(true, marks.watched(3, minutes24))
+        assertEquals(false, marks.watched(4, minutes24))
+        // With no known length, a resume point is neither kept nor taken as watched.
+        assertEquals(0L, marks.resumeMs(1, 0))
+        assertEquals(false, marks.watched(1, 0))
+    }
 }

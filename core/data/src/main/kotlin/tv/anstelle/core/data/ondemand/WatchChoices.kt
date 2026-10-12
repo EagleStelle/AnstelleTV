@@ -28,9 +28,10 @@ enum class WatchKind { LIVE, RESTART, PLAY, ADD_TO_CHANNEL }
 
 /**
  * One way to watch a program: what the control says, one line on what happens, and for
- * [WatchKind.PLAY] where on-demand playback starts.
+ * [WatchKind.PLAY] where on-demand playback starts. [leavesChannel] marks *Watch on Demand* and
+ * *Resume on Demand*, the program on now leaving its channel, so they wear On Demand's icon.
  */
-data class WatchChoice(val kind: WatchKind, val title: String, val detail: String, val positionMs: Long = 0)
+data class WatchChoice(val kind: WatchKind, val title: String, val detail: String, val positionMs: Long = 0, val leavesChannel: Boolean = false)
 
 /**
  * The words for every way to watch, shared by the guide's program actions and a channel's
@@ -55,11 +56,12 @@ object WatchChoices {
      * where it starts and what follows, the one thing that differs from the channel: an episode
      * runs on into the show, a movie leaves the schedule behind.
      */
-    fun onDemand(isEpisode: Boolean) = WatchChoice(WatchKind.PLAY, "Watch on Demand", "From the start, ${onDemandAfter(isEpisode)}.")
+    fun onDemand(isEpisode: Boolean) =
+        WatchChoice(WatchKind.PLAY, "Watch on Demand", "From the start, ${onDemandAfter(isEpisode)}.", leavesChannel = true)
 
     /** The program on now in the on-demand player, from the point the channel has reached. */
     fun resumeOnDemand(elapsedMs: Long, isEpisode: Boolean) =
-        WatchChoice(WatchKind.PLAY, "Resume on Demand", "From ${span(elapsedMs)} in, ${onDemandAfter(isEpisode)}.", elapsedMs)
+        WatchChoice(WatchKind.PLAY, "Resume on Demand", "From ${span(elapsedMs)} in, ${onDemandAfter(isEpisode)}.", elapsedMs, leavesChannel = true)
 
     private fun onDemandAfter(isEpisode: Boolean) = if (isEpisode) "then the next episodes" else "off the schedule"
 
@@ -92,6 +94,9 @@ object WatchChoices {
         if (isMovie) "Add movie to a channel" else "Add show to a channel",
         "Pick a channel to always air it.",
     )
+
+    /** An episode list's word on where it was left, "12 min watched", or null; its still says when it was watched through. */
+    fun watchedFact(resumeMs: Long): String? = resumeMs.takeIf { it > 0 }?.let { "${span(it)} watched" }
 
     /** "18 min", "1 h 4 min"; [roundUp] counts a started minute as whole, for time left. */
     fun span(ms: Long, roundUp: Boolean = false): String {

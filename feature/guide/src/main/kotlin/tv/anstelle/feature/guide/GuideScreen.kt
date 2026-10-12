@@ -30,10 +30,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -101,6 +97,7 @@ import tv.anstelle.core.theme.components.screenEdge
 import tv.anstelle.core.theme.components.screenGap
 import tv.anstelle.core.theme.components.screenSide
 import tv.anstelle.core.theme.components.TitleLogo
+import tv.anstelle.core.theme.components.WatchIcons
 import tv.anstelle.core.theme.components.PlaceholderAction
 import tv.anstelle.core.theme.components.PlaceholderScreen
 
@@ -802,10 +799,10 @@ private fun ProgramActions(
     val theme = LocalAnstelleTheme.current
     val actions = choices.map { choice ->
         when (choice.kind) {
-            WatchKind.LIVE -> DialogAction(choice.title, choice.detail, Icons.Filled.LiveTv, onWatch)
-            WatchKind.RESTART -> DialogAction(choice.title, choice.detail, Icons.Filled.Replay, onStartOver)
-            WatchKind.PLAY -> DialogAction(choice.title, choice.detail, Icons.Filled.PlayArrow) { onPlay(choice.positionMs) }
-            WatchKind.ADD_TO_CHANNEL -> DialogAction(choice.title, choice.detail, Icons.AutoMirrored.Filled.PlaylistAdd, onAddToChannel)
+            WatchKind.LIVE -> DialogAction(choice.title, choice.detail, WatchIcons.Live, onWatch)
+            WatchKind.RESTART -> DialogAction(choice.title, choice.detail, WatchIcons.StartOver, onStartOver)
+            WatchKind.PLAY -> DialogAction(choice.title, choice.detail, WatchIcons.play(choice.positionMs, choice.leavesChannel)) { onPlay(choice.positionMs) }
+            WatchKind.ADD_TO_CHANNEL -> DialogAction(choice.title, choice.detail, WatchIcons.AddToChannel, onAddToChannel)
         }
     }
     ActionDialog(actions, onDismiss) {

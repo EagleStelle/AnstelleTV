@@ -27,8 +27,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -131,11 +135,20 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, top: Dp = 16.dp) {
 
 /**
  * A tab: flat text, the open one underlined in the accent; focus fills it. [count] is set in
- * tabular figures after the label. [compact] tabs (the guide's, on TV) take a smaller label
- * and less height, so the grid under them keeps its rows.
+ * tabular figures after the label; a [done] tab (a season watched through) carries the watched
+ * square in its place. [compact] tabs (the guide's, on TV) take a smaller label and less
+ * height, so the grid under them keeps its rows.
  */
 @Composable
-fun OsdTab(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, count: Int? = null, compact: Boolean = false) {
+fun OsdTab(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    count: Int? = null,
+    compact: Boolean = false,
+    done: Boolean = false,
+) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     FocusSurface(onClick = onClick, color = Color.Transparent, modifier = modifier) { focused ->
@@ -147,23 +160,30 @@ fun OsdTab(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modi
                 else -> theme.textMuted
             }
             val typography = androidx.compose.material3.MaterialTheme.typography
-            androidx.compose.material3.Text(
-                buildAnnotatedString {
-                    append(label)
-                    if (count != null) {
-                        withStyle(SpanStyle(color = color.copy(alpha = 0.7f))) { append("  $count") }
-                    }
-                },
-                style = (if (compact) typography.titleSmall else typography.titleMedium).merge(
-                    TextStyle(fontFamily = theme.displayFont, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"),
-                ),
-                color = color,
-                maxLines = 1,
-                modifier = Modifier.padding(
+            Row(
+                Modifier.padding(
                     horizontal = if (isTv) (if (compact) 14.dp else 16.dp) else 12.dp,
                     vertical = if (isTv) (if (compact) 6.dp else 9.dp) else 10.dp,
                 ),
-            )
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                androidx.compose.material3.Text(
+                    buildAnnotatedString {
+                        append(label)
+                        if (count != null && !done) {
+                            withStyle(SpanStyle(color = color.copy(alpha = 0.7f))) { append("  $count") }
+                        }
+                    },
+                    style = (if (compact) typography.titleSmall else typography.titleMedium).merge(
+                        TextStyle(fontFamily = theme.displayFont, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"),
+                    ),
+                    color = color,
+                    maxLines = 1,
+                )
+                // The square follows the label's ink, its tick cut in whatever the tab sits on.
+                if (done) WatchedMarker(color = color, tick = if (focused) theme.accent else theme.background)
+            }
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -264,6 +284,71 @@ fun AirMarker(onAir: Boolean, modifier: Modifier = Modifier, color: Color = Loca
         } else {
             val stroke = 1.5.dp.toPx()
             drawRect(color, topLeft = Offset(stroke / 2, stroke / 2), size = Size(size.width - stroke, size.height - stroke), style = Stroke(stroke))
+        }
+    }
+}
+
+/**
+ * The guide's dark wash over the hours that have aired, and over the stills of episodes
+ * watched through: time that has gone by, for the channel or for you.
+ */
+val PastShade = Color(0x33000000)
+
+/**
+ * Watched through: the third of the air marker's squares, solid in [color] with a tick cut
+ * through it in [tick]. Never the accent: the accent means here and now, and this is done.
+ * [description] names it for screen readers; null where a word beside it already does.
+ */
+@Composable
+fun WatchedMarker(
+    modifier: Modifier = Modifier,
+    color: Color = LocalAnstelleTheme.current.text,
+    tick: Color = LocalAnstelleTheme.current.background,
+    description: String? = "Watched",
+) {
+    Canvas(modifier.size(10.dp).let { if (description != null) it.semantics { contentDescription = description } else it }) {
+        drawRect(color)
+        val w = size.width
+        val h = size.height
+        val path = Path().apply {
+            moveTo(w * 0.2f, h * 0.52f)
+            lineTo(w * 0.42f, h * 0.74f)
+            lineTo(w * 0.8f, h * 0.3f)
+        }
+        drawPath(path, tick, style = Stroke(width = w * 0.17f, cap = StrokeCap.Square, join = StrokeJoin.Miter))
+    }
+}
+
+/**
+ * What was watched of an episode, on a strip of the wash across its still's foot: the minutes
+ * watched as a ladder in the accent (where you left it is where you are), and once watched
+ * through the watched square with WATCHED in the field voice, the way a status line says
+ * AIRED. Watching one again shows the square before the ladder. One height in every state,
+ * so a list of stills keeps one line. Show it only when [fraction] is above 0 or [watched].
+ */
+@Composable
+fun WatchStrip(fraction: Float, watched: Boolean, modifier: Modifier = Modifier, segments: Int = 12) {
+    val theme = LocalAnstelleTheme.current
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(16.dp)
+            .background(theme.background.copy(alpha = 0.8f))
+            .padding(horizontal = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        val spot = fraction > 0f
+        if (watched) WatchedMarker(description = if (spot) "Watched" else null)
+        if (spot) {
+            SegmentLadder(fraction, Modifier.weight(1f), segments = segments)
+        } else if (watched) {
+            androidx.compose.material3.Text(
+                "WATCHED",
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                color = theme.text,
+                maxLines = 1,
+            )
         }
     }
 }

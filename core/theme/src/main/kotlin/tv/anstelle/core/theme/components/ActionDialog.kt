@@ -71,6 +71,11 @@ fun ActionDialog(actions: List<DialogAction>, onDismiss: () -> Unit, header: @Co
             Modifier
                 .fillMaxSize()
                 .onPreviewKeyEvent { event ->
+                    // Back closes in one press: left to the focus system, it would first only clear the focused row.
+                    if (event.key == Key.Back) {
+                        if (event.type == KeyEventType.KeyUp) onDismiss()
+                        return@onPreviewKeyEvent true
+                    }
                     if (armed || event.key !in HeldKeys) return@onPreviewKeyEvent false
                     val fresh = event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0
                     if (fresh) {

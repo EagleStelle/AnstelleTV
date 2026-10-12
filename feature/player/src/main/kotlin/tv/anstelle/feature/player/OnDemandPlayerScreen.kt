@@ -88,6 +88,7 @@ import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.data.ondemand.EpisodeEntry
 import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.ondemand.WatchChoices
+import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.data.playback.ChannelPlayer
 import tv.anstelle.core.data.playback.OnDemandPlayer
 import tv.anstelle.core.data.playback.OnDemandState
@@ -109,12 +110,14 @@ import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.StandInSize
 import tv.anstelle.core.theme.components.TitleLogo
+import tv.anstelle.core.theme.components.PastShade
+import tv.anstelle.core.theme.components.WatchStrip
 
 import javax.inject.Inject
 
-/** The show playing, for the banner's episode strip: every episode the profile may watch, and where it stopped in each. */
+/** The show playing, for the banner's episode strip: every episode the profile may watch, and what of each it watched. */
 @Immutable
-internal data class ShowEpisodes(val episodes: List<EpisodeEntry>, val resume: Map<Long, Long> = emptyMap())
+internal data class ShowEpisodes(val episodes: List<EpisodeEntry>, val watch: WatchMarks = WatchMarks())
 
 @HiltViewModel
 class OnDemandPlayerViewModel @Inject constructor(
@@ -151,14 +154,14 @@ class OnDemandPlayerViewModel @Inject constructor(
         }
     }
 
-    /** Reads the show playing for the episode strip: its episodes once, the resume points every time it opens. */
+    /** Reads the show playing for the episode strip: its episodes once, what was watched every time it opens. */
     fun loadEpisodes() {
         val playing = state.value.itemId.takeIf { it != 0L } ?: return
         val profileAccess = access ?: return
         viewModelScope.launch {
             val list = _episodes.value?.episodes?.takeIf { known -> known.any { it.id == playing } } ?: onDemand.episodeList(playing, profileAccess)
-            _episodes.value = ShowEpisodes(list, _episodes.value?.resume.orEmpty())
-            _episodes.value = ShowEpisodes(list, onDemand.resumePoints(playing, list, profileId))
+            _episodes.value = ShowEpisodes(list, _episodes.value?.watch ?: WatchMarks())
+            _episodes.value = ShowEpisodes(list, onDemand.watchMarks(playing, list, profileId))
         }
     }
 
@@ -235,9 +238,11 @@ fun OnDemandPlayerScreen(
     LandscapeFullScreen()
     // Opening the player brings the banner up with a key highlighted on TV.
     LaunchedEffect(Unit) { if (isTv) panel = DemandPanel.CONTROLS }
-    LaunchedEffect(overlay, state.playing) {
+    // Picking an episode takes reading: the strip stays up until one is picked or Back closes it.
+    val browsingEpisodes = panel == DemandPanel.EPISODES
+    LaunchedEffect(overlay, state.playing, browsingEpisodes) {
         overlayVisible = true
-        if (state.playing) {
+        if (state.playing && !browsingEpisodes) {
             // With no key pressed for a while, the banner goes, highlighted key and all.
             delay(OVERLAY_MS)
             overlayVisible = false
@@ -495,10 +500,19 @@ private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode:
                 list == null -> Unit
                 list.isEmpty() -> androidx.compose.material3.Text("NONE TO WATCH", style = typography.labelMedium, color = theme.textMuted)
                 seasons.size > 1 -> LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val watch = show?.watch
                     items(seasons.keys.toList(), key = { it }) { key ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (key == playingSeason) AirMarker(onAir = true, modifier = Modifier.padding(start = 6.dp))
-                            OsdTab(key, selected = key == season, onClick = { season = key }, count = seasons.getValue(key).size, compact = true)
+                            val episodes = seasons.getValue(key)
+                            OsdTab(
+                                key,
+                                selected = key == season,
+                                onClick = { season = key },
+                                count = episodes.size,
+                                compact = true,
+                                done = watch != null && episodes.all { watch.watched(it.id, it.durationMs) },
+                            )
                         }
                     }
                 }
@@ -516,11 +530,12 @@ private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode:
             }
             LazyRow(state = listState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(shown, key = { it.id }) { episode ->
-                    val resume = show?.resume?.get(episode.id)?.takeIf { it < episode.durationMs * RESUME_LIMIT_PERCENT / 100 } ?: 0
+                    val resume = show?.watch?.resumeMs(episode.id, episode.durationMs) ?: 0
                     EpisodeCard(
                         episode = episode,
                         playing = episode.id == playingId,
                         resumeMs = resume,
+                        watched = show?.watch?.watched(episode.id, episode.durationMs) == true,
                         onClick = { onPick(episode, resume) },
                         modifier = if (episode.id == target.id) Modifier.focusRequester(targetFocus) else Modifier,
                     )
@@ -531,12 +546,14 @@ private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode:
 }
 
 /**
- * One episode in the strip, a channel tile's way: its still (with how far it was watched) in a
- * small inset, its number and title, then PLAYING behind the on-air square or its length.
- * Focus fills the whole card rose, so the still sits in a rose frame.
+ * One episode in the strip, a channel tile's way: its still in a small inset, what was watched
+ * at its foot ([WatchStrip]), its number and title, then PLAYING behind the on-air square or
+ * its length. One watched through reads as aired, as on a channel's page: the still under the
+ * past shade and the title quiet, except the one playing. Focus fills the whole card rose, so
+ * the still sits in a rose frame.
  */
 @Composable
-private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long, watched: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
@@ -547,23 +564,26 @@ private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long,
                 episode.stillUrl?.let {
                     AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 }
-                if (resumeMs > 0 && episode.durationMs > 0) {
-                    SegmentLadder(
-                        resumeMs.toFloat() / episode.durationMs,
-                        Modifier.align(Alignment.BottomStart).background(theme.background.copy(alpha = 0.8f)).padding(horizontal = 5.dp, vertical = 4.dp),
-                        segments = 12,
-                    )
-                }
+                val aired = watched && !playing
+                if (aired) Box(Modifier.matchParentSize().background(PastShade))
+                val fraction = if (episode.durationMs > 0) resumeMs.toFloat() / episode.durationMs else 0f
+                if (fraction > 0f || watched) WatchStrip(fraction, watched, Modifier.align(Alignment.BottomStart))
             }
             Column(Modifier.padding(start = 3.dp, end = 3.dp, bottom = 3.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                androidx.compose.material3.Text(episode.label, style = typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                androidx.compose.material3.Text(
+                    episode.label,
+                    style = typography.titleSmall,
+                    color = if (watched && !playing && !focused) theme.textMuted else Color.Unspecified,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 if (playing) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         AirMarker(onAir = true, color = ink)
                         androidx.compose.material3.Text("PLAYING", style = typography.labelMedium, color = ink)
                     }
                 } else {
-                    val facts = listOfNotNull(episode.facts, resumeMs.takeIf { it > 0 }?.let { "${WatchChoices.span(it)} watched" }).joinToString("  ")
+                    val facts = listOfNotNull(episode.facts, WatchChoices.watchedFact(resumeMs)).joinToString("  ")
                     if (facts.isNotEmpty()) {
                         androidx.compose.material3.Text(
                             facts,
@@ -727,8 +747,5 @@ private const val BACK_MS = 10_000L
 private const val AHEAD_MS = 30_000L
 private const val OVERLAY_MS = 3_000L
 private const val POSITION_MS = 500L
-
-/** A resume point this close to the end counts as watched through, as on a channel's page in On demand. */
-private const val RESUME_LIMIT_PERCENT = 95
 
 private val ConfirmKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.Menu, Key.Info)

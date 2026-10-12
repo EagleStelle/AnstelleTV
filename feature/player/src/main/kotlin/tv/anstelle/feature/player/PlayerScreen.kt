@@ -30,10 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
 
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Subtitles
-import androidx.compose.material.icons.filled.Update
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -100,6 +97,7 @@ import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.ChannelLogo
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.TitleLogo
+import tv.anstelle.core.theme.components.WatchIcons
 
 import java.text.DateFormat
 import java.util.Date
@@ -162,7 +160,7 @@ fun PlayerScreen(
     // The banner's height, so the subtitles can step above it while it is up.
     var bannerHeight by remember { mutableIntStateOf(0) }
     // Back hides the banner, whatever has focus in it, and only then leaves the player.
-    BackHandler(enabled = bannerVisible) {
+    BackHandler(enabled = bannerVisible && confirm == null) {
         panel = null
         bannerVisible = false
     }
@@ -207,6 +205,8 @@ fun PlayerScreen(
             .onPreviewKeyEvent { event ->
                 // Back hides the banner in one press: left to the focus system, it would first only move focus off the key.
                 if (event.key == Key.Back) {
+                    // A dialog owns Back: it closes like Keep watching, and the banner stays.
+                    if (confirm != null) return@onPreviewKeyEvent false
                     if (event.type == KeyEventType.KeyDown && bannerVisible) backHeld = true
                     if (!backHeld) return@onPreviewKeyEvent false
                     if (event.type == KeyEventType.KeyUp) {
@@ -323,7 +323,7 @@ fun PlayerScreen(
                             val program = state.now
                             OsdKey(
                                 "On demand",
-                                Icons.Filled.PlayArrow,
+                                WatchIcons.OnDemand,
                                 enabled = program != null && program.mediaItemId != 0L && !program.restricted,
                                 onClick = {
                                     returnKey = onDemandKey
@@ -331,7 +331,7 @@ fun PlayerScreen(
                                 },
                                 modifier = Modifier.focusRequester(onDemandKey),
                             )
-                            OsdKey("Start over", Icons.Filled.Replay, onClick = {
+                            OsdKey("Start over", WatchIcons.StartOver, onClick = {
                                 returnKey = startOverKey
                                 confirm = Confirm.START_OVER
                             }, Modifier.focusRequester(startOverKey))
@@ -378,7 +378,7 @@ fun PlayerScreen(
             when (asked) {
                 Confirm.START_OVER -> ActionDialog(
                     actions = listOf(
-                        DialogAction("Start over", "Rewinds the channel to 0:00.", Icons.Filled.Replay) {
+                        DialogAction(WatchChoices.restart.title, WatchChoices.restart.detail, WatchIcons.StartOver) {
                             confirm = null
                             viewModel.restart()
                             bannerRequest++
@@ -396,7 +396,7 @@ fun PlayerScreen(
                     )
                     ActionDialog(
                         actions = choices.map { choice ->
-                            DialogAction(choice.title, choice.detail, if (choice.positionMs > 0) Icons.Filled.Update else Icons.Filled.PlayArrow) {
+                            DialogAction(choice.title, choice.detail, WatchIcons.play(choice.positionMs, choice.leavesChannel)) {
                                 confirm = null
                                 val channel = state.channel
                                 if (program != null && channel != null) onPlayOnDemand(program.mediaItemId, choice.positionMs, channel.id, program.startUtcMs)

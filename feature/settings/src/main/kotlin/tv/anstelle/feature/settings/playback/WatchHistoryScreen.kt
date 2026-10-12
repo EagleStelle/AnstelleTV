@@ -3,8 +3,6 @@ package tv.anstelle.feature.settings.playback
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.InsertChart
-import androidx.compose.material.icons.filled.OndemandVideo
-import androidx.compose.material.icons.filled.Tv
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -37,6 +35,7 @@ import tv.anstelle.core.model.codeOf
 import tv.anstelle.core.theme.components.ChoiceRow
 import tv.anstelle.core.theme.components.SettingsPage
 import tv.anstelle.core.theme.components.SwitchRow
+import tv.anstelle.core.theme.components.WatchIcons
 import tv.anstelle.core.theme.components.rememberInitialFocus
 import tv.anstelle.core.theme.components.section
 import tv.anstelle.feature.dashboard.DashboardOffDialog
@@ -45,8 +44,8 @@ import javax.inject.Inject
 
 /** Where playback happens, each with its own [WatchSync] setting for each profile. */
 enum class SyncPlace(val title: String, val icon: ImageVector, val key: (profileId: Long) -> SettingKey.IntKey) {
-    LIVE_TV("Live TV", Icons.Filled.Tv, Settings::liveTvSync),
-    ON_DEMAND("On Demand", Icons.Filled.OndemandVideo, Settings::onDemandSync),
+    LIVE_TV("Live TV", WatchIcons.Live, Settings::liveTvSync),
+    ON_DEMAND("On Demand", WatchIcons.OnDemand, Settings::onDemandSync),
 }
 
 @Immutable

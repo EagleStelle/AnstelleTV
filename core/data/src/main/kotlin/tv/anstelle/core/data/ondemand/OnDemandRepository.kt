@@ -75,6 +75,25 @@ data class EpisodeEntry(
     }
 }
 
+/**
+ * What the profile's Jellyfin user has watched of a program and its show's episodes, by local
+ * item id: where it stopped in each, and which it has marked played.
+ */
+data class WatchMarks(val resume: Map<Long, Long> = emptyMap(), val played: Set<Long> = emptySet()) {
+    /** Where to pick item [id] up again, or 0 to play it from the start. */
+    fun resumeMs(id: Long, durationMs: Long): Long = resume[id]?.takeIf { it < nearEnd(durationMs) } ?: 0
+
+    /** Whether item [id] was watched through: marked played, or left this close to its end. */
+    fun watched(id: Long, durationMs: Long): Boolean = id in played || (durationMs > 0 && (resume[id] ?: 0) >= nearEnd(durationMs))
+
+    private fun nearEnd(durationMs: Long) = durationMs * RESUME_LIMIT_PERCENT / 100
+
+    private companion object {
+        /** A resume point this close to the end counts as watched through. */
+        const val RESUME_LIMIT_PERCENT = 95
+    }
+}
+
 /** A movie or episode, ready to play. */
 data class ItemPage(
     val id: Long,
@@ -115,7 +134,7 @@ data class ChannelPage(
 
 /**
  * On demand from SQLite: what every channel airs, a channel's program and its show. Only
- * resume points ask the server. `access` is what the watching profile may watch: its maturity
+ * resume points and played marks ask the server. `access` is what the watching profile may watch: its maturity
  * rating limit (unrated items never pass one) and what its Jellyfin users can't see. Channels
  * are the same for every profile, so what a channel airs beyond that is still listed, blacked
  * out.
@@ -208,32 +227,36 @@ class OnDemandRepository @Inject constructor(
         scheduleDao.restrictedUntil(channelId, fromUtcMs, access.limit, access.profileId)?.coerceAtLeast(fromUtcMs) ?: fromUtcMs
 
     /**
-     * Where [profileId]'s Jellyfin user stopped in the page's program and, for a show, in each
-     * of its episodes, by local item id. Empty when the server can't be reached, or when the
-     * profile keeps no watch history there.
+     * What [profileId]'s Jellyfin user watched of the page's program and, for a show, of each of
+     * its episodes. Empty when the server can't be reached, or when the profile keeps no watch
+     * history there.
      */
-    suspend fun resumePoints(page: ChannelPage, profileId: Long): Map<Long, Long> = resumePoints(page.item.id, page.episodes, profileId)
+    suspend fun watchMarks(page: ChannelPage, profileId: Long): WatchMarks = watchMarks(page.item.id, page.episodes, profileId)
 
     /**
-     * Where [profileId]'s Jellyfin user stopped in [itemId] or, for an episode, in each of
-     * [episodes] of its show, by local item id; empty as for a channel's page.
+     * What [profileId]'s Jellyfin user watched of [itemId] or, for an episode, of each of
+     * [episodes] of its show, in one request; empty as for a channel's page.
      */
-    suspend fun resumePoints(itemId: Long, episodes: List<EpisodeEntry>, profileId: Long): Map<Long, Long> = withContext(io) {
+    suspend fun watchMarks(itemId: Long, episodes: List<EpisodeEntry>, profileId: Long): WatchMarks = withContext(io) {
         try {
-            val item = itemDao.byId(itemId) ?: return@withContext emptyMap()
-            val playstate = playstate(item.serverId, profileId) ?: return@withContext emptyMap()
+            val item = itemDao.byId(itemId) ?: return@withContext WatchMarks()
+            val playstate = playstate(item.serverId, profileId) ?: return@withContext WatchMarks()
             val series = item.seriesRemoteId
             if (series == null) {
-                mapOf(item.id to playstate.resumePositionMs(item.remoteId)).filterValues { it > 0 }
+                WatchMarks(resume = mapOf(item.id to playstate.resumePositionMs(item.remoteId)).filterValues { it > 0 })
             } else {
                 val ids = episodes.associate { it.remoteId to it.id }
-                playstate.resumePoints(series).mapNotNull { (remoteId, position) -> ids[remoteId]?.let { it to position } }.toMap()
+                val watched = playstate.episodeWatch(series).mapNotNull { (remoteId, watch) -> ids[remoteId]?.let { it to watch } }
+                WatchMarks(
+                    resume = watched.filter { it.second.positionMs > 0 }.associate { (id, watch) -> id to watch.positionMs },
+                    played = watched.filter { it.second.played }.map { it.first }.toSet(),
+                )
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            AppLog.w(TAG, "No resume points for item $itemId: ${e.message}")
-            emptyMap()
+            AppLog.w(TAG, "No watch marks for item $itemId: ${e.message}")
+            WatchMarks()
         }
     }
 

@@ -56,7 +56,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -87,6 +86,7 @@ import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.components.ChannelLogo
+import tv.anstelle.core.theme.components.PastShade
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.max
@@ -755,7 +755,6 @@ private fun cellShape(): Shape {
     return remember(radius) { RoundedCornerShape(radius.dp) }
 }
 
-private val PastShade = Color(0x33000000)
 private const val MARGIN_MS = 30 * 60_000L
 private const val PAGE_MS = 180
 

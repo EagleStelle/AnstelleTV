@@ -24,12 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Update
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -46,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -78,6 +73,7 @@ import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.ondemand.WatchChoice
 import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.data.ondemand.WatchKind
+import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
@@ -90,6 +86,9 @@ import tv.anstelle.core.theme.components.OsdTab
 import tv.anstelle.core.theme.components.SectionLabel
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.StatusLine
+import tv.anstelle.core.theme.components.WatchIcons
+import tv.anstelle.core.theme.components.PastShade
+import tv.anstelle.core.theme.components.WatchStrip
 import tv.anstelle.core.theme.components.screenGap
 import javax.inject.Inject
 
@@ -99,8 +98,8 @@ data class ChannelUiState(
     val loaded: Boolean = false,
     /** When the page was read: the program stays the page's topic even after it ends. */
     val openedAtMs: Long = 0,
-    /** Jellyfin's resume points for the program and its show's episodes, by item id. */
-    val resume: Map<Long, Long> = emptyMap(),
+    /** Jellyfin's resume points and played marks for the program and its show's episodes. */
+    val watch: WatchMarks = WatchMarks(),
 )
 
 @HiltViewModel
@@ -129,16 +128,16 @@ class ChannelViewModel @Inject constructor(
             val now = time.nowUtcMs()
             val at = atUtcMs.takeIf { it > 0 } ?: now
             _state.value = ChannelUiState(repository.channelPage(channelId, at, access), loaded = true, openedAtMs = now)
-            refreshResume()
+            refreshWatch()
         }
     }
 
-    /** Reads the resume points again, e.g. after watching some of it. */
-    fun refreshResume() {
+    /** Reads what was watched again, e.g. after watching some of it. */
+    fun refreshWatch() {
         val page = _state.value.page ?: return
         viewModelScope.launch {
-            val resume = repository.resumePoints(page, profileId)
-            _state.update { it.copy(resume = resume) }
+            val watch = repository.watchMarks(page, profileId)
+            _state.update { it.copy(watch = watch) }
         }
     }
 }
@@ -162,7 +161,7 @@ fun ChannelScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LifecycleResumeEffect(viewModel) {
-        viewModel.refreshResume()
+        viewModel.refreshWatch()
         onPauseOrDispose {}
     }
     val page = state.page
@@ -248,7 +247,10 @@ fun ChannelScreen(
         }
         if (seasons.size > 1) {
             item(key = "seasons") {
-                SeasonTabs(seasons, season, topicSeason = topicEpisode?.seasonLabel) { season = it }
+                val done = remember(seasons, state.watch) {
+                    seasons.filterValues { list -> list.all { state.watch.watched(it.id, it.durationMs) } }.keys
+                }
+                SeasonTabs(seasons, season, topicSeason = topicEpisode?.seasonLabel, done = done) { season = it }
             }
         } else if (page.episodes.isNotEmpty()) {
             // The keys sit one gap above it, as the hero sits above them.
@@ -256,11 +258,12 @@ fun ChannelScreen(
         }
         items(shown, key = { it.id }) { episode ->
             val isTopic = episode.id == item.id
-            val resume = state.resume[episode.id]?.takeIf { it < episode.durationMs * RESUME_LIMIT_PERCENT / 100 } ?: 0
+            val resume = state.watch.resumeMs(episode.id, episode.durationMs)
             EpisodeRow(
                 episode = episode,
                 airing = if (isTopic) airingStatus(page, clock.value) else null,
                 resumeMs = resume,
+                watched = state.watch.watched(episode.id, episode.durationMs),
                 onClick = {
                     lastTouched = episode.id
                     onPlay(episode.id, resume)
@@ -277,7 +280,7 @@ fun ChannelScreen(
     }
 
     holding?.let { episode ->
-        val resume = state.resume[episode.id]?.takeIf { it < episode.durationMs * RESUME_LIMIT_PERCENT / 100 } ?: 0
+        val resume = state.watch.resumeMs(episode.id, episode.durationMs)
         // The episode on the channel offers what the page's actions do, live included.
         val episodeChoices = if (episode.id == item.id) {
             choices + listOfNotNull(WatchChoices.addToChannel(isMovie = false).takeIf { onAddToChannel != null })
@@ -349,11 +352,10 @@ private fun topicChoices(page: ChannelPage, nowMs: Long): List<WatchChoice> {
 }
 
 private fun WatchChoice.icon() = when (kind) {
-    WatchKind.LIVE -> Icons.Filled.LiveTv
-    WatchKind.RESTART -> Icons.Filled.Replay
-    WatchKind.ADD_TO_CHANNEL -> Icons.AutoMirrored.Filled.PlaylistAdd
-    // Picking up partway reads apart from playing from the start.
-    WatchKind.PLAY -> if (positionMs > 0) Icons.Filled.Update else Icons.Filled.PlayArrow
+    WatchKind.LIVE -> WatchIcons.Live
+    WatchKind.RESTART -> WatchIcons.StartOver
+    WatchKind.ADD_TO_CHANNEL -> WatchIcons.AddToChannel
+    WatchKind.PLAY -> WatchIcons.play(positionMs, leavesChannel)
 }
 
 /**
@@ -481,9 +483,12 @@ private fun airingStatus(page: ChannelPage, nowMs: Long): AiringStatus {
     }
 }
 
-/** The show's seasons as tabs, with their episode counts; the one on the channel carries the on-air square. */
+/**
+ * The show's seasons as tabs, with their episode counts; the one on the channel carries the
+ * on-air square, and one watched through the watched square in place of its count.
+ */
 @Composable
-private fun SeasonTabs(seasons: Map<String, List<EpisodeEntry>>, open: String?, topicSeason: String?, onSelect: (String) -> Unit) {
+private fun SeasonTabs(seasons: Map<String, List<EpisodeEntry>>, open: String?, topicSeason: String?, done: Set<String>, onSelect: (String) -> Unit) {
     val theme = LocalAnstelleTheme.current
     Box {
         Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(1.dp).background(theme.line))
@@ -491,7 +496,7 @@ private fun SeasonTabs(seasons: Map<String, List<EpisodeEntry>>, open: String?, 
             items(seasons.keys.toList(), key = { it }) { key ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (key == topicSeason) AirMarker(onAir = true, modifier = Modifier.padding(start = 6.dp))
-                    OsdTab(key, selected = key == open, onClick = { onSelect(key) }, count = seasons.getValue(key).size)
+                    OsdTab(key, selected = key == open, onClick = { onSelect(key) }, count = seasons.getValue(key).size, done = key in done)
                 }
             }
         }
@@ -499,15 +504,18 @@ private fun SeasonTabs(seasons: Map<String, List<EpisodeEntry>>, open: String?, 
 }
 
 /**
- * One episode: its still (with how far it was watched), its number and title, length and the
- * start of its overview. The episode on the channel puts when it airs in place of its length.
- * OK plays it; holding it (or Menu) offers the other ways.
+ * One episode: its still, its number and title, length and the start of its overview. The
+ * still's foot says what was watched ([WatchStrip]); one watched through reads as aired, the
+ * way the guide shows the past: its still under the past shade and its title quiet, except
+ * the episode on the channel, which puts when it airs in place of its length. OK plays it; holding it (or
+ * Menu) offers the other ways.
  */
 @Composable
 private fun EpisodeRow(
     episode: EpisodeEntry,
     airing: AiringStatus?,
     resumeMs: Long,
+    watched: Boolean,
     onClick: () -> Unit,
     onHold: () -> Unit,
     modifier: Modifier = Modifier,
@@ -532,25 +540,24 @@ private fun EpisodeRow(
         ) {
             Box(Modifier.width(if (isTv) 176.dp else 124.dp).aspectRatio(16f / 9f).clip(ControlShape)) {
                 Poster(episode.stillUrl, episode.label, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
-                if (resumeMs > 0 && episode.durationMs > 0) {
-                    SegmentLadder(
-                        resumeMs.toFloat() / episode.durationMs,
-                        Modifier.align(Alignment.BottomStart).background(theme.background.copy(alpha = 0.8f)).padding(horizontal = 6.dp, vertical = 5.dp),
-                        segments = 12,
-                    )
-                }
+                // The episode on the channel is now, not past, whatever it was before.
+                val aired = watched && airing == null
+                if (aired) Box(Modifier.matchParentSize().background(PastShade))
+                val fraction = if (episode.durationMs > 0) resumeMs.toFloat() / episode.durationMs else 0f
+                if (fraction > 0f || watched) WatchStrip(fraction, watched, Modifier.align(Alignment.BottomStart))
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 androidx.compose.material3.Text(
                     episode.label,
                     style = typography.titleMedium,
+                    color = if (watched && airing == null && !focused) theme.textMuted else Color.Unspecified,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (airing != null) {
                     StatusLine(airing.onAir, airing.label, airing.text, ink = if (focused) theme.onAccent else null)
                 } else {
-                    val facts = listOfNotNull(episode.facts, resumeMs.takeIf { it > 0 }?.let { "${WatchChoices.span(it)} watched" }).joinToString("  ·  ")
+                    val facts = listOfNotNull(episode.facts, WatchChoices.watchedFact(resumeMs)).joinToString("  ")
                     if (facts.isNotEmpty()) {
                         androidx.compose.material3.Text(facts, style = typography.bodySmall, color = muted, maxLines = 1)
                     }
@@ -568,9 +575,6 @@ private fun EpisodeRow(
         }
     }
 }
-
-/** A resume point this close to the end counts as watched through. */
-private const val RESUME_LIMIT_PERCENT = 95
 
 /** The most keys the row holds; touch keys share the width as if all were there. */
 private const val KEY_COLUMNS = 5

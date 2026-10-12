@@ -22,6 +22,9 @@ data class PlaystateItem(
     val transcoded: Boolean,
 )
 
+/** Where the user stands with one item: where they stopped (0 for no resume point), and whether it is marked played. */
+data class ItemWatch(val positionMs: Long, val played: Boolean)
+
 /** Playback reports, played state and resume points for one signed-in user on one server. */
 interface Playstate {
     suspend fun started(item: PlaystateItem, positionMs: Long)
@@ -40,8 +43,8 @@ interface Playstate {
     /** Where the user stopped watching the item, or 0 when Jellyfin keeps no resume point. */
     suspend fun resumePositionMs(itemId: String): Long
 
-    /** The resume points of a show's episodes that have one, by item id, in one request. */
-    suspend fun resumePoints(seriesId: String): Map<String, Long>
+    /** The resume points and played flags of a show's episodes that have either, by item id, in one request. */
+    suspend fun episodeWatch(seriesId: String): Map<String, ItemWatch>
 }
 
 @Singleton
@@ -126,12 +129,13 @@ private class JellyfinPlaystate(
         api.userDataApi.getItemUserData(itemId = itemId.toUUID(), userId = user).content.playbackPositionTicks / TICKS_PER_MS
     }
 
-    override suspend fun resumePoints(seriesId: String): Map<String, Long> = jellyfinCall("Reading resume points") {
+    override suspend fun episodeWatch(seriesId: String): Map<String, ItemWatch> = jellyfinCall("Reading what was watched") {
         api.showApi.getEpisodes(seriesId = seriesId.toUUID(), userId = user, enableImages = false, enableUserData = true)
             .content.items
             .mapNotNull { episode ->
                 val ticks = episode.userData?.playbackPositionTicks ?: 0
-                if (ticks > 0) episode.id.toJellyfinId() to ticks / TICKS_PER_MS else null
+                val played = episode.userData?.played == true
+                if (ticks > 0 || played) episode.id.toJellyfinId() to ItemWatch(ticks / TICKS_PER_MS, played) else null
             }
             .toMap()
     }
