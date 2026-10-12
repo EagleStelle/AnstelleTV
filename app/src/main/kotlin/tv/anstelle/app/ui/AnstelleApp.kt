@@ -336,7 +336,14 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                 if (linking) screen() else AdminOnly(onLeave = { navController.leave() }, content = screen)
             }
         }
-        composable<PlayerRoute> { PlayerScreen() }
+        composable<PlayerRoute> {
+            PlayerScreen(
+                // The channel's page in On demand takes the player's place, so back leaves to where the channel was opened from.
+                onOpenOnDemand = { channelId ->
+                    navController.navigate(OnDemandChannelRoute(channelId)) { popUpTo<PlayerRoute> { inclusive = true } }
+                },
+            )
+        }
     }
 }
 

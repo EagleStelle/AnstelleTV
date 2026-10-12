@@ -34,6 +34,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
 
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.runtime.Composable
@@ -57,6 +59,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
@@ -90,6 +93,8 @@ import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.player.SubtitleStyle
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
+import tv.anstelle.core.theme.components.ActionDialog
+import tv.anstelle.core.theme.components.DialogAction
 import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.StandInSize
@@ -105,15 +110,21 @@ import kotlin.math.abs
 /** Where the banner's keys are: [CONTROLS] has focus on them, the others show a track list. */
 private enum class Panel { CONTROLS, AUDIO, SUBTITLES }
 
+/** A key that asks first, in a dialog over the picture. */
+private enum class Confirm { START_OVER, ON_DEMAND }
+
 /**
  * Full-screen channel playback, like a TV: up/down or the channel keys surf, digits enter a
  * number, left and right seek back 10 s and ahead 30 s (the channel's schedule moves with the
- * program). The banner always carries its keys (audio, subtitles and Start over); it snaps in on
- * every tune and seek with focus left on the picture, and OK, Info or Menu moves focus into the
- * keys. On phones, swipe up or down to surf, tap for the banner and drag its bar to seek.
+ * program). The banner always carries its keys (audio, subtitles, On demand and Start over); it
+ * snaps in on every tune with a key highlighted on TV and goes by itself after a few seconds
+ * with no key pressed. A seek brings it in with focus left on the picture, so left and right
+ * keep seeking; OK, Info or Menu then moves focus into the keys, where left and right walk
+ * them. On phones, swipe up or down to surf, tap for the banner and drag its bar to seek.
  */
 @Composable
 fun PlayerScreen(
+    onOpenOnDemand: (channelId: Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
@@ -133,29 +144,41 @@ fun PlayerScreen(
 
     var bannerVisible by remember { mutableStateOf(true) }
     var bannerRequest by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(state.tuneCount, bannerRequest) {
+    var confirm by remember { mutableStateOf<Confirm?>(null) }
+    var panel by remember { mutableStateOf<Panel?>(null) }
+    // Every tune brings the banner up with a key highlighted on TV; seeking leaves focus on the picture so left and right keep seeking.
+    var tunedBanner by remember { mutableStateOf<Any?>(null) }
+    LaunchedEffect(state.tuneCount, bannerRequest, confirm) {
         bannerVisible = true
+        if (isTv && tunedBanner != state.tuneCount) {
+            tunedBanner = state.tuneCount
+            if (panel == null) panel = Panel.CONTROLS
+        }
+        if (confirm != null) return@LaunchedEffect
+        // With no key pressed for a while, the banner goes, highlighted key and all.
         delay(BANNER_MS)
         bannerVisible = false
+        panel = null
     }
-    var panel by remember { mutableStateOf<Panel?>(null) }
     // The banner's height, so the subtitles can step above it while it is up.
     var bannerHeight by remember { mutableIntStateOf(0) }
-    // Back steps out of a track list, then hides the banner, and only then leaves the player.
-    BackHandler(enabled = panel != null || bannerVisible) {
-        when (panel) {
-            null -> bannerVisible = false
-            Panel.CONTROLS -> {
-                panel = null
-                bannerVisible = false
-            }
-            else -> panel = Panel.CONTROLS
-        }
+    // Back hides the banner, whatever has focus in it, and only then leaves the player.
+    BackHandler(enabled = bannerVisible) {
+        panel = null
+        bannerVisible = false
     }
     val audioKey = remember { FocusRequester() }
     val subtitlesKey = remember { FocusRequester() }
-    // The key that opened a track list gets focus back when the list closes.
+    val onDemandKey = remember { FocusRequester() }
+    val startOverKey = remember { FocusRequester() }
+    // The key that opened a track list or a dialog gets focus back when it closes.
     var returnKey by remember { mutableStateOf<FocusRequester?>(null) }
+    LaunchedEffect(confirm) {
+        if (confirm == null && panel == Panel.CONTROLS) {
+            withFrameNanos { }
+            runCatching { returnKey?.requestFocus() }
+        }
+    }
     LaunchedEffect(panel) {
         when (panel) {
             null -> {
@@ -176,10 +199,18 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(focus)
+            // Any key pressed with the banner's keys in use holds the banner up a while longer.
+            .onPreviewKeyEvent { event ->
+                if (panel != null && event.type == KeyEventType.KeyDown) bannerRequest++
+                false
+            }
             .onKeyEvent { event ->
-                if (panel != null) return@onKeyEvent false
+                if (confirm != null || panel == Panel.AUDIO || panel == Panel.SUBTITLES) return@onKeyEvent false
+                val inKeys = panel == Panel.CONTROLS
                 // OK opens things on key-up: on key-down, the newly focused control would get the key-up as a click.
                 if (event.key in ConfirmKeys) {
+                    // With the keys up, OK is theirs.
+                    if (inKeys) return@onKeyEvent false
                     if (event.type == KeyEventType.KeyUp) {
                         val menu = event.key == Key.Info || event.key == Key.Menu
                         if (entry.isNotEmpty() && !menu) viewModel.commitEntry() else panel = Panel.CONTROLS
@@ -194,11 +225,18 @@ fun PlayerScreen(
                 when (event.key) {
                     Key.DirectionUp, Key.ChannelUp -> viewModel.channelUp()
                     Key.DirectionDown, Key.ChannelDown -> viewModel.channelDown()
-                    Key.DirectionLeft, Key.MediaRewind -> {
+                    // Left and right walk the keys while they are up.
+                    Key.DirectionLeft, Key.DirectionRight -> if (inKeys) {
+                        return@onKeyEvent false
+                    } else {
+                        viewModel.seekBy(if (event.key == Key.DirectionLeft) -BACK_MS else AHEAD_MS)
+                        bannerRequest++
+                    }
+                    Key.MediaRewind -> {
                         viewModel.seekBy(-BACK_MS)
                         bannerRequest++
                     }
-                    Key.DirectionRight, Key.MediaFastForward -> {
+                    Key.MediaFastForward -> {
                         viewModel.seekBy(AHEAD_MS)
                         bannerRequest++
                     }
@@ -210,7 +248,7 @@ fun PlayerScreen(
             // A tap hides the banner while it shows, and brings it back while it is hidden.
             .pointerInput(Unit) {
                 detectTapGestures {
-                    if (bannerVisible || panel != null) {
+                    if (bannerVisible) {
                         panel = null
                         bannerVisible = false
                     } else {
@@ -229,7 +267,7 @@ fun PlayerScreen(
                 )
             },
     ) {
-        Video(player, subtitleLift = if (bannerVisible || panel != null) bannerHeight else 0)
+        Video(player, subtitleLift = if (bannerVisible) bannerHeight else 0)
 
         when (state.status) {
             TuneStatus.OFF_AIR, TuneStatus.RESTRICTED -> StandIn(state)
@@ -238,7 +276,7 @@ fun PlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = bannerVisible || panel != null,
+            visible = bannerVisible,
             enter = slideInVertically(tween(SNAP_MS)) { it / 2 } + fadeIn(tween(SNAP_MS)),
             exit = slideOutVertically(tween(SNAP_MS)) { it / 2 } + fadeOut(tween(SNAP_MS)),
             modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { bannerHeight = it.height },
@@ -256,25 +294,38 @@ fun PlayerScreen(
                             OsdKey("Audio", Icons.Filled.Audiotrack, onClick = {
                                 returnKey = audioKey
                                 panel = Panel.AUDIO
+                                bannerRequest++
                             }, Modifier.focusRequester(audioKey), value = audio)
                             OsdKey("Subtitles", Icons.Filled.Subtitles, onClick = {
                                 returnKey = subtitlesKey
                                 panel = Panel.SUBTITLES
+                                bannerRequest++
                             }, Modifier.focusRequester(subtitlesKey), value = subtitles)
                             // Tracks on the left, the player's own action on the right.
                             Spacer(Modifier.weight(1f))
+                            val program = state.now
+                            OsdKey(
+                                "On demand",
+                                Icons.Filled.PlayArrow,
+                                enabled = program != null && program.mediaItemId != 0L && !program.restricted,
+                                onClick = {
+                                    returnKey = onDemandKey
+                                    confirm = Confirm.ON_DEMAND
+                                },
+                                modifier = Modifier.focusRequester(onDemandKey),
+                            )
                             OsdKey("Start over", Icons.Filled.Replay, onClick = {
-                                panel = null
-                                viewModel.restart()
-                                bannerRequest++
-                            })
+                                returnKey = startOverKey
+                                confirm = Confirm.START_OVER
+                            }, Modifier.focusRequester(startOverKey))
                         }
                     }
                     Panel.AUDIO -> {
                         {
                             TrackChoices("Audio", remember { viewModel.audioOptions() }) {
                                 viewModel.selectAudio(it)
-                                panel = null
+                                panel = if (isTv) Panel.CONTROLS else null
+                                bannerRequest++
                             }
                         }
                     }
@@ -282,7 +333,8 @@ fun PlayerScreen(
                         {
                             TrackChoices("Subtitles", remember { viewModel.subtitleOptions() }) {
                                 viewModel.selectSubtitles(it)
-                                panel = null
+                                panel = if (isTv) Panel.CONTROLS else null
+                                bannerRequest++
                             }
                         }
                     }
@@ -291,7 +343,7 @@ fun PlayerScreen(
         }
         // The channel's corner ident comes and goes with the banner; typed digits take its place while they are entered.
         AnimatedVisibility(
-            visible = entry.isNotEmpty() || ((bannerVisible || panel != null) && state.channel != null),
+            visible = entry.isNotEmpty() || (bannerVisible && state.channel != null),
             enter = slideInVertically(tween(SNAP_MS)) { -it / 4 } + fadeIn(tween(SNAP_MS)),
             exit = slideOutVertically(tween(SNAP_MS)) { -it / 4 } + fadeOut(tween(SNAP_MS)),
             modifier = Modifier.align(Alignment.TopEnd),
@@ -305,6 +357,48 @@ fun PlayerScreen(
         }
         notice?.let { Message(it, modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp)) }
 
+        confirm?.let { asked ->
+            val program = state.now
+            val stay = DialogAction("Keep watching", "Stay on this channel.", Icons.Filled.Close) { confirm = null }
+            when (asked) {
+                Confirm.START_OVER -> ActionDialog(
+                    actions = listOf(
+                        DialogAction("Start over", "Rewinds the channel to 0:00.", Icons.Filled.Replay) {
+                            confirm = null
+                            viewModel.restart()
+                            bannerRequest++
+                        },
+                        stay,
+                    ),
+                    onDismiss = { confirm = null },
+                ) { ConfirmHeader("Start over?", program?.title) }
+                Confirm.ON_DEMAND -> ActionDialog(
+                    actions = listOf(
+                        DialogAction("Open On Demand", "Leaves the channel for this program's page.", Icons.Filled.PlayArrow) {
+                            confirm = null
+                            state.channel?.let { onOpenOnDemand(it.id) }
+                        },
+                        stay,
+                    ),
+                    onDismiss = { confirm = null },
+                ) { ConfirmHeader("Open On Demand?", program?.title) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConfirmHeader(question: String, title: String?) {
+    val theme = LocalAnstelleTheme.current
+    androidx.compose.material3.Text(question, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, color = theme.text)
+    if (title != null) {
+        androidx.compose.material3.Text(
+            title,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            color = theme.textMuted,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

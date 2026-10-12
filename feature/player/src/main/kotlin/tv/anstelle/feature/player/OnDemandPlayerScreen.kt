@@ -180,16 +180,10 @@ fun OnDemandPlayerScreen(
         }
     }
 LaunchedEffect(overlay) { hiddenByUser = false }
-    // Back steps out of a track list, then hides the banner, and only then leaves the player.
+    // Back hides the banner, whatever has focus in it, and only then leaves the player.
     BackHandler(enabled = panel != null || !hiddenByUser && (overlayVisible || !state.playing)) {
-        when (panel) {
-            null -> hiddenByUser = true
-            DemandPanel.CONTROLS -> {
-                panel = null
-                hiddenByUser = true
-            }
-            else -> panel = DemandPanel.CONTROLS
-        }
+        panel = null
+        hiddenByUser = true
     }
     val playKey = remember { FocusRequester() }
     val audioKey = remember { FocusRequester() }
