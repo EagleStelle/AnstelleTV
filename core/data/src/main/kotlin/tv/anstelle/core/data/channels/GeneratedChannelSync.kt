@@ -21,10 +21,12 @@ class SyncActions(
 object GeneratedChannelSync {
     /**
      * A library channel that is no longer generated stays while its id is in [keep] (it would
-     * still be made at [ChannelGenerator.KEEP_SCALE] of the thresholds). Channels built by hand
-     * are left alone.
+     * still be made at [ChannelGenerator.KEEP_SCALE] of the thresholds), and every one stays
+     * while the library isn't [settled]: a library is still on its first fetch (just turned on,
+     * its server just added or restored from a backup), so what's missing may only not be there
+     * yet. Channels built by hand are left alone.
      */
-    fun plan(existing: List<SyncedChannel>, generated: List<GeneratedChannel>, keep: Set<Long>): SyncActions {
+    fun plan(existing: List<SyncedChannel>, generated: List<GeneratedChannel>, keep: Set<Long>, settled: Boolean = true): SyncActions {
         val held = existing.mapNotNullTo(HashSet()) { it.autoKey }
         val byKey = generated.associateBy { it.key }
         val refresh = LinkedHashMap<Long, GeneratedChannel>()
@@ -34,7 +36,7 @@ object GeneratedChannelSync {
             val current = byKey[key]
             when {
                 current != null -> refresh[channel.id] = current
-                channel.id !in keep -> remove += channel.id
+                settled && channel.id !in keep -> remove += channel.id
             }
         }
         return SyncActions(

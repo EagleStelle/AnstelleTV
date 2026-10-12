@@ -8,6 +8,7 @@ import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -210,6 +211,8 @@ fun AddServerScreen(
     modifier: Modifier = Modifier,
     trail: List<String> = listOf("Settings", "Servers"),
     onProfile: (profileId: Long) -> Unit = {},
+    /** Before any profile exists: copying a backup in instead of adding a server. */
+    onRestore: (() -> Unit)? = null,
     viewModel: AddServerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -222,14 +225,14 @@ fun AddServerScreen(
     val pages = if (state.forProfile) listOf("Profiles") else trail
 
     when (state.step) {
-        AddServerStep.ADDRESS -> AddressStep(state, viewModel, pages, modifier)
+        AddServerStep.ADDRESS -> AddressStep(state, viewModel, pages, onRestore, modifier)
         AddServerStep.SIGN_IN -> SignInStep(state, viewModel, pages, modifier)
         AddServerStep.QUICK_CONNECT -> QuickConnectStep(state, viewModel, pages, modifier)
     }
 }
 
 @Composable
-private fun AddressStep(state: AddServerUiState, viewModel: AddServerViewModel, trail: List<String>, modifier: Modifier) {
+private fun AddressStep(state: AddServerUiState, viewModel: AddServerViewModel, trail: List<String>, onRestore: (() -> Unit)?, modifier: Modifier) {
     val firstFocus = rememberInitialFocus()
     SettingsPage(
         title = when {
@@ -258,6 +261,7 @@ private fun AddressStep(state: AddServerUiState, viewModel: AddServerViewModel, 
         item(key = "connect") {
             SettingsButtons {
                 OsdButton(text = if (state.busy) "Connecting…" else "Connect", onClick = viewModel::connect, icon = Icons.Filled.Link, primary = true)
+                if (onRestore != null) OsdButton(text = "Restore backup", onClick = onRestore, icon = Icons.Filled.Restore)
             }
         }
     }

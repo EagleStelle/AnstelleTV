@@ -10,6 +10,7 @@ import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.database.AnstelleDatabase
+import tv.anstelle.core.database.dao.BackupDao
 import tv.anstelle.core.database.dao.LibraryDao
 import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.MediaServerDao
@@ -31,7 +32,6 @@ import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.ServerConnectException
 import tv.anstelle.core.model.ServerProblem
 import java.time.Instant
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -68,9 +68,14 @@ class LibrarySyncer @Inject constructor(
     private val sources: LibrarySourceFactory,
     private val status: SyncStatusTracker,
     private val profiles: ProfileRepository,
+    private val backupDao: BackupDao,
     private val time: TimeSource,
 ) {
-    private val locks = ConcurrentHashMap<Long, Mutex>()
+    /** One sync at a time, so a restore can hold them all off ([paused]). */
+    private val gate = Mutex()
+
+    /** Runs [block] while no sync runs; none starts until it ends. */
+    suspend fun <T> paused(block: suspend () -> T): T = gate.withLock { block() }
 
     /** Syncs every server. One failing server does not stop the others. */
     suspend fun syncAll(options: SyncOptions = SyncOptions()): Boolean {
@@ -81,7 +86,7 @@ class LibrarySyncer @Inject constructor(
 
     /** Syncs one server. Returns false when it failed; the reason is stored on the server row. */
     suspend fun sync(serverId: Long, options: SyncOptions = SyncOptions()): Boolean =
-        locks.getOrPut(serverId) { Mutex() }.withLock {
+        gate.withLock {
             val server = serverDao.byId(serverId) ?: return@withLock true
             val started = time.nowUtcMs()
             status.update(serverId, "Connecting…")
@@ -129,6 +134,9 @@ class LibrarySyncer @Inject constructor(
         profiles.saveRatingTable(server.id, ratings.table)
 
         for (library in libraries) syncLibrary(server, library, source, ratings, serverNow)
+        // Dashboard rows restored from a backup find their items again, now the library is whole.
+        val linked = backupDao.settleRestoredItems(server.id)
+        if (linked > 0) AppLog.i(TAG, "${server.name}: $linked restored dashboard rows found their items")
 
         val reconcileDue = server.lastReconcileUtcMs.let { it == null || time.nowUtcMs() - it >= RECONCILE_INTERVAL_MS }
         if (options.forceReconcile || options.fullRefresh || reconcileDue) reconcile(server, libraries, source)

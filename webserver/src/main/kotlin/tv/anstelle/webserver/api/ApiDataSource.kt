@@ -6,6 +6,8 @@ import kotlinx.coroutines.withContext
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ThemeImportException
 import tv.anstelle.core.data.ThemeRepository
+import tv.anstelle.core.data.backup.BackupFile
+import tv.anstelle.core.data.backup.BackupRepository
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.LibraryChannelLockedException
 import tv.anstelle.core.database.dao.ChannelDao
@@ -35,6 +37,9 @@ interface ApiDataSource {
 
     /** Adds a theme from its JSON; throws [ThemeImportException] when it isn't one. */
     suspend fun importTheme(json: String): ThemeDto
+
+    /** This device's backup: its file name and JSON. */
+    suspend fun backup(): BackupFile
 }
 
 internal class RoomApiDataSource @Inject constructor(
@@ -42,6 +47,7 @@ internal class RoomApiDataSource @Inject constructor(
     private val channelDao: ChannelDao,
     private val channels: ChannelRepository,
     private val themes: ThemeRepository,
+    private val backups: BackupRepository,
 ) : ApiDataSource {
     override suspend fun profiles(): List<ProfileDto> =
         profiles.observeProfiles().first().map { ProfileDto(it.id, it.name, it.role.name.lowercase(), it.hasPin) }
@@ -88,4 +94,6 @@ internal class RoomApiDataSource @Inject constructor(
         val theme = requireNotNull(themes.observeTheme(id).first())
         return ThemeDto(id, theme.spec.name, isBuiltIn = false)
     }
+
+    override suspend fun backup(): BackupFile = backups.export()
 }

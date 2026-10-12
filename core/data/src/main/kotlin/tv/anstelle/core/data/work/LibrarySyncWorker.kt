@@ -40,6 +40,7 @@ class LibrarySyncWorker @AssistedInject constructor(
 
     companion object {
         private const val PERIODIC_NAME = "library-sync"
+        private const val ONE_TIME_TAG = "library-sync-now"
         private const val KEY_SERVER_ID = "serverId"
         private const val KEY_FULL = "full"
         private const val KEY_RECONCILE = "reconcile"
@@ -67,6 +68,7 @@ class LibrarySyncWorker @AssistedInject constructor(
         ) {
             val request = OneTimeWorkRequestBuilder<LibrarySyncWorker>()
                 .setConstraints(NetworkConstraint)
+                .addTag(ONE_TIME_TAG)
                 .setInputData(
                     workDataOf(
                         KEY_SERVER_ID to (serverId ?: ALL_SERVERS),
@@ -81,6 +83,11 @@ class LibrarySyncWorker @AssistedInject constructor(
 
         fun cancel(workManager: WorkManager, serverId: Long) {
             workManager.cancelUniqueWork(oneTimeName(serverId))
+        }
+
+        /** Stops every sync asked for and not finished; the periodic one stays. */
+        fun cancelRequested(workManager: WorkManager) {
+            workManager.cancelAllWorkByTag(ONE_TIME_TAG)
         }
 
         private fun oneTimeName(serverId: Long?) = "library-sync-${serverId ?: "all"}"

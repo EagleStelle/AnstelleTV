@@ -26,4 +26,14 @@ class GeneratedChannelSyncTest {
         // Drama is gone with too little left; isekai is gone but still has content.
         assertEquals(listOf(2L), actions.remove)
     }
+
+    @Test
+    fun `nothing is removed while a library is still on its first fetch`() {
+        // A restore brings the library channels back before the library itself.
+        val existing = listOf(SyncedChannel(1, "tv:genre:comedy"), SyncedChannel(2, "tv:genre:drama"))
+        val actions = GeneratedChannelSync.plan(existing, generated = emptyList(), keep = emptySet(), settled = false)
+        assertEquals(emptyList(), actions.remove)
+        assertEquals(emptyList(), actions.add)
+        assertEquals(emptySet(), actions.refresh.keys)
+    }
 }

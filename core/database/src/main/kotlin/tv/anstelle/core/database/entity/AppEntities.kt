@@ -62,6 +62,24 @@ data class WatchEventEntity(
     val completed: Boolean,
 )
 
+/**
+ * A dashboard row restored from a backup, waiting for its item: the library comes back with the
+ * server's next sync, and the row then points at the item by its Jellyfin id again.
+ */
+@Entity(
+    tableName = "restored_item",
+    foreignKeys = [
+        ForeignKey(entity = WatchEventEntity::class, parentColumns = ["id"], childColumns = ["eventId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = MediaServerEntity::class, parentColumns = ["id"], childColumns = ["serverId"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index(value = ["serverId"])],
+)
+data class RestoredItemEntity(
+    @PrimaryKey val eventId: Long,
+    val serverId: Long,
+    val remoteId: String,
+)
+
 /** A browser paired with the web UI. Only the SHA-256 of the token is stored. */
 @Entity(
     tableName = "paired_client",

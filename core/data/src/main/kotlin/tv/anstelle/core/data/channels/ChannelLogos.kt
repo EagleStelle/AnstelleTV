@@ -57,6 +57,12 @@ class ChannelLogos @Inject constructor(
         file(uri)?.delete()
     }
 
+    /** Deletes every stored logo but the ones behind [uris]. */
+    fun keepOnly(uris: Collection<String>) {
+        val keep = uris.mapNotNullTo(HashSet()) { file(it)?.name }
+        folder.listFiles()?.filter { it.name !in keep }?.forEach { it.delete() }
+    }
+
     companion object {
         private const val FOLDER = "logos"
         const val MAX_SIZE_PX = 256

@@ -238,12 +238,17 @@ class SettingsSheets internal constructor() {
 /** The sheets of the settings page being composed. */
 val LocalSettingsSheets = staticCompositionLocalOf<SettingsSheets> { error("A settings row outside a SettingsPage") }
 
+/** A page's sheets, for a page that opens one itself: pass them to its [SettingsPage]. */
+@Composable
+fun rememberSettingsSheets(): SettingsSheets = remember { SettingsSheets() }
+
 /**
  * The page every settings screen uses. [trail] names the pages above it (a breadcrumb on TV;
  * on phones a back arrow when there is one). [about] says what the page does: under the title
  * on TV, as the footer on phones, the way Android closes a page with its note. [aside] shows
  * what the page is about (a preview, a readout): under the title on TV, at the list's top on
- * phones.
+ * phones. [sheets] lets the page open a sheet of its own, not from a row (the next step of
+ * something under way).
  */
 @Composable
 fun SettingsPage(
@@ -254,9 +259,9 @@ fun SettingsPage(
     showBack: Boolean = trail.isNotEmpty(),
     listState: LazyListState = rememberLazyListState(),
     aside: (@Composable ColumnScope.() -> Unit)? = null,
+    sheets: SettingsSheets = rememberSettingsSheets(),
     content: LazyListScope.() -> Unit,
 ) {
-    val sheets = remember { SettingsSheets() }
     val guided = settingsGuided
     CompositionLocalProvider(LocalSettingsSheets provides sheets) {
         Box(modifier.fillMaxSize()) {

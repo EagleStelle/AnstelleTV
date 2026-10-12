@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import tv.anstelle.core.common.AppInfo
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ThemeImportException
+import tv.anstelle.core.data.backup.BackupFile
 import tv.anstelle.core.data.channels.LibraryChannelLockedException
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.webserver.api.ApiDataSource
@@ -93,6 +94,8 @@ class FakeApi : ApiDataSource {
         if ("\"colors\"" !in json) throw ThemeImportException("That file isn't an AnstelleTV theme")
         return ThemeDto(2, "Imported", isBuiltIn = false)
     }
+
+    override suspend fun backup() = BackupFile("anstelletv-test-tv-2026-10-12.json", """{"format":"anstelletv-backup","version":1}""")
 }
 
 class TestServer(

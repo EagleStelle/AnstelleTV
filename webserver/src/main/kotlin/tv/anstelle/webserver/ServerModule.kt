@@ -82,7 +82,8 @@ private const val MAX_THEME_BYTES = 64 * 1024
 /**
  * The AnstelleTV web server:
  * - `/api/health`, `/api/pair/start`, `/api/pair/confirm`: open to the LAN,
- * - every other `/api` route and `/ws`: need a paired token (cookie or Bearer header),
+ * - every other `/api` route and `/ws`: need a paired token (cookie or Bearer header); another
+ *   AnstelleTV pairs the same way to copy `/api/backup/export`,
  * - everything else: the single-page web UI from APK assets.
  */
 fun Application.anstelleModule(deps: ServerDependencies) {
@@ -272,6 +273,18 @@ fun Application.anstelleModule(deps: ServerDependencies) {
                 } catch (e: ThemeImportException) {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("not_a_theme", e.message ?: "That file isn't an AnstelleTV theme."))
                 }
+            }
+
+            // Everything the device holds, as the file a restore takes: another device copies it, a browser saves it.
+            get("/backup/export") {
+                call.requireClient(deps) ?: return@get
+                val file = deps.api.backup()
+                call.response.header(
+                    HttpHeaders.ContentDisposition,
+                    ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, file.name).toString(),
+                )
+                call.response.header(HttpHeaders.CacheControl, "no-store")
+                call.respondText(file.json, ContentType.Application.Json)
             }
 
             route("{...}") {

@@ -59,6 +59,9 @@ const val PlayerRouteNoChannel = -1
 @Serializable data object WatchHistoryRoute
 @Serializable data object WebControlRoute
 
+/** [firstRun]: opened before any profile exists, to copy a backup in instead of adding a server. */
+@Serializable data class BackupRoute(val firstRun: Boolean = false)
+
 /** The themes [profileId] can wear; 0 for the profile watching. */
 @Serializable data class ThemesRoute(val profileId: Long = 0)
 @Serializable data class ThemeEditorRoute(val themeId: Long)

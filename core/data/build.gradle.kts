@@ -21,4 +21,10 @@ dependencies {
     ksp(libs.androidx.hilt.compiler)
 
     testImplementation(libs.kotlinx.coroutines.test)
+
+    // The backup round trip runs against a real SQLite on a device.
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
+    androidTestImplementation(libs.kotlin.test)
 }

@@ -27,9 +27,11 @@ import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.WebServerStatus
+import tv.anstelle.core.data.backup.NearbyDevices
 import tv.anstelle.webserver.net.BindAddresses
 import tv.anstelle.webserver.net.NetworkAddresses
 import tv.anstelle.webserver.pairing.PairingManager
+import java.io.Closeable
 import javax.inject.Inject
 
 /**
@@ -43,9 +45,13 @@ class WebServerService : LifecycleService() {
     @Inject lateinit var settings: SettingsRepository
     @Inject lateinit var pairing: PairingManager
     @Inject internal lateinit var controller: WebServerControllerImpl
+    @Inject lateinit var nearby: NearbyDevices
 
     private val networkTick = MutableStateFlow(0)
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    /** Other AnstelleTV devices find this one by it, to copy its backup. */
+    private var advertisement: Closeable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -79,6 +85,7 @@ class WebServerService : LifecycleService() {
 
     override fun onDestroy() {
         networkCallback?.let { runCatching { getSystemService<ConnectivityManager>()?.unregisterNetworkCallback(it) } }
+        advertisement?.close()
         server.stop()
         controller.publish(WebServerStatus.Stopped)
         super.onDestroy()
@@ -96,6 +103,9 @@ class WebServerService : LifecycleService() {
                 WebServerStatus(running = false, port = port, urls = emptyList(), error = e.message ?: e.javaClass.simpleName)
             }
         }
+        // Advertised afresh on every network, and only while there is something to reach.
+        advertisement?.close()
+        advertisement = if (status.running && status.urls.isNotEmpty()) nearby.advertise(port) else null
         controller.publish(status)
     }
 

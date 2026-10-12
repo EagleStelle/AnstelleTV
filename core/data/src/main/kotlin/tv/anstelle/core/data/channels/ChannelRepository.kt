@@ -19,11 +19,13 @@ import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.database.AnstelleDatabase
 import tv.anstelle.core.database.dao.ChannelDao
+import tv.anstelle.core.database.dao.LibraryDao
 import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelGroupEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
+import tv.anstelle.core.jellyfin.sync.LibraryRules
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.ChannelGroup
 import tv.anstelle.core.model.ChannelKind
@@ -73,6 +75,7 @@ class ChannelRepository @Inject constructor(
     private val channelDao: ChannelDao,
     private val scheduleDao: ScheduleDao,
     private val itemDao: MediaItemDao,
+    private val libraryDao: LibraryDao,
     private val settings: SettingsRepository,
     private val words: ChannelWordsSource,
     private val logos: ChannelLogos,
@@ -331,15 +334,20 @@ class ChannelRepository @Inject constructor(
             val catalog = Catalog(itemDao.catalog(), words.words().types)
             val generator = ChannelGenerator(words.words())
             val keepable = ChannelGenerator(words.words(), scale = ChannelGenerator.KEEP_SCALE).generate(catalog).mapTo(HashSet()) { it.key }
-            sync(generator.generate(catalog), keepable)
+            // A library still on its first fetch (new, turned on again, or restored) may hold what a channel needs.
+            val settled = libraryDao.unsynced().none { LibraryRules.itemKinds(it.collectionType).isNotEmpty() }
+            sync(generator.generate(catalog), keepable, settled)
         }
     }
 
+    /** Runs [block] while the library channels can't change; a sync of them waits until it ends. */
+    suspend fun <T> paused(block: suspend () -> T): T = syncLock.withLock { block() }
+
     /** [keepable] are the keys made at [ChannelGenerator.KEEP_SCALE] of the thresholds: a library channel among them stays. */
-    private suspend fun sync(generated: List<GeneratedChannel>, keepable: Set<String>): Int {
+    private suspend fun sync(generated: List<GeneratedChannel>, keepable: Set<String>, settled: Boolean): Int {
         val existing = channelDao.all()
         val keep = existing.filter { it.autoKey in keepable }.mapTo(HashSet()) { it.id }
-        val actions = GeneratedChannelSync.plan(existing.map { SyncedChannel(it.id, it.autoKey) }, generated, keep)
+        val actions = GeneratedChannelSync.plan(existing.map { SyncedChannel(it.id, it.autoKey) }, generated, keep, settled)
         val byId = existing.associateBy { it.id }
         val removed = actions.remove.mapNotNull(byId::get)
 

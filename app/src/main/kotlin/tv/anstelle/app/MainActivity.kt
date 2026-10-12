@@ -1,6 +1,7 @@
 package tv.anstelle.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
@@ -11,12 +12,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.metrics.performance.JankStats
 import androidx.work.WorkManager
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import tv.anstelle.app.ui.AnstelleApp
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.data.WebServerController
+import tv.anstelle.core.data.backup.RestoreSignal
 import tv.anstelle.core.data.work.LibrarySyncWorker
 import tv.anstelle.core.data.work.ScheduleCleanupWorker
 import tv.anstelle.core.data.work.ScheduleWorker
@@ -25,6 +30,7 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @Inject lateinit var webServer: WebServerController
+    @Inject lateinit var restores: RestoreSignal
 
     private var deferredWorkStarted = false
 
@@ -46,6 +52,14 @@ class MainActivity : ComponentActivity() {
 
         // Everything that is not needed for the first frame starts right after it is drawn.
         window.decorView.post { startDeferredWork(isTv) }
+
+        // A restored backup replaced every profile and channel: the app starts over on it, every
+        // screen and cache built anew, and the launch picker asks who's watching.
+        lifecycleScope.launch {
+            restores.restored.first { it }
+            startActivity(Intent(this@MainActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+            Runtime.getRuntime().exit(0)
+        }
     }
 
     private fun systemBars(light: Boolean) {

@@ -103,6 +103,10 @@ interface LibraryDao {
     @Query("UPDATE library SET isEnabled = :enabled, lastSyncUtcMs = NULL WHERE id = :id")
     suspend fun setEnabled(id: Long, enabled: Boolean)
 
+    /** Libraries turned on that haven't finished a full fetch yet: new, turned on again, or just restored. */
+    @Query("SELECT * FROM library WHERE isEnabled = 1 AND lastSyncUtcMs IS NULL")
+    suspend fun unsynced(): List<LibraryEntity>
+
     @Query("DELETE FROM library WHERE id = :id")
     suspend fun delete(id: Long)
 }

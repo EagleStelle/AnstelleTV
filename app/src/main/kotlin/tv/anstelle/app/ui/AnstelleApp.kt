@@ -85,6 +85,7 @@ import tv.anstelle.feature.profiles.ProfilePickerScreen
 import tv.anstelle.feature.settings.appearance.ThemeEditorScreen
 import tv.anstelle.feature.settings.appearance.ThemesScreen
 import tv.anstelle.feature.settings.AdminOnly
+import tv.anstelle.feature.settings.BackupScreen
 import tv.anstelle.feature.settings.SettingsScreen
 import tv.anstelle.feature.settings.WebControlScreen
 import tv.anstelle.feature.settings.channels.AddToChannelScreen
@@ -158,14 +159,22 @@ fun AnstelleApp(isTv: Boolean, onLightTheme: (Boolean) -> Unit) {
 
 /**
  * Before any profile exists: connecting the first server, full screen. Its user becomes the
- * owner, and the app opens on that profile.
+ * owner, and the app opens on that profile. A backup copied in instead starts the app over on it.
  */
 @Composable
 private fun FirstServer(modifier: Modifier) {
     val activity = LocalActivity.current
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = AddServerRoute(), modifier = modifier) {
-        composable<AddServerRoute> { AddServerScreen(onSignedIn = {}, onBack = { activity?.finish() }, trail = emptyList()) }
+        composable<AddServerRoute> {
+            AddServerScreen(
+                onSignedIn = {},
+                onBack = { activity?.finish() },
+                trail = emptyList(),
+                onRestore = { navController.navigate(BackupRoute(firstRun = true)) },
+            )
+        }
+        composable<BackupRoute> { BackupScreen() }
     }
 }
 
@@ -251,6 +260,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onOpenWatchHistory = { navController.navigate(WatchHistoryRoute) },
                     onOpenThemes = { navController.navigate(ThemesRoute()) },
                     onOpenWebControl = { navController.navigate(WebControlRoute) },
+                    onOpenBackup = { navController.navigate(BackupRoute()) },
                 )
             }
             page<PlaybackLanguagesRoute> {
@@ -287,6 +297,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                 )
             }
             adminOnly<WebControlRoute>(navController) { WebControlScreen() }
+            adminOnly<BackupRoute>(navController) { BackupScreen() }
             adminOnly<ChannelGroupsRoute>(navController) { ChannelGroupsScreen() }
             adminOnly<ServersRoute>(navController) {
                 ServersScreen(

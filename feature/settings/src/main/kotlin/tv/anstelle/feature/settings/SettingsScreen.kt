@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.InsertChart
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -56,6 +57,8 @@ import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.ThemeRepository
 import tv.anstelle.core.data.WebServerController
 import tv.anstelle.core.data.WebServerStatus
+import tv.anstelle.core.data.backup.BackupRepository
+import tv.anstelle.core.data.backup.BackupSummary
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelSummary
 import tv.anstelle.core.data.playback.TrackChoices
@@ -128,8 +131,10 @@ data class SettingsUiState(
     val tracks: TrackPrefs = TrackPrefs(),
     /** The theme the profile wears; null while the default is on. */
     val theme: ThemeSpec? = null,
-    /** The owner and admins see the app-wide rows (servers, channels, web control); members don't. */
+    /** The owner and admins see the app-wide rows (servers, channels, web control, backup); members don't. */
     val canManageApp: Boolean = false,
+    /** What a backup of this device holds. */
+    val backup: BackupSummary = BackupSummary(),
     val loaded: Boolean = false,
 )
 
@@ -145,6 +150,7 @@ class SettingsViewModel @Inject constructor(
     tracks: TrackChoices,
     themes: ThemeRepository,
     history: DashboardHistory,
+    backups: BackupRepository,
     time: TimeSource,
 ) : ViewModel() {
     /** Live TV's and On Demand's watch history settings, and the dashboard, for the profile watching. */
@@ -190,13 +196,15 @@ class SettingsViewModel @Inject constructor(
         state.copy(tracks = prefs)
     }.combine(themes.observeActiveTheme()) { state, theme ->
         state.copy(theme = theme)
+    }.combine(backups.observeSummary()) { state, backup ->
+        state.copy(backup = backup)
     }.combine(profiles.observeCanManageApp()) { state, manages ->
         state.copy(canManageApp = manages, loaded = true)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 }
 
 /** The areas of settings, in the order the home lists them. */
-private enum class SettingsArea { SERVERS, CHANNELS, PLAYBACK, HISTORY, THEME, WEB }
+private enum class SettingsArea { SERVERS, CHANNELS, PLAYBACK, HISTORY, THEME, WEB, BACKUP }
 
 /**
  * Settings' home: one row per area with its state under it, no headings, the way Android's and
@@ -211,6 +219,7 @@ fun SettingsScreen(
     onOpenWatchHistory: () -> Unit,
     onOpenThemes: () -> Unit,
     onOpenWebControl: () -> Unit,
+    onOpenBackup: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -292,6 +301,15 @@ fun SettingsScreen(
                     modifier = Modifier.tracks(SettingsArea.WEB),
                 )
             }
+            item(key = "backup") {
+                LinkRow(
+                    title = "Backup",
+                    summary = "${counted(state.backup.profiles, "profile")}, ${counted(state.backup.channels, "channel")}",
+                    icon = Icons.Filled.SettingsBackupRestore,
+                    onClick = onOpenBackup,
+                    modifier = Modifier.tracks(SettingsArea.BACKUP),
+                )
+            }
         }
     }
 }
@@ -313,6 +331,7 @@ private fun AreaAside(area: SettingsArea, state: SettingsUiState) {
             SettingsArea.HISTORY -> HistoryReadout(state.liveTvSync, state.onDemandSync, state.dashboard)
             SettingsArea.THEME -> ThemePreview(state.theme ?: DefaultTheme.spec, Modifier.fillMaxWidth())
             SettingsArea.WEB -> WebReadout(state)
+            SettingsArea.BACKUP -> BackupReadout(state.backup)
         }
     }
 }
@@ -485,6 +504,7 @@ private fun title(area: SettingsArea) = when (area) {
     SettingsArea.HISTORY -> "Watch history"
     SettingsArea.THEME -> "Themes"
     SettingsArea.WEB -> "Web control"
+    SettingsArea.BACKUP -> "Backup"
 }
 
 private const val SHOWN_LANGUAGES = 4

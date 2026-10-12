@@ -54,6 +54,9 @@ class ScheduleUpdater @Inject constructor(
 ) {
     private val mutex = Mutex()
 
+    /** Runs [block] while no schedule is written; none is until it ends. */
+    suspend fun <T> paused(block: suspend () -> T): T = mutex.withLock { block() }
+
     /** Updates every channel of every profile. */
     suspend fun updateAll(zone: ZoneId = ZoneId.systemDefault()): Map<ScheduleOutcome, Int> = mutex.withLock {
         val started = time.nowUtcMs()

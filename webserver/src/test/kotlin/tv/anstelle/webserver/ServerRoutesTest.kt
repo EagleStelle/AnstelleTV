@@ -86,6 +86,18 @@ class ServerRoutesTest {
     }
 
     @Test
+    fun backupIsAFileForPairedClientsOnly() = serverTest { server ->
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/backup/export").status)
+        // Another device copies it the way it pairs: with the Bearer token, no cookie.
+        val token = pair(server)
+        val response = client.get("/api/backup/export") { header(HttpHeaders.Authorization, "Bearer $token") }
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertTrue(response.bodyAsText().contains("anstelletv-backup"))
+        assertTrue(assertNotNull(response.headers[HttpHeaders.ContentDisposition]).contains("anstelletv-test-tv-2026-10-12.json"))
+        assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
+    }
+
+    @Test
     fun wrongPinIsRejected() = serverTest { server ->
         client.post("/api/pair/start") {
             contentType(ContentType.Application.Json)

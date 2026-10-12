@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import tv.anstelle.core.database.dao.BackupDao
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.LibraryDao
 import tv.anstelle.core.database.dao.LiveTvDao
@@ -31,6 +32,7 @@ import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.core.database.entity.ProfileAccountEntity
 import tv.anstelle.core.database.entity.ProfileEntity
+import tv.anstelle.core.database.entity.RestoredItemEntity
 import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.database.entity.ScheduleStateEntity
 import tv.anstelle.core.database.entity.SettingEntity
@@ -61,6 +63,7 @@ import tv.anstelle.core.database.entity.WatchEventEntity
         ScheduleStateEntity::class,
         ThemeEntity::class,
         WatchEventEntity::class,
+        RestoredItemEntity::class,
         PairedClientEntity::class,
         SettingEntity::class,
     ],
@@ -80,9 +83,10 @@ abstract class AnstelleDatabase : RoomDatabase() {
     abstract fun watchEventDao(): WatchEventDao
     abstract fun pairedClientDao(): PairedClientDao
     abstract fun settingDao(): SettingDao
+    abstract fun backupDao(): BackupDao
 
     companion object {
-        const val VERSION = 10
+        const val VERSION = 11
         const val NAME = "anstelle.db"
 
         /** Tables the web UI can subscribe to for live updates. */
@@ -105,6 +109,6 @@ abstract class AnstelleDatabase : RoomDatabase() {
                 .apply { if (allowDestructiveMigration) fallbackToDestructiveMigration(dropAllTables = true) }
                 .build()
 
-        private val PRE_RELEASE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9)
+        private val PRE_RELEASE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
     }
 }
