@@ -10,6 +10,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import tv.anstelle.core.database.entity.ChannelEntity
+import tv.anstelle.core.database.entity.ChannelGroupEntity
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.database.entity.ProfileEntity
@@ -61,9 +62,12 @@ class WatchEventDaoTest {
             ),
         )
 
-    private suspend fun channel(id: Long, number: Int, name: String) = db.channelDao().insert(
-        ChannelEntity(id, number, name, null, ChannelKind.GENERATED, 1, PlaybackOrder.SHUFFLE, 1, false, false, null, null, false, 0, 0),
-    )
+    private suspend fun channel(id: Long, number: Int, name: String): Long {
+        if (db.channelDao().groupById(1) == null) db.channelDao().insertGroup(ChannelGroupEntity(1, "Group", 0, 1000))
+        return db.channelDao().insert(
+            ChannelEntity(id, number, name, null, ChannelKind.GENERATED, 1, PlaybackOrder.EPISODE_ORDER, 1, PlaybackOrder.SHUFFLE, 1, true, false, false, 1, null, 0, 0),
+        )
+    }
 
     private fun event(
         profileId: Long = 1,

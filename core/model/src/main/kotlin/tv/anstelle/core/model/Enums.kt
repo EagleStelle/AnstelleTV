@@ -29,13 +29,15 @@ enum class MediaType(override val code: Int) : CodedEnum {
     MUSIC_VIDEO(4),
 }
 
+/** How a channel plays one kind of item: its series, or its movies. */
 enum class PlaybackOrder(override val code: Int) : CodedEnum {
+    /** Everything once per round, in random order. */
     SHUFFLE(0),
 
-    /** Pick a show (weighted), then play its next episode in season/episode order. */
+    /** Series: pick a series (weighted), then play its next episode. Movies: the next movie by release date. */
     EPISODE_ORDER(1),
 
-    /** Pick a show, then play a block of 1–4 consecutive episodes. */
+    /** As [EPISODE_ORDER], but 2–4 in a row: a series' next episodes, or the next movies by release date. */
     BLOCKS(2),
 }
 

@@ -83,7 +83,7 @@ class ScheduleRepository @Inject constructor(
             stored.copy(
                 generatedUntilUtcMs = stored.generatedUntilUtcMs + deltaMs,
                 // An unreadable state stays as it is; the next update regenerates it anyway.
-                stateBlob = state?.copy(nextStartUtcMs = state.nextStartUtcMs + deltaMs)?.encode() ?: stored.stateBlob,
+                stateBlob = state?.shifted(deltaMs)?.encode() ?: stored.stateBlob,
                 updatedAtUtcMs = time.nowUtcMs(),
             )
         }

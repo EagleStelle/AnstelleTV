@@ -34,11 +34,21 @@ private const val MINUTE = 60_000L
 private const val HOUR = 60 * MINUTE
 private const val DAY = 24 * HOUR
 
-private fun channel(id: Long = 1, order: PlaybackOrder = PlaybackOrder.EPISODE_ORDER, hidden: Boolean = false) = ChannelEntity(
-    id = id, number = id.toInt(), name = "Channel $id", logoUri = null, kind = ChannelKind.GENERATED,
-    seed = 42, playbackOrder = order, blockSize = 1, isHidden = hidden, isFavorite = false, groupId = null,
-    autoKey = null, isManaged = false, createdAtUtcMs = 0, updatedAtUtcMs = 0,
+private fun channel(
+    id: Long = 1,
+    series: PlaybackOrder = PlaybackOrder.EPISODE_ORDER,
+    movies: PlaybackOrder = PlaybackOrder.SHUFFLE,
+    oncePerDay: Boolean = true,
+    hidden: Boolean = false,
+) = ChannelEntity(
+    id = id, number = id.toInt(), name = "Channel $id", logoUri = null, kind = ChannelKind.GENERATED, seed = 42,
+    seriesOrder = series, seriesBlock = 1, movieOrder = movies, movieBlock = 1, moviesOncePerDay = oncePerDay,
+    isHidden = hidden, isFavorite = false, groupId = 1, autoKey = null, createdAtUtcMs = 0, updatedAtUtcMs = 0,
 )
+
+/** [count] two-hour movies with the genre Western, ids `idBase + 1 ..`. */
+private fun westerns(idBase: Long, count: Int) =
+    (1..count).map { item(idBase + it, type = MediaType.MOVIE, genres = listOf("Western"), minutes = 120, year = 1950 + it) }
 
 private fun genres(channelId: Long, vararg genres: String, group: Int = 0, seasonId: Long? = null) =
     LineupRows.encode(channelId, seasonId, Lineup(listOf(RuleGroup(listOf(Rule(RuleField.GENRE, RuleOp.ANY_OF, genres.toList()))))), firstGroup = group)
@@ -96,7 +106,29 @@ class ChannelInputsTest {
         val comedy = hash(genres(1, "Comedy"))
         assertEquals(comedy, hash(genres(1, "comedy")))
         assertNotEquals(comedy, hash(genres(1, "Drama")))
-        assertNotEquals(comedy, hash(genres(1, "Comedy"), channel(order = PlaybackOrder.SHUFFLE)))
+        assertNotEquals(comedy, hash(genres(1, "Comedy"), channel(series = PlaybackOrder.SHUFFLE)))
+        assertNotEquals(comedy, hash(genres(1, "Comedy"), channel(movies = PlaybackOrder.EPISODE_ORDER)))
+    }
+
+    @Test
+    fun `movies keep to once a day only when the lineup can fill a day`() {
+        fun gap(rows: List<CatalogRow>, rules: List<ChannelRuleEntity>, oncePerDay: Boolean = true) =
+            ChannelInputs.build(ChannelSetup(channel(oncePerDay = oncePerDay), rules, emptyList(), emptyList()), Catalog(rows), ZoneOffset.UTC).config.movieGapMs
+        // Twelve two-hour movies fill a day; eleven don't, unless series air between them.
+        assertEquals(OncePerDay.GAP_MS, gap(westerns(500, 12), genres(1, "Western")))
+        assertEquals(0L, gap(westerns(500, 11), genres(1, "Western")))
+        assertEquals(OncePerDay.GAP_MS, gap(library + westerns(500, 11), genres(1, "Western", "Comedy")))
+        assertEquals(0L, gap(westerns(500, 12), genres(1, "Western"), oncePerDay = false))
+    }
+
+    @Test
+    fun `movies carry their release dates`() {
+        val rows = westerns(500, 3) + item(600, type = MediaType.MOVIE, genres = listOf("Western"), minutes = 120)
+        val inputs = ChannelInputs.build(ChannelSetup(channel(movies = PlaybackOrder.EPISODE_ORDER), genres(1, "Western"), emptyList(), emptyList()), Catalog(rows), ZoneOffset.UTC)
+        val start = Instant.parse("2026-10-06T00:00:00Z").toEpochMilli()
+        val ids = ScheduleEngine.generate(inputs, ScheduleEngine.initialState(inputs, start), start + DAY).slots.let { slots -> List(slots.size) { slots.mediaItemId(it) } }
+        // By year, the movie without one last.
+        assertEquals(listOf(501L, 502, 503, 600, 501, 502), ids.take(6))
     }
 }
 
@@ -185,6 +217,25 @@ class ScheduleUpdaterTest {
         assertNotEquals(current.mediaItemId, replaced.mediaItemId)
         assertTrue(slots().none { it.mediaItemId == current.mediaItemId && it.startUtcMs >= current.startUtcMs })
         assertContiguous(slots())
+    }
+
+    @Test
+    fun `a new lineup keeps movies a day apart across the change`() = runTest {
+        rows = westerns(500, 15)
+        channels[1] = channel()
+        rules[1] = genres(1, "Western")
+        updater.updateAll(ZoneOffset.UTC)
+        now += 20 * HOUR
+
+        channels[1] = channel(movies = PlaybackOrder.EPISODE_ORDER)
+        assertEquals(ScheduleOutcome.REGENERATED, updater.update(1, ZoneOffset.UTC))
+        assertContiguous(slots())
+        val last = HashMap<Long, Long>()
+        for (slot in slots()) {
+            val id = slot.mediaItemId ?: continue
+            last[id]?.let { assertTrue(slot.startUtcMs - it >= DAY, "$id again after ${(slot.startUtcMs - it) / HOUR} h") }
+            last[id] = slot.startUtcMs
+        }
     }
 
     @Test

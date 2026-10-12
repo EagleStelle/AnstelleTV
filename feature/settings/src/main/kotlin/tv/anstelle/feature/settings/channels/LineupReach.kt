@@ -28,7 +28,7 @@ import tv.anstelle.core.theme.components.Notice
 import kotlin.math.roundToInt
 
 /**
- * What a lineup airs: how many episodes, movies and music videos from how many shows, how many
+ * What a lineup airs: how many episodes, movies and music videos from how many series, how many
  * hours, and the share of the library's airtime each kind takes.
  */
 @Immutable
@@ -36,7 +36,7 @@ data class LineupReach(
     val episodes: Int,
     val movies: Int,
     val videos: Int,
-    val shows: Int,
+    val series: Int,
     val hours: Long,
     val episodeShare: Float,
     val movieShare: Float,
@@ -54,10 +54,10 @@ data class LineupReach(
             var episodeMs = 0L
             var movieMs = 0L
             var videoMs = 0L
-            val shows = HashSet<String>()
+            val series = HashSet<String>()
             for (match in result.matches) {
                 val row = match.item.row
-                row.seriesRemoteId?.let(shows::add)
+                row.seriesRemoteId?.let(series::add)
                 when (row.type) {
                     MediaType.MOVIE -> { movies++; movieMs += row.durationMs }
                     MediaType.MUSIC_VIDEO -> { videos++; videoMs += row.durationMs }
@@ -69,7 +69,7 @@ data class LineupReach(
                 episodes = episodes,
                 movies = movies,
                 videos = videos,
-                shows = shows.size,
+                series = series.size,
                 hours = result.totalDurationMs / 3_600_000L,
                 episodeShare = share(episodeMs),
                 movieShare = share(movieMs),
@@ -80,7 +80,7 @@ data class LineupReach(
 }
 
 /**
- * A lineup's reach as a readout: its hours, shows, episodes and movies as figures, then a ladder
+ * A lineup's reach as a readout: its hours, series, episodes and movies as figures, then a ladder
  * of the library's airtime with the lineup's share filled in, a step of the palette per kind.
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -96,7 +96,7 @@ internal fun ReachReadout(reach: LineupReach?, modifier: Modifier = Modifier) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Figure(if (reach.hours < 1) "<1" else "%,d".format(reach.hours), if (reach.hours == 1L) "hour" else "hours")
-                if (reach.shows > 0) Figure("%,d".format(reach.shows), if (reach.shows == 1) "show" else "shows")
+                if (reach.series > 0) Figure("%,d".format(reach.series), "series")
                 if (reach.episodes > 0) Figure("%,d".format(reach.episodes), if (reach.episodes == 1) "episode" else "episodes")
                 if (reach.movies > 0) Figure("%,d".format(reach.movies), if (reach.movies == 1) "movie" else "movies")
                 if (reach.videos > 0) Figure("%,d".format(reach.videos), if (reach.videos == 1) "music video" else "music videos")

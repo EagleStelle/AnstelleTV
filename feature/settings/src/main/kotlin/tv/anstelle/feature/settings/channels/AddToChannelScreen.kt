@@ -26,7 +26,6 @@ import tv.anstelle.core.data.channels.ChannelPick
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelSummary
 import tv.anstelle.core.data.channels.Lineup
-import tv.anstelle.core.model.PlaybackOrder
 import tv.anstelle.core.theme.components.CheckRow
 import tv.anstelle.core.theme.components.OsdButton
 import tv.anstelle.core.theme.components.SettingsButtons
@@ -58,7 +57,7 @@ class AddToChannelViewModel @Inject constructor(
     private val _state = MutableStateFlow(AddToChannelUiState())
     val state: StateFlow<AddToChannelUiState> = _state.asStateFlow()
 
-    /** The group and segment New channel puts the channel in. */
+    /** The group New channel puts the channel in. */
     val placement = PlacementPicker(repository, viewModelScope) { problem -> _state.update { it.copy(message = problem) } }
 
     init {
@@ -83,7 +82,7 @@ class AddToChannelViewModel @Inject constructor(
     fun newChannel() = act { pick ->
         val place = placement.state.value
         place.problem?.let { throw IllegalArgumentException(it) }
-        val id = repository.create(pick.title, Lineup(emptyList(), includes = listOf(pick.pick)), PlaybackOrder.EPISODE_ORDER, 1, place.groupId!!, place.segment!!)
+        val id = repository.create(pick.title, Lineup(emptyList(), includes = listOf(pick.pick)), place.groupId!!)
         val channels = repository.observeChannels().first().filterNot { it.channel.fromLibrary }
         val number = channels.firstOrNull { it.channel.id == id }?.channel?.number
         _state.update {
@@ -115,8 +114,8 @@ class AddToChannelViewModel @Inject constructor(
 }
 
 /**
- * Makes custom channels always air a show or movie: a checkbox per channel (checked once it
- * airs it), or New channel builds a channel around it in the group and segment above it.
+ * Makes custom channels always air a series or movie: a checkbox per channel (checked once it
+ * airs it), or New channel builds a channel around it in the group above it.
  */
 @Composable
 fun AddToChannelScreen(
@@ -148,10 +147,7 @@ fun AddToChannelScreen(
     ) {
         item(key = "message") { state.message?.let { SettingsNotice(it) } }
         item(key = "group") {
-            GroupChoiceRow(placement.groups, placement.groupId, viewModel.placement::pickGroup, viewModel.placement::newGroup)
-        }
-        item(key = "segment") {
-            SegmentChoiceRow(placement.segments, placement.segment, viewModel.placement::pickSegment, viewModel.placement::newSegment)
+            GroupChoiceRow(placement.groups, placement.groupId, placement.nextStart, viewModel.placement::pickGroup, viewModel.placement::newGroup)
         }
         item(key = "new") {
             SettingsButtons {

@@ -1,6 +1,5 @@
 package tv.anstelle.core.scheduler
 
-import tv.anstelle.core.model.PlaybackOrder
 import tv.anstelle.core.model.SlotKind
 import java.time.ZoneId
 import kotlin.test.Test
@@ -16,7 +15,7 @@ class NowPlayingTest {
     // Two 24-minute episodes back to back: episode 1 at 0–24, episode 2 at 24–48.
     private val slots = run {
         val inputs = ScheduleInputs(
-            config = ChannelConfig(seed = 3, playbackOrder = PlaybackOrder.EPISODE_ORDER),
+            config = ChannelConfig(seed = 3),
             pool = CandidatePool.of(show("a", 0, 2, 24 * MIN)),
             zone = zone,
         )
@@ -60,7 +59,7 @@ class NowPlayingTest {
     @Test
     fun offAirHasNoItem() {
         val inputs = ScheduleInputs(
-            config = ChannelConfig(seed = 3, playbackOrder = PlaybackOrder.SHUFFLE),
+            config = ChannelConfig(seed = 3),
             pool = CandidatePool.EMPTY,
             zone = zone,
         )

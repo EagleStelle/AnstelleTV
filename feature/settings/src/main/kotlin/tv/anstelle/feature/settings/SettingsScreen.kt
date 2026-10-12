@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.InsertChart
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -105,7 +104,7 @@ data class ChannelStats(
             visible = channels.count { !it.channel.isHidden },
             favorites = channels.count { it.channel.isFavorite },
             hidden = channels.count { it.channel.isHidden },
-            groups = channels.mapNotNullTo(HashSet()) { it.groupName }.size,
+            groups = channels.mapTo(HashSet()) { it.channel.groupId }.size,
         )
     }
 }
@@ -122,8 +121,6 @@ data class SettingsUiState(
     val syncProgress: Map<Long, String> = emptyMap(),
     val nowUtcMs: Long = 0,
     val channels: ChannelStats = ChannelStats(),
-    /** Library channels that were deleted. */
-    val removedChannels: Int = 0,
     val liveTvSync: WatchSync = codeOf(Settings.liveTvSync(0).default),
     val onDemandSync: WatchSync = codeOf(Settings.onDemandSync(0).default),
     /** Whether the profile keeps its dashboard. */
@@ -185,8 +182,6 @@ class SettingsViewModel @Inject constructor(
         )
     }.combine(channels.observeChannels()) { state, list ->
         state.copy(channels = ChannelStats.of(list))
-    }.combine(channels.observeRemovedCount()) { state, removed ->
-        state.copy(removedChannels = removed)
     }.combine(serverCounts) { state, counts ->
         state.copy(serverCounts = counts)
     }.combine(servers.syncProgress) { state, progress ->
@@ -313,7 +308,7 @@ private fun AreaAside(area: SettingsArea, state: SettingsUiState) {
         androidx.compose.material3.Text(title(area), style = typography.headlineSmall, color = theme.text)
         when (area) {
             SettingsArea.SERVERS -> ServersReadout(state)
-            SettingsArea.CHANNELS -> ChannelsReadout(state.channels, state.removedChannels)
+            SettingsArea.CHANNELS -> ChannelsReadout(state.channels)
             SettingsArea.PLAYBACK -> PlaybackReadout(state.tracks)
             SettingsArea.HISTORY -> HistoryReadout(state.liveTvSync, state.onDemandSync, state.dashboard)
             SettingsArea.THEME -> ThemePreview(state.theme ?: DefaultTheme.spec, Modifier.fillMaxWidth())
@@ -383,7 +378,7 @@ private fun Attention(text: String) {
 
 /** How many channels air, who made them, and how they're kept. */
 @Composable
-private fun ChannelsReadout(stats: ChannelStats, removed: Int) {
+private fun ChannelsReadout(stats: ChannelStats) {
     ReadoutFrame {
         StatusLine(onAir = stats.visible > 0, label = "On air", text = "${stats.visible} of ${stats.total}")
         ReadoutFigures {
@@ -396,7 +391,6 @@ private fun ChannelsReadout(stats: ChannelStats, removed: Int) {
             ReadoutFact(Icons.Filled.Star, "${stats.favorites}", if (stats.favorites == 1) "favorite" else "favorites")
             ReadoutFact(Icons.Filled.Folder, "${stats.groups}", if (stats.groups == 1) "group" else "groups")
             ReadoutFact(Icons.Filled.VisibilityOff, "${stats.hidden}", "hidden")
-            if (removed > 0) ReadoutFact(Icons.Filled.Restore, "$removed", "removed")
         }
     }
 }

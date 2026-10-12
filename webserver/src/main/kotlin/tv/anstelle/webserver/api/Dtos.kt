@@ -51,7 +51,7 @@ data class ChannelDto(
     val logoUrl: String?,
     val isHidden: Boolean,
     val isFavorite: Boolean,
-    val groupId: Long?,
+    val groupId: Long,
 )
 
 /** Sent over `/ws`. */

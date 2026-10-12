@@ -3,7 +3,6 @@ package tv.anstelle.core.database.dao
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
@@ -14,7 +13,6 @@ import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelGroupEntity
 import tv.anstelle.core.database.entity.ChannelRuleEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
-import tv.anstelle.core.database.entity.DismissedChannelEntity
 import tv.anstelle.core.model.RuleOp
 
 @Dao
@@ -34,22 +32,6 @@ interface ChannelDao {
     @Query("SELECT COALESCE(MAX(number), 0) FROM channel")
     suspend fun maxNumber(): Int
 
-    /** Library channels stop following the library once edited. */
-    @Query("UPDATE channel SET isManaged = 0 WHERE id = :id")
-    suspend fun stopManaging(id: Long)
-
-    @Query("SELECT autoKey FROM dismissed_channel")
-    suspend fun dismissedKeys(): List<String>
-
-    @Query("SELECT COUNT(*) FROM dismissed_channel")
-    fun observeDismissedCount(): Flow<Int>
-
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun dismiss(dismissed: DismissedChannelEntity)
-
-    @Query("DELETE FROM dismissed_channel WHERE autoKey = :autoKey")
-    suspend fun undismiss(autoKey: String)
-
     @Insert
     suspend fun insert(channel: ChannelEntity): Long
 
@@ -66,20 +48,13 @@ interface ChannelDao {
     suspend fun setHidden(id: Long, hidden: Boolean, atUtcMs: Long)
 
     @Query("UPDATE channel SET groupId = :groupId, updatedAtUtcMs = :atUtcMs WHERE id = :id")
-    suspend fun setGroup(id: Long, groupId: Long?, atUtcMs: Long)
+    suspend fun setGroup(id: Long, groupId: Long, atUtcMs: Long)
 
     @Query("UPDATE channel SET logoUri = :logoUri, updatedAtUtcMs = :atUtcMs WHERE id = :id")
     suspend fun setLogo(id: Long, logoUri: String?, atUtcMs: Long)
 
     @Query("UPDATE channel SET number = :number, updatedAtUtcMs = :atUtcMs WHERE id = :id")
     suspend fun setNumber(id: Long, number: Int, atUtcMs: Long)
-
-    @Query("UPDATE channel SET segment = :segment, updatedAtUtcMs = :atUtcMs WHERE id = :id")
-    suspend fun setSegment(id: Long, segment: String?, atUtcMs: Long)
-
-    /** Takes the channels out of a segment that is gone. */
-    @Query("UPDATE channel SET segment = NULL WHERE segment = :segment")
-    suspend fun clearSegment(segment: String)
 
     /** The channels that always include [remoteId] in their own lineup. */
     @Query("SELECT DISTINCT channelId FROM channel_rule WHERE seasonId IS NULL AND op = :includeOp AND value = :remoteId")
@@ -128,6 +103,9 @@ interface ChannelDao {
 
     @Query("SELECT * FROM channel_group WHERE id = :id")
     suspend fun groupById(id: Long): ChannelGroupEntity?
+
+    @Query("SELECT COUNT(*) FROM channel WHERE groupId = :groupId")
+    suspend fun channelCount(groupId: Long): Int
 
     @Insert
     suspend fun insertGroup(group: ChannelGroupEntity): Long

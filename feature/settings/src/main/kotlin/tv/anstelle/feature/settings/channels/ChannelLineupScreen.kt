@@ -44,7 +44,7 @@ import tv.anstelle.core.data.channels.LineupMatcher
 import tv.anstelle.core.data.channels.Pick
 import tv.anstelle.core.data.channels.Rule
 import tv.anstelle.core.data.channels.RuleGroup
-import tv.anstelle.core.model.PlaybackOrder
+import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.RuleField
 import tv.anstelle.core.model.RuleOp
 import tv.anstelle.core.theme.components.AnstelleTextField
@@ -90,8 +90,8 @@ sealed interface BuilderPage {
     /** Typing values: numbers, keywords or text to look for. */
     data class Type(val group: Int, val field: RuleField, val op: RuleOp, val first: String = "", val second: String = "") : BuilderPage
 
-    /** Choosing a show or movie to always or never include. */
-    data class Shows(val include: Boolean, val query: String = "") : BuilderPage
+    /** Choosing a series, or a movie, to always or never include. */
+    data class Titles(val include: Boolean, val movies: Boolean, val query: String = "") : BuilderPage
 }
 
 /** A value to pick: what is stored, what is shown, and how many items have it. */
@@ -114,7 +114,7 @@ data class LineupUiState(
     /** What the lineup airs; null while it is being counted. */
     val reach: LineupReach? = null,
     val page: BuilderPage = BuilderPage.Main,
-    /** Choices for the Choose and Shows pages, filtered by the query. */
+    /** Choices for the Choose and Titles pages, filtered by the query. */
     val options: List<ValueOption> = emptyList(),
     val error: String? = null,
     val busy: Boolean = false,
@@ -136,7 +136,7 @@ class ChannelLineupViewModel @Inject constructor(
     private val _state = MutableStateFlow(LineupUiState(isNew = channelId == 0L))
     val state: StateFlow<LineupUiState> = _state.asStateFlow()
 
-    /** A new channel's group and segment. */
+    /** A new channel's group. */
     val placement = PlacementPicker(repository, viewModelScope) { fail(it) }
 
     private var catalog = Catalog(emptyList())
@@ -207,7 +207,7 @@ class ChannelLineupViewModel @Inject constructor(
     fun setQuery(query: String) {
         when (val page = _state.value.page) {
             is BuilderPage.Choose -> go(page.copy(query = query))
-            is BuilderPage.Shows -> go(page.copy(query = query))
+            is BuilderPage.Titles -> go(page.copy(query = query))
             else -> Unit
         }
     }
@@ -259,12 +259,11 @@ class ChannelLineupViewModel @Inject constructor(
         changed()
     }
 
-    fun openShows(include: Boolean) = go(BuilderPage.Shows(include))
+    fun openTitles(include: Boolean, movies: Boolean) = go(BuilderPage.Titles(include, movies))
 
-    fun pickShow(remoteId: String) {
-        val page = _state.value.page as? BuilderPage.Shows ?: return
-        val field = if (catalog.isSeries(remoteId)) RuleField.SERIES else RuleField.ITEM
-        val pick = Pick(field, remoteId)
+    fun pickTitle(remoteId: String) {
+        val page = _state.value.page as? BuilderPage.Titles ?: return
+        val pick = Pick(if (page.movies) RuleField.ITEM else RuleField.SERIES, remoteId)
         lineup = if (page.include) {
             lineup.copy(includes = lineup.includes.filter { it.remoteId != remoteId } + pick)
         } else {
@@ -292,7 +291,7 @@ class ChannelLineupViewModel @Inject constructor(
     fun back(): Boolean {
         val previous = when (val page = _state.value.page) {
             BuilderPage.Main -> return false
-            is BuilderPage.Field, is BuilderPage.Shows -> BuilderPage.Main
+            is BuilderPage.Field, is BuilderPage.Titles -> BuilderPage.Main
             is BuilderPage.Op -> BuilderPage.Field(page.group)
             is BuilderPage.Choose -> if (page.from != null) page.copy(from = null) else BuilderPage.Op(page.group, page.field)
             is BuilderPage.Type -> BuilderPage.Op(page.group, page.field)
@@ -304,7 +303,7 @@ class ChannelLineupViewModel @Inject constructor(
     fun save() {
         val current = _state.value
         if (current.busy) return
-        // A new channel never goes without a group and a segment.
+        // A new channel never goes without a group.
         val place = placement.state.value
         if (channelId == 0L) place.problem?.let { return fail(it) }
         if (lineup.isEmpty) return fail("Add a rule or a show first.")
@@ -312,7 +311,7 @@ class ChannelLineupViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val id = if (channelId == 0L) {
-                    repository.create(current.name.ifBlank { "New channel" }, lineup, PlaybackOrder.EPISODE_ORDER, 1, place.groupId!!, place.segment!!)
+                    repository.create(current.name.ifBlank { "New channel" }, lineup, place.groupId!!)
                 } else {
                     repository.setLineup(channelId, lineup)
                     channelId
@@ -372,7 +371,7 @@ class ChannelLineupViewModel @Inject constructor(
                 val values = choices(page.field, page.op).filter { start == null || (it.value.toIntOrNull() ?: Int.MIN_VALUE) >= start }
                 Triple(values, page.query, page.selected + listOfNotNull(page.from?.value))
             }
-            is BuilderPage.Shows -> Triple(catalog.shows.map { ValueOption(it.remoteId, it.title, it.itemCount) }.alphabetical(), page.query, emptySet())
+            is BuilderPage.Titles -> Triple(if (page.movies) movies() else series(), page.query, emptySet())
             else -> return emptyList()
         }
         val needle = query.trim()
@@ -383,7 +382,8 @@ class ChannelLineupViewModel @Inject constructor(
         RuleField.MEDIA_TYPE -> Rule.PlayableTypes.map { type ->
             ValueOption(type.name, mediaTypeLabel(type.name), catalog.items.count { it.row.type == type })
         }.filter { it.count > 0 }.alphabetical()
-        RuleField.SERIES -> catalog.shows.filter { catalog.isSeries(it.remoteId) }.map { ValueOption(it.remoteId, it.title, it.itemCount) }.alphabetical()
+        RuleField.SERIES -> series()
+        RuleField.ITEM -> movies()
         RuleField.KIND -> catalog.values(field).map { ValueOption(it.value, kindLabel(it.value), it.count) }.alphabetical()
         RuleField.YEAR -> catalog.items.mapNotNull { it.row.year }.groupingBy { it }.eachCount().entries
             .sortedBy { it.key }
@@ -399,6 +399,14 @@ class ChannelLineupViewModel @Inject constructor(
         else -> catalog.values(field).map { ValueOption(it.value, it.value, it.count) }.alphabetical()
     }
 
+    private fun series(): List<ValueOption> =
+        catalog.shows.filter { catalog.isSeries(it.remoteId) }.map { ValueOption(it.remoteId, it.title, it.itemCount) }.alphabetical()
+
+    /** Movies by title, with the year when the library has one. */
+    private fun movies(): List<ValueOption> = catalog.items.filter { it.row.type == MediaType.MOVIE }
+        .map { item -> ValueOption(item.row.remoteId, item.row.year?.let { "${item.row.title} ($it)" } ?: item.row.title, 1) }
+        .alphabetical()
+
     private fun List<ValueOption>.alphabetical() = sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
 
     private companion object {
@@ -406,7 +414,7 @@ class ChannelLineupViewModel @Inject constructor(
     }
 }
 
-/** Builds a channel's lineup: rule sets (any set may match), and shows always or never included. */
+/** Builds a channel's lineup: rule sets (any set may match), and series and movies always or never included. */
 @Composable
 fun ChannelLineupScreen(
     onSaved: (channelId: Long, isNew: Boolean) -> Unit,
@@ -437,7 +445,7 @@ fun ChannelLineupScreen(
                 is BuilderPage.Op -> OpPage(page, viewModel, builder, modifier)
                 is BuilderPage.Choose -> ChoosePage(page, state, viewModel, builder, modifier)
                 is BuilderPage.Type -> TypePage(page, state, viewModel, builder, modifier)
-                is BuilderPage.Shows -> ShowsPage(page, state, viewModel, builder, modifier)
+                is BuilderPage.Titles -> TitlesPage(page, state, viewModel, builder, modifier)
             }
         }
     }
@@ -458,9 +466,9 @@ private fun MainPage(state: LineupUiState, placement: Placement, viewModel: Chan
         title = if (state.isNew) "New channel" else "Lineup",
         trail = trail,
         about = if (state.isNew) {
-            "Name it, pick its group and segment, then add rules. A show plays when it matches every rule in a set."
+            "Name it, pick its group, then add rules. A series or movie plays when it matches every rule in a set."
         } else {
-            "A show plays when it matches every rule in a set. Changes start after the next program."
+            "A series or movie plays when it matches every rule in a set. Changes start after the next program."
         },
         aside = { ReachReadout(state.reach) },
         modifier = modifier,
@@ -476,10 +484,7 @@ private fun MainPage(state: LineupUiState, placement: Placement, viewModel: Chan
                 )
             }
             item(key = "group") {
-                GroupChoiceRow(placement.groups, placement.groupId, viewModel.placement::pickGroup, viewModel.placement::newGroup)
-            }
-            item(key = "segment") {
-                SegmentChoiceRow(placement.segments, placement.segment, viewModel.placement::pickSegment, viewModel.placement::newSegment)
+                GroupChoiceRow(placement.groups, placement.groupId, placement.nextStart, viewModel.placement::pickGroup, viewModel.placement::newGroup)
             }
         }
         state.groups.forEachIndexed { g, group ->
@@ -530,7 +535,7 @@ private fun LazyListScope.groupItems(g: Int, group: GroupRow, viewModel: Channel
             choices = WeightSteps,
             label = ::weightLabel,
             detail = ::weightHint,
-            about = "How often this set's shows play.",
+            about = "How often this set's series and movies play.",
             onSelect = { viewModel.setGroupWeight(g, it) },
             icon = Icons.Filled.Scale,
         )
@@ -564,7 +569,8 @@ private fun LazyListScope.picks(label: String, rows: List<PickRow>, include: Boo
     }
     item(key = "add-pick-$include") {
         SettingsButtons {
-            OsdButton("Add show", onClick = { viewModel.openShows(include) }, icon = Icons.Filled.Add)
+            OsdButton("Add series", onClick = { viewModel.openTitles(include, movies = false) }, icon = Icons.Filled.Add)
+            OsdButton("Add movie", onClick = { viewModel.openTitles(include, movies = true) }, icon = Icons.Filled.Add)
         }
     }
 }
@@ -643,7 +649,8 @@ private fun ChoosePage(page: BuilderPage.Choose, state: LineupUiState, viewModel
         item(key = "error") { state.error?.let { SettingsNotice(it, isError = true) } }
         if (state.options.isEmpty()) item(key = "none") { SettingsNotice("Nothing in your library has one.") }
         itemsIndexed(state.options, key = { _, option -> "option-${option.value}" }) { i, option ->
-            val count = "%,d %s".format(option.count, if (option.count == 1) "item" else "items")
+            // Each movie is one item, so its count says nothing.
+            val count = if (page.field == RuleField.ITEM) null else "%,d %s".format(option.count, if (option.count == 1) "item" else "items")
             if (single) {
                 OptionRow(
                     title = option.label,
@@ -698,7 +705,7 @@ private fun TypePage(page: BuilderPage.Type, state: LineupUiState, viewModel: Ch
 }
 
 @Composable
-private fun ShowsPage(page: BuilderPage.Shows, state: LineupUiState, viewModel: ChannelLineupViewModel, trail: List<String>, modifier: Modifier) {
+private fun TitlesPage(page: BuilderPage.Titles, state: LineupUiState, viewModel: ChannelLineupViewModel, trail: List<String>, modifier: Modifier) {
     val firstFocus = rememberInitialFocus()
     SettingsPage(
         title = if (page.include) "Always include" else "Never include",
@@ -715,13 +722,13 @@ private fun ShowsPage(page: BuilderPage.Shows, state: LineupUiState, viewModel: 
                 modifier = Modifier.fillMaxWidth().padding(horizontal = settingsEdge, vertical = 8.dp).focusRequester(firstFocus),
             )
         }
-        if (state.options.isEmpty()) item(key = "none") { SettingsNotice("No matching shows or movies.") }
-        itemsIndexed(state.options, key = { _, option -> "show-${option.value}" }) { _, option ->
+        if (state.options.isEmpty()) item(key = "none") { SettingsNotice(if (page.movies) "No matching movies." else "No matching series.") }
+        itemsIndexed(state.options, key = { _, option -> "title-${option.value}" }) { _, option ->
             OptionRow(
                 title = option.label,
-                summary = "%,d %s".format(option.count, if (option.count == 1) "item" else "episodes"),
+                summary = if (page.movies) null else "%,d %s".format(option.count, if (option.count == 1) "episode" else "episodes"),
                 selected = false,
-                onClick = { viewModel.pickShow(option.value) },
+                onClick = { viewModel.pickTitle(option.value) },
             )
         }
     }

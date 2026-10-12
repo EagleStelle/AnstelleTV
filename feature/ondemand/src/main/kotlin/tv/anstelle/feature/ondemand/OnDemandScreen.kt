@@ -162,8 +162,6 @@ class OnDemandViewModel @Inject constructor(
                         for (group in groups) {
                             tiles.filter { it.channel.groupId == group.id }.takeIf { it.isNotEmpty() }?.let { add(row("group:${group.id}", group.name, it)) }
                         }
-                        val grouped = groups.mapTo(HashSet()) { it.id }
-                        tiles.filter { it.channel.groupId !in grouped }.takeIf { it.isNotEmpty() }?.let { add(row("other", "Other channels", it)) }
                     }
                     // The banner deals programs the profile may watch.
                     val onAir = tiles.mapNotNull { tile -> tile.now?.takeIf { !it.offAir && it.restriction == null } }

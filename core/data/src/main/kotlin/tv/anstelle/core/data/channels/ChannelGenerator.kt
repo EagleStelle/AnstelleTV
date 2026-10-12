@@ -1,7 +1,6 @@
 package tv.anstelle.core.data.channels
 
 import tv.anstelle.core.model.MediaType
-import tv.anstelle.core.model.PlaybackOrder
 import tv.anstelle.core.model.RuleField
 import tv.anstelle.core.model.RuleOp
 import java.text.Collator
@@ -11,8 +10,8 @@ import java.util.TreeSet
 import kotlin.math.ceil
 
 /**
- * The guide groups library channels join, in guide order. Each numbers its channels up from its
- * own start ([defaultStart] until a profile picks another).
+ * The library's guide groups, in guide order. Each holds one family of library channels and
+ * numbers them up from its own start ([defaultStart] until someone changes it).
  */
 enum class ChannelSegment(val groupName: String, val defaultStart: Int) {
     PRODUCTIONS("Productions", 1000),
@@ -31,7 +30,6 @@ class GeneratedChannel(
     val name: String,
     val segment: ChannelSegment,
     val lineup: Lineup,
-    val order: PlaybackOrder,
     match: () -> MatchResult,
 ) {
     /** What the lineup matches, listed only when asked for. */
@@ -56,7 +54,8 @@ class GeneratedChannel(
  *
  * A channel needs [MIN_SHOWS] shows (a movie counts as one) and [MIN_DURATION_MS] of airtime,
  * times [scale]: the sync keeps an existing channel while it would be made at [KEEP_SCALE] of
- * the thresholds, so channels near the limit don't come and go with every sync.
+ * the thresholds, so channels near the limit don't come and go with every sync. A channel of
+ * movies alone needs a full day of them at any scale, so each movie airs once a day ([OncePerDay]).
  * A channel whose shows are nearly the same as one kept before it is dropped, and so is a
  * studio whose shows nearly all belong to a bigger studio. Pure, so it is tested without a
  * database.
@@ -306,8 +305,14 @@ class ChannelGenerator(private val words: ChannelWords, scale: Double = 1.0) {
             val shows = showsOf(matched)
             if (shows.cardinality() < minShows) return null
             var durationMs = 0L
-            matched.forEachSet { durationMs += items[it].row.durationMs }
-            if (durationMs < minDurationMs) return null
+            var episodes = 0
+            var movieMs = 0L
+            matched.forEachSet {
+                val row = items[it].row
+                durationMs += row.durationMs
+                if (row.seriesRemoteId != null) episodes++ else movieMs += row.durationMs
+            }
+            if (durationMs < minDurationMs || !OncePerDay.fits(episodes, movieMs)) return null
             return Candidate(segment, key, name, matched, ShowSet(shows), parents, groups)
         }
 
@@ -325,20 +330,10 @@ class ChannelGenerator(private val words: ChannelWords, scale: Double = 1.0) {
             val parents: List<ShowSet>,
             val groups: () -> List<RuleGroup>,
         ) {
-            fun channel(): GeneratedChannel {
-                var moviesOnly = true
-                matched.forEachSet { if (items[it].row.type != MediaType.MOVIE) moviesOnly = false }
-                return GeneratedChannel(
-                    key = key,
-                    name = name,
-                    segment = segment,
-                    lineup = Lineup(groups()),
-                    order = if (moviesOnly) PlaybackOrder.SHUFFLE else PlaybackOrder.EPISODE_ORDER,
-                ) {
-                    val matches = ArrayList<Match>(matched.cardinality())
-                    matched.forEachSet { matches += Match(items[it], 1f) }
-                    MatchResult(matches)
-                }
+            fun channel(): GeneratedChannel = GeneratedChannel(key, name, segment, Lineup(groups())) {
+                val matches = ArrayList<Match>(matched.cardinality())
+                matched.forEachSet { matches += Match(items[it], 1f) }
+                MatchResult(matches)
             }
         }
     }

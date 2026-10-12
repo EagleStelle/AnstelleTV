@@ -4,38 +4,51 @@ import tv.anstelle.core.data.channels.MatchResult
 import tv.anstelle.core.data.channels.MediaKinds
 import tv.anstelle.core.data.channels.Rule
 import tv.anstelle.core.model.MediaType
+import tv.anstelle.core.model.Playback
 import tv.anstelle.core.model.PlaybackOrder
 import tv.anstelle.core.model.RuleField
 import tv.anstelle.core.model.RuleOp
 import java.text.DateFormat
 import java.util.Date
 
-/** The playback orders offered, as (order, block size). */
+/** The playbacks offered, the same for series and movies. */
 internal val PlaybackChoices = listOf(
-    PlaybackOrder.SHUFFLE to 1,
-    PlaybackOrder.EPISODE_ORDER to 1,
-    PlaybackOrder.BLOCKS to 2,
-    PlaybackOrder.BLOCKS to 3,
-    PlaybackOrder.BLOCKS to 4,
+    Playback(PlaybackOrder.SHUFFLE),
+    Playback(PlaybackOrder.EPISODE_ORDER),
+    Playback(PlaybackOrder.BLOCKS, 2),
+    Playback(PlaybackOrder.BLOCKS, 3),
+    Playback(PlaybackOrder.BLOCKS, 4),
 )
 
-internal fun playbackLabel(order: PlaybackOrder, blockSize: Int): String = when (order) {
+internal fun seriesPlaybackLabel(playback: Playback): String = when (playback.order) {
     PlaybackOrder.SHUFFLE -> "Shuffle"
     PlaybackOrder.EPISODE_ORDER -> "Episode order"
-    PlaybackOrder.BLOCKS -> "Blocks of $blockSize"
+    PlaybackOrder.BLOCKS -> "Blocks of ${playback.blockSize}"
 }
 
-internal fun playbackHint(order: PlaybackOrder, blockSize: Int): String = when (order) {
-    PlaybackOrder.SHUFFLE -> "Everything once per round, in random order."
-    PlaybackOrder.EPISODE_ORDER -> "Picks a show, then plays its next episode."
-    PlaybackOrder.BLOCKS -> "Picks a show, then plays $blockSize episodes in a row."
+internal fun seriesPlaybackHint(playback: Playback): String = when (playback.order) {
+    PlaybackOrder.SHUFFLE -> "Every episode once per round, in random order."
+    PlaybackOrder.EPISODE_ORDER -> "Picks a series, then plays its next episode."
+    PlaybackOrder.BLOCKS -> "Picks a series, then plays its next ${playback.blockSize} episodes."
+}
+
+internal fun moviePlaybackLabel(playback: Playback): String = when (playback.order) {
+    PlaybackOrder.SHUFFLE -> "Shuffle"
+    PlaybackOrder.EPISODE_ORDER -> "Release order"
+    PlaybackOrder.BLOCKS -> "Blocks of ${playback.blockSize}"
+}
+
+internal fun moviePlaybackHint(playback: Playback): String = when (playback.order) {
+    PlaybackOrder.SHUFFLE -> "Every movie once per round, in random order."
+    PlaybackOrder.EPISODE_ORDER -> "Plays the next movie by release date."
+    PlaybackOrder.BLOCKS -> "Plays the next ${playback.blockSize} movies by release date."
 }
 
 /**
  * Fields the lineup builder offers, broadest first: what an item is, what it is about, who made
- * it, its rating and year, then the narrow ones down to a single show. Libraries and single items
- * come in through picks. Anime or cartoon and decade aren't offered (genres, tags, keywords and
- * years already say them); rules on them still read and match.
+ * it, its rating and year, then the narrow ones down to single series and movies ([RuleField.ITEM]
+ * picks movies here). Libraries come in through picks. Anime or cartoon and decade aren't offered
+ * (genres, tags, keywords and years already say them); rules on them still read and match.
  */
 internal val BuilderFields = listOf(
     RuleField.MEDIA_TYPE,
@@ -46,6 +59,7 @@ internal val BuilderFields = listOf(
     RuleField.TAG,
     RuleField.KEYWORD,
     RuleField.SERIES,
+    RuleField.ITEM,
 )
 
 /** Operators answered by one pick from the list (two for BETWEEN, from and to). */
@@ -60,8 +74,8 @@ internal fun fieldLabel(field: RuleField): String = when (field) {
     RuleField.DECADE -> "Decade"
     RuleField.KEYWORD -> "Keyword"
     RuleField.LIBRARY -> "Library"
-    RuleField.SERIES -> "Show"
-    RuleField.ITEM -> "Item"
+    RuleField.SERIES -> "Series"
+    RuleField.ITEM -> "Movie"
     RuleField.MEDIA_TYPE -> "Type"
     RuleField.KIND -> "Anime or cartoon"
 }
@@ -75,8 +89,8 @@ internal fun fieldHint(field: RuleField): String = when (field) {
     RuleField.DECADE -> "1980s, 1990s…"
     RuleField.KEYWORD -> "Words in titles and tags, like Christmas"
     RuleField.LIBRARY -> "A Jellyfin library"
-    RuleField.SERIES -> "Specific shows"
-    RuleField.ITEM -> "A specific episode or movie"
+    RuleField.SERIES -> "Specific series"
+    RuleField.ITEM -> "Specific movies"
     RuleField.MEDIA_TYPE -> "Episodes, movies or music videos"
     RuleField.KIND -> "Anime, cartoons, unclear animation or neither, decided per show"
 }
@@ -105,7 +119,8 @@ internal fun valueLabel(field: RuleField, value: String, titleOf: (String) -> St
     RuleField.OFFICIAL_RATING -> ratingOf(value) ?: value
     RuleField.MEDIA_TYPE -> mediaTypeLabel(value)
     RuleField.KIND -> kindLabel(value)
-    RuleField.SERIES, RuleField.ITEM -> titleOf(value) ?: "a show not in your library"
+    RuleField.SERIES -> titleOf(value) ?: "a series not in your library"
+    RuleField.ITEM -> titleOf(value) ?: "a movie not in your library"
     else -> value
 }
 
@@ -124,7 +139,7 @@ internal fun describe(rule: Rule, titleOf: (String) -> String?, ratingOf: (Strin
     return "${fieldLabel(rule.field)} ${opLabel(rule.field, rule.op)} $joined"
 }
 
-/** "182 episodes and 12 movies, 9 shows, 64 hours". */
+/** "182 episodes and 12 movies, 9 series, 64 hours". */
 internal fun matchSummary(result: MatchResult): String {
     if (result.itemCount == 0) return "Nothing in your library matches yet"
     val counts = result.matches.groupingBy { it.item.row.type }.eachCount()
@@ -133,11 +148,11 @@ internal fun matchSummary(result: MatchResult): String {
         counts[MediaType.MOVIE]?.let { "%,d %s".format(it, if (it == 1) "movie" else "movies") },
         counts[MediaType.MUSIC_VIDEO]?.let { "%,d %s".format(it, if (it == 1) "music video" else "music videos") },
     )
-    val shows = result.matches.mapNotNullTo(HashSet()) { it.item.row.seriesRemoteId }.size
+    val series = result.matches.mapNotNullTo(HashSet()) { it.item.row.seriesRemoteId }.size
     val hours = result.totalDurationMs / 3_600_000L
     return buildList {
         add(parts.joinToString(" and "))
-        if (shows > 0) add("%,d %s".format(shows, if (shows == 1) "show" else "shows"))
+        if (series > 0) add("%,d series".format(series))
         add(if (hours < 1) "under an hour" else "%,d %s".format(hours, if (hours == 1L) "hour" else "hours"))
     }.joinToString(", ")
 }

@@ -64,7 +64,7 @@ class FakeApi : ApiDataSource {
     var libraryChannel = false
 
     override suspend fun profiles() = listOf(ProfileDto(1, "Alex", role = "owner", hasPin = false))
-    override suspend fun channels() = listOf(ChannelDto(1, 2, "Sitcoms", null, isHidden = false, isFavorite = true, groupId = null))
+    override suspend fun channels() = listOf(ChannelDto(1, 2, "Sitcoms", null, isHidden = false, isFavorite = true, groupId = 1))
 
     override suspend fun channelLogo(channelId: Long): ByteArray? = logos[channelId]
 

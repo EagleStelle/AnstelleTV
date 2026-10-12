@@ -3,7 +3,6 @@ package tv.anstelle.core.data
 import kotlinx.coroutines.test.runTest
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.database.entity.ScheduleStateEntity
-import tv.anstelle.core.model.PlaybackOrder
 import tv.anstelle.core.model.SlotKind
 import tv.anstelle.core.scheduler.Candidate
 import tv.anstelle.core.scheduler.CandidatePool
@@ -22,7 +21,7 @@ class ScheduleRepositoryTest {
     private val repository = ScheduleRepository(dao, TimeSource { start })
 
     private val inputs = ScheduleInputs(
-        config = ChannelConfig(seed = 5, playbackOrder = PlaybackOrder.EPISODE_ORDER),
+        config = ChannelConfig(seed = 5),
         pool = CandidatePool.of(
             List(4) {
                 Candidate(

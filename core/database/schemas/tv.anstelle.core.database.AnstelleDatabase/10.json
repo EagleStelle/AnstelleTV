@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 10,
-    "identityHash": "7f7a3100152d7e0b9edfa476c4c7f5db",
+    "identityHash": "a166c8cfb10efe8ce8c8bd51d028a3e2",
     "entities": [
       {
         "tableName": "media_server",
@@ -629,7 +629,7 @@
       },
       {
         "tableName": "channel_group",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `sortOrder` INTEGER NOT NULL, `numberStart` INTEGER)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `sortOrder` INTEGER NOT NULL, `numberStart` INTEGER NOT NULL, `libraryKey` TEXT)",
         "fields": [
           {
             "fieldPath": "id",
@@ -652,7 +652,13 @@
           {
             "fieldPath": "numberStart",
             "columnName": "numberStart",
-            "affinity": "INTEGER"
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "libraryKey",
+            "columnName": "libraryKey",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -670,12 +676,21 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_channel_group_sortOrder` ON `${TABLE_NAME}` (`sortOrder`)"
+          },
+          {
+            "name": "index_channel_group_libraryKey",
+            "unique": true,
+            "columnNames": [
+              "libraryKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_channel_group_libraryKey` ON `${TABLE_NAME}` (`libraryKey`)"
           }
         ]
       },
       {
         "tableName": "channel",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `number` INTEGER NOT NULL, `name` TEXT NOT NULL, `logoUri` TEXT, `kind` INTEGER NOT NULL, `seed` INTEGER NOT NULL, `playbackOrder` INTEGER NOT NULL, `blockSize` INTEGER NOT NULL, `isHidden` INTEGER NOT NULL, `isFavorite` INTEGER NOT NULL, `groupId` INTEGER, `autoKey` TEXT, `isManaged` INTEGER NOT NULL, `createdAtUtcMs` INTEGER NOT NULL, `updatedAtUtcMs` INTEGER NOT NULL, `segment` TEXT, FOREIGN KEY(`groupId`) REFERENCES `channel_group`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `number` INTEGER NOT NULL, `name` TEXT NOT NULL, `logoUri` TEXT, `kind` INTEGER NOT NULL, `seed` INTEGER NOT NULL, `seriesOrder` INTEGER NOT NULL, `seriesBlock` INTEGER NOT NULL, `movieOrder` INTEGER NOT NULL, `movieBlock` INTEGER NOT NULL, `moviesOncePerDay` INTEGER NOT NULL, `isHidden` INTEGER NOT NULL, `isFavorite` INTEGER NOT NULL, `groupId` INTEGER NOT NULL, `autoKey` TEXT, `createdAtUtcMs` INTEGER NOT NULL, `updatedAtUtcMs` INTEGER NOT NULL, FOREIGN KEY(`groupId`) REFERENCES `channel_group`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT )",
         "fields": [
           {
             "fieldPath": "id",
@@ -713,14 +728,32 @@
             "notNull": true
           },
           {
-            "fieldPath": "playbackOrder",
-            "columnName": "playbackOrder",
+            "fieldPath": "seriesOrder",
+            "columnName": "seriesOrder",
             "affinity": "INTEGER",
             "notNull": true
           },
           {
-            "fieldPath": "blockSize",
-            "columnName": "blockSize",
+            "fieldPath": "seriesBlock",
+            "columnName": "seriesBlock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "movieOrder",
+            "columnName": "movieOrder",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "movieBlock",
+            "columnName": "movieBlock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "moviesOncePerDay",
+            "columnName": "moviesOncePerDay",
             "affinity": "INTEGER",
             "notNull": true
           },
@@ -739,18 +772,13 @@
           {
             "fieldPath": "groupId",
             "columnName": "groupId",
-            "affinity": "INTEGER"
+            "affinity": "INTEGER",
+            "notNull": true
           },
           {
             "fieldPath": "autoKey",
             "columnName": "autoKey",
             "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "isManaged",
-            "columnName": "isManaged",
-            "affinity": "INTEGER",
-            "notNull": true
           },
           {
             "fieldPath": "createdAtUtcMs",
@@ -763,11 +791,6 @@
             "columnName": "updatedAtUtcMs",
             "affinity": "INTEGER",
             "notNull": true
-          },
-          {
-            "fieldPath": "segment",
-            "columnName": "segment",
-            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -799,7 +822,7 @@
         "foreignKeys": [
           {
             "table": "channel_group",
-            "onDelete": "SET NULL",
+            "onDelete": "RESTRICT",
             "onUpdate": "NO ACTION",
             "columns": [
               "groupId"
@@ -1077,24 +1100,6 @@
             ]
           }
         ]
-      },
-      {
-        "tableName": "dismissed_channel",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`autoKey` TEXT NOT NULL, PRIMARY KEY(`autoKey`))",
-        "fields": [
-          {
-            "fieldPath": "autoKey",
-            "columnName": "autoKey",
-            "affinity": "TEXT",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "autoKey"
-          ]
-        }
       },
       {
         "tableName": "live_source",
@@ -1819,7 +1824,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7f7a3100152d7e0b9edfa476c4c7f5db')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a166c8cfb10efe8ce8c8bd51d028a3e2')"
     ]
   }
 }

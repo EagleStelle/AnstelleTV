@@ -38,7 +38,7 @@ export interface Channel {
 	logoUrl?: string;
 	isHidden: boolean;
 	isFavorite: boolean;
-	groupId?: number;
+	groupId: number;
 }
 
 export class ApiError extends Error {

@@ -1,5 +1,6 @@
 package tv.anstelle.core.scheduler
 
+import tv.anstelle.core.model.Playback
 import tv.anstelle.core.model.PlaybackOrder
 import java.time.ZoneId
 
@@ -7,12 +8,15 @@ import java.time.ZoneId
 class ChannelConfig(
     /** Schedule seed; the same seed and inputs always give the same schedule. */
     val seed: Long,
-    val playbackOrder: PlaybackOrder,
-    /** Episodes per show block for [PlaybackOrder.BLOCKS] (1–4). */
-    val blockSize: Int = 1,
+    /** How episodes play. */
+    val series: Playback = Playback(PlaybackOrder.EPISODE_ORDER),
+    /** How movies and other items outside a series play. */
+    val movies: Playback = Playback(PlaybackOrder.SHUFFLE),
+    /** How long after it starts a movie may start again; 0 only keeps it from following itself. */
+    val movieGapMs: Long = 0,
 ) {
     init {
-        require(blockSize in 1..4) { "Block size must be 1–4: $blockSize" }
+        require(movieGapMs >= 0) { "Negative movie gap" }
     }
 }
 
@@ -111,7 +115,10 @@ class ScheduleInputs(
      */
     fun fingerprint(): Long {
         val f = Fingerprint()
-        f.add(config.seed).add(config.playbackOrder.code).add(config.blockSize)
+        f.add(config.seed)
+            .add(config.series.order.code).add(config.series.blockSize)
+            .add(config.movies.order.code).add(config.movies.blockSize)
+            .add(config.movieGapMs)
         f.add(pool.fingerprint)
         f.add(seasons.size)
         for (s in seasons) {

@@ -4,6 +4,7 @@ import tv.anstelle.core.database.entity.ChannelDaypartEntity
 import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelRuleEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
+import tv.anstelle.core.model.Playback
 import tv.anstelle.core.model.SeasonMode
 import tv.anstelle.core.scheduler.Candidate
 import tv.anstelle.core.scheduler.CandidatePool
@@ -12,7 +13,9 @@ import tv.anstelle.core.scheduler.Daypart
 import tv.anstelle.core.scheduler.MonthDayRange
 import tv.anstelle.core.scheduler.ScheduleInputs
 import tv.anstelle.core.scheduler.SeasonalPool
+import java.time.Year
 import java.time.ZoneId
+import java.time.ZoneOffset
 
 /** Everything stored about one channel that its schedule depends on. */
 class ChannelSetup(
@@ -31,6 +34,7 @@ object ChannelInputs {
      *   Seasons that only control visibility don't affect the schedule.
      * - A daypart may name a rule group (`ruleLogicGroup`). That group then only applies
      *   inside the daypart, as an extra filter, and is left out of the base lineup.
+     * - Movies keep to [OncePerDay] when the channel asks for it and its base lineup fits it.
      */
     fun build(setup: ChannelSetup, catalog: Catalog, zone: ZoneId): ScheduleInputs {
         val channel = setup.channel
@@ -54,9 +58,15 @@ object ChannelInputs {
                 Daypart(daypart.startMinuteOfDay, daypart.endMinuteOfDay, daypart.minRatingScore, daypart.maxRatingScore, allowed)
             }.getOrNull()
         }
+        val matched = LineupMatcher(base.lineup(except = daypartGroups)).match(items)
         return ScheduleInputs(
-            config = ChannelConfig(channel.seed, channel.playbackOrder, channel.blockSize.coerceIn(1, 4)),
-            pool = poolOf(LineupMatcher(base.lineup(except = daypartGroups)).match(items)),
+            config = ChannelConfig(
+                seed = channel.seed,
+                series = Playback(channel.seriesOrder, channel.seriesBlock),
+                movies = Playback(channel.movieOrder, channel.movieBlock),
+                movieGapMs = if (channel.moviesOncePerDay && OncePerDay.fits(matched)) OncePerDay.GAP_MS else 0,
+            ),
+            pool = poolOf(matched),
             seasons = seasons,
             dayparts = dayparts,
             zone = zone,
@@ -74,6 +84,7 @@ object ChannelInputs {
                 episode = row.episode,
                 weight = match.weight,
                 ratingScore = row.ratingScore,
+                releaseUtcMs = row.premiereDateUtcMs ?: row.year?.let { Year.of(it).atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() },
             )
         },
     )

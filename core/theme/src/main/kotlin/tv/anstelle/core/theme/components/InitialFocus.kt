@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -54,15 +53,15 @@ suspend fun FocusRequester.requestWhenReady(frames: Int = 30): Boolean {
     return false
 }
 
-/** A line of status or help. Problems and informational notices carry a mark as well as the accent. */
+/** A line of status or help. A problem carries a mark as well. */
 @Composable
-fun Notice(text: String, modifier: Modifier = Modifier, isError: Boolean = false, isInfo: Boolean = false) {
+fun Notice(text: String, modifier: Modifier = Modifier, isError: Boolean = false) {
     val theme = LocalAnstelleTheme.current
     Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = modifier.padding(vertical = 2.dp)) {
-        if (isError || isInfo) {
+        if (isError) {
             androidx.compose.material3.Icon(
-                if (isError) Icons.Filled.ErrorOutline else Icons.Outlined.Info,
-                contentDescription = if (isError) "Problem" else "Information",
+                Icons.Filled.ErrorOutline,
+                contentDescription = "Problem",
                 tint = theme.accent,
                 modifier = Modifier.size(18.dp),
             )

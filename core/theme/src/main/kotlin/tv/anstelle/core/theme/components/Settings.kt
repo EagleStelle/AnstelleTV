@@ -166,7 +166,7 @@ sealed interface SettingsSheet {
     val about: String?
 }
 
-/** One of several, as a radio list. */
+/** One of several, as a radio list; [switch] adds an on/off setting about the same thing under it. */
 @Immutable
 class ChoiceSheet(
     override val title: String,
@@ -174,7 +174,18 @@ class ChoiceSheet(
     val options: List<Pair<String, String?>>,
     val selected: Int,
     val onSelect: (Int) -> Unit,
+    val switch: SheetSwitch? = null,
 ) : SettingsSheet
+
+/** An on/off setting under a [ChoiceSheet]'s choices, headed by [heading]. It flips in place: the sheet stays open. */
+@Immutable
+class SheetSwitch(
+    val heading: String,
+    val title: String,
+    val detail: String?,
+    val checked: Boolean,
+    val onCheckedChange: (Boolean) -> Unit,
+)
 
 /** An item's menu. */
 @Immutable
@@ -495,6 +506,8 @@ private fun SheetDialog(sheet: SettingsSheet, onClose: () -> Unit) {
                             OsdButton(sheet.confirm, onClick = { onClose(); sheet.onConfirm() }, icon = sheet.icon, danger = true)
                         }
                         is EditSheet -> Unit // Its buttons sit with the field.
+                        // A switch saves as it flips, so there is nothing to cancel.
+                        is ChoiceSheet -> TextButton(onClick = onClose) { Text(if (sheet.switch != null) "Done" else "Cancel", color = theme.text) }
                         else -> TextButton(onClick = onClose) { Text("Cancel", color = theme.text) }
                     }
                 }
@@ -509,17 +522,20 @@ private fun SheetBody(sheet: SettingsSheet, onClose: () -> Unit) {
     val first = remember(sheet) { FocusRequester() }
     val guided = settingsGuided
     when (sheet) {
-        is ChoiceSheet -> sheet.options.forEachIndexed { i, (label, detail) ->
-            OptionRow(
-                title = label,
-                summary = detail,
-                selected = i == sheet.selected,
-                onClick = {
-                    onClose()
-                    sheet.onSelect(i)
-                },
-                modifier = if (i == sheet.selected.coerceAtLeast(0)) Modifier.focusRequester(first) else Modifier,
-            )
+        is ChoiceSheet -> {
+            sheet.options.forEachIndexed { i, (label, detail) ->
+                OptionRow(
+                    title = label,
+                    summary = detail,
+                    selected = i == sheet.selected,
+                    onClick = {
+                        onClose()
+                        sheet.onSelect(i)
+                    },
+                    modifier = if (i == sheet.selected.coerceAtLeast(0)) Modifier.focusRequester(first) else Modifier,
+                )
+            }
+            sheet.switch?.let { SheetSwitchRow(it) }
         }
         is MenuSheet -> sheet.actions.forEachIndexed { i, action ->
             SettingsRowFrame(
@@ -559,6 +575,22 @@ private fun SheetBody(sheet: SettingsSheet, onClose: () -> Unit) {
         is EditSheet -> EditBody(sheet, first, onClose)
     }
     if (guided) LaunchedEffect(sheet) { first.requestWhenReady() }
+}
+
+/** A choice sheet's switch under its own heading; it keeps its state while the sheet stays open. */
+@Composable
+private fun SheetSwitchRow(switch: SheetSwitch) {
+    var checked by remember(switch) { mutableStateOf(switch.checked) }
+    SettingsSection(switch.heading)
+    SwitchRow(
+        title = switch.title,
+        checked = checked,
+        summary = switch.detail,
+        onCheckedChange = {
+            checked = it
+            switch.onCheckedChange(it)
+        },
+    )
 }
 
 @Composable
@@ -789,7 +821,8 @@ fun SwitchRow(
 
 /**
  * One of several: the choice in use under the title and a drop-down mark at the end. Pressing it
- * opens the choices as a radio list, each with [detail] under it; [about] heads the list.
+ * opens the choices as a radio list, each with [detail] under it; [about] heads the list, and
+ * [switch] adds an on/off setting about the same thing under it (say it in [summary] too).
  */
 @Composable
 fun <T> ChoiceRow(
@@ -803,12 +836,14 @@ fun <T> ChoiceRow(
     detail: ((T) -> String?)? = null,
     about: String? = null,
     enabled: Boolean = true,
+    summary: String = label(value),
+    switch: SheetSwitch? = null,
 ) {
     val sheets = LocalSettingsSheets.current
     val requester = remember { FocusRequester() }
     SettingsRowFrame(
         title = title,
-        summary = label(value),
+        summary = summary,
         onClick = {
             sheets.show(
                 ChoiceSheet(
@@ -817,6 +852,7 @@ fun <T> ChoiceRow(
                     options = choices.map { label(it) to detail?.invoke(it) },
                     selected = choices.indexOf(value),
                     onSelect = { onSelect(choices[it]) },
+                    switch = switch,
                 ),
                 from = requester,
             )
@@ -1057,12 +1093,11 @@ fun LazyListScope.section(title: String, key: String = "section-$title") = item(
 
 /** A line of status or help in a settings list, lined up with the rows' icons. */
 @Composable
-fun SettingsNotice(text: String, modifier: Modifier = Modifier, isError: Boolean = false, isInfo: Boolean = false) {
+fun SettingsNotice(text: String, modifier: Modifier = Modifier, isError: Boolean = false) {
     Notice(
         text,
         modifier.padding(horizontal = LocalRowInset.current, vertical = 4.dp),
         isError = isError,
-        isInfo = isInfo,
     )
 }
 

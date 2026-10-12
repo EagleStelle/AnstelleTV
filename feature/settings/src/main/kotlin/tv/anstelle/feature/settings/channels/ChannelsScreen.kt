@@ -6,8 +6,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FormatListNumbered
-import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -48,8 +46,6 @@ import javax.inject.Inject
 @Immutable
 data class ChannelsUiState(
     val channels: List<ChannelSummary> = emptyList(),
-    /** Library channels that were deleted. */
-    val removed: Int = 0,
     /** How many random channels the On Demand banner cycles through. */
     val bannerSize: Int = 10,
     val loaded: Boolean = false,
@@ -62,10 +58,9 @@ class ChannelsViewModel @Inject constructor(
 ) : ViewModel() {
     val state: StateFlow<ChannelsUiState> = combine(
         channels.observeChannels(),
-        channels.observeRemovedCount(),
         settings.observe(Settings.OnDemandBanner),
-    ) { list, removed, banner ->
-        ChannelsUiState(list, removed, banner, loaded = true)
+    ) { list, banner ->
+        ChannelsUiState(list, banner, loaded = true)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChannelsUiState())
 
     fun setBannerSize(size: Int) {
@@ -74,18 +69,16 @@ class ChannelsViewModel @Inject constructor(
 }
 
 /**
- * Every channel, the same for every profile: a search over them, the button that builds one, how
- * Live TV groups them and segments number them, how many On Demand deals into its banner, then
- * the channels someone built and the ones made from the library, each opening its own page.
- * Library-channel pages only offer Favorite and Visible. While a search is typed, the page lists
- * only the channels it finds.
+ * Every channel, the same for every profile: a search over them, the button that builds one, the
+ * groups that make Live TV's tabs and number the channels, how many On Demand deals into its
+ * banner, then the channels someone built and the ones made from the library, each opening its
+ * own page. Library-channel pages only offer Favorite and Visible. While a search is typed, the
+ * page lists only the channels it finds.
  */
 @Composable
 fun ChannelsScreen(
     onOpenChannel: (Long) -> Unit,
     onNewChannel: () -> Unit,
-    onOpenRemoved: () -> Unit,
-    onOpenNumbers: () -> Unit,
     onOpenGroups: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ChannelsViewModel = hiltViewModel(),
@@ -97,7 +90,7 @@ fun ChannelsScreen(
     SettingsPage(
         title = "Channels",
         trail = listOf("Settings"),
-        about = "Shared by every profile. Groups are the tabs in Live TV; segments set the channel numbers.",
+        about = "Shared by every profile. Groups are the tabs in Live TV and number their channels.",
         modifier = modifier,
     ) {
         item(key = "search") { SettingsSearch(query, onQueryChange = { query = it }, label = "Find a channel") }
@@ -118,9 +111,6 @@ fun ChannelsScreen(
         item(key = "groups") {
             LinkRow(title = "Groups", icon = Icons.Filled.Folder, onClick = onOpenGroups)
         }
-        item(key = "numbers") {
-            LinkRow(title = "Segments", icon = Icons.Filled.FormatListNumbered, onClick = onOpenNumbers)
-        }
         section("On Demand")
         item(key = "banner") {
             ChoiceRow(
@@ -137,22 +127,12 @@ fun ChannelsScreen(
         val (library, custom) = state.channels.partition { it.channel.fromLibrary }
         section(counted("Custom channels", custom.size), key = "section-custom")
         if (state.loaded && custom.isEmpty()) {
-            item(key = "custom-empty") { SettingsNotice("No custom channels yet.", isInfo = true) }
+            item(key = "custom-empty") { SettingsNotice("No custom channels yet.") }
         }
         channelRows(custom, onOpenChannel)
         section(counted("Library channels", library.size), key = "section-library")
-        if (state.removed > 0) {
-            item(key = "removed") {
-                LinkRow(
-                    title = "Removed channels",
-                    summary = if (state.removed == 1) "1 made from your library" else "${state.removed} made from your library",
-                    icon = Icons.Filled.Restore,
-                    onClick = onOpenRemoved,
-                )
-            }
-        }
         if (state.loaded && library.isEmpty()) {
-            item(key = "library-empty") { SettingsNotice("No library channels yet.", isInfo = true) }
+            item(key = "library-empty") { SettingsNotice("No library channels yet.") }
         }
         channelRows(library, onOpenChannel)
     }
@@ -169,7 +149,6 @@ private fun LazyListScope.channelRows(channels: List<ChannelSummary>, onOpenChan
             title = channel.name,
             summary = listOfNotNull(
                 summary.groupName,
-                playbackLabel(channel.playbackOrder, channel.blockSize),
                 "favorite".takeIf { channel.isFavorite },
                 "hidden".takeIf { channel.isHidden },
                 summary.seasonLabel?.let { if (summary.inSeason) "on air $it" else "off season, on air $it" },

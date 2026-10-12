@@ -3,19 +3,8 @@ package tv.anstelle.core.data.channels
 import java.text.Collator
 import java.util.Locale
 
-/**
- * A block of channel numbers: one of the library's, or one someone made (a group with a start
- * of its own). Every channel is numbered by one.
- */
-data class Segment(val key: String, val name: String, val start: Int) {
-    companion object {
-        /** The key of the segment someone made as group [groupId]. */
-        fun keyOf(groupId: Long) = "group:$groupId"
-    }
-}
-
-/** A channel as numbering sees it: the key of its segment (null for none), its name and number. */
-data class NumberedChannel(val id: Long, val segment: String?, val name: String, val number: Int)
+/** A channel as numbering sees it: its group, name and number. */
+data class NumberedChannel(val id: Long, val groupId: Long, val name: String, val number: Int)
 
 /** Gives every channel its number. Pure, so it is tested without a database. */
 object ChannelNumbering {
@@ -38,22 +27,20 @@ object ChannelNumbering {
     }
 
     /**
-     * Every channel's number: each segment's channels count up from its start in [byName] order
-     * (1000, 1001, 1002…), segments from the lowest start up, skipping numbers an earlier one
-     * gave out, so numbers stay unique even when starts overlap. A channel whose segment isn't in
-     * [starts] counts up from [outside]. Returns only the channels whose number changes.
+     * Every channel's number: each group's channels count up from its start in [starts] (by group
+     * id) in [byName] order (1000, 1001, 1002…), groups from the lowest start up, skipping numbers
+     * an earlier one gave out, so numbers stay unique even when starts overlap. Returns only the
+     * channels whose number changes.
      */
-    fun numbers(channels: List<NumberedChannel>, starts: Map<String, Int>, outside: Int): Map<Long, Int> {
-        val bySegment = channels.groupBy { channel -> channel.segment?.takeIf { it in starts } }
-        // Ties keep the order of [starts]; the channels in no segment come last.
-        val blocks = starts.entries.sortedBy { it.value }.map { (key, start) -> start to bySegment[key].orEmpty() } +
-            (outside to bySegment[null].orEmpty())
+    fun numbers(channels: List<NumberedChannel>, starts: Map<Long, Int>): Map<Long, Int> {
+        val byGroup = channels.groupBy { it.groupId }
         val order = compareBy(byName) { channel: NumberedChannel -> channel.name }.thenBy { it.id }
         val taken = HashSet<Int>()
         val changes = LinkedHashMap<Long, Int>()
-        for ((start, members) in blocks) {
+        // Ties keep the order of [starts].
+        for ((group, start) in starts.entries.sortedBy { it.value }) {
             var next = start
-            for (channel in members.sortedWith(order)) {
+            for (channel in byGroup[group].orEmpty().sortedWith(order)) {
                 while (next in taken) next++
                 taken += next
                 if (channel.number != next) changes[channel.id] = next

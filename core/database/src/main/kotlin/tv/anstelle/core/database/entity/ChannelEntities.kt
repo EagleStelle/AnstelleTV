@@ -10,17 +10,21 @@ import tv.anstelle.core.model.RuleField
 import tv.anstelle.core.model.RuleOp
 import tv.anstelle.core.model.SeasonMode
 
-/** A guide group. Channels and their groups are the same for every profile. */
+/**
+ * A guide group: a tab in Live TV and a block of channel numbers counting up from [numberStart].
+ * Channels and their groups are the same for every profile.
+ */
 @Entity(
     tableName = "channel_group",
-    indices = [Index(value = ["sortOrder"])],
+    indices = [Index(value = ["sortOrder"]), Index(value = ["libraryKey"], unique = true)],
 )
 data class ChannelGroupEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val sortOrder: Int,
-    /** For a segment someone made: its channels are numbered up from here. Null for other groups. */
-    val numberStart: Int? = null,
+    val numberStart: Int,
+    /** The library segment whose channels it holds (`genres`), or null for a group someone made. */
+    val libraryKey: String? = null,
 )
 
 /**
@@ -34,7 +38,7 @@ data class ChannelGroupEntity(
             entity = ChannelGroupEntity::class,
             parentColumns = ["id"],
             childColumns = ["groupId"],
-            onDelete = ForeignKey.SET_NULL,
+            onDelete = ForeignKey.RESTRICT,
         ),
     ],
     indices = [
@@ -50,27 +54,22 @@ data class ChannelEntity(
     val kind: ChannelKind,
     /** Schedule seed; the same seed and inputs always give the same schedule. */
     val seed: Long,
-    val playbackOrder: PlaybackOrder,
-    /** Episodes per show block for [PlaybackOrder.BLOCKS] (1–4). */
-    val blockSize: Int,
+    val seriesOrder: PlaybackOrder,
+    /** Episodes in a row for [PlaybackOrder.BLOCKS] (2–4), else 1. */
+    val seriesBlock: Int,
+    val movieOrder: PlaybackOrder,
+    /** Movies in a row for [PlaybackOrder.BLOCKS] (2–4), else 1. */
+    val movieBlock: Int,
+    /** Each movie airs at most once in 24 hours, where the lineup can fill a day without repeats. */
+    val moviesOncePerDay: Boolean,
     val isHidden: Boolean,
     val isFavorite: Boolean,
-    val groupId: Long?,
-    /** The library channel this channel was made from (e.g. `genre:comedy`), or null for a channel built by hand. */
+    /** Its group, which also numbers it. */
+    val groupId: Long,
+    /** The library channel this channel was made from (e.g. `tv:genre:comedy`), or null for a channel built by hand. */
     val autoKey: String?,
-    /**
-     * True while a library channel follows the library: renamed, updated, renumbered and
-     * removed with it. Editing the channel clears it.
-     */
-    val isManaged: Boolean,
     val createdAtUtcMs: Long,
     val updatedAtUtcMs: Long,
-    /**
-     * The segment that numbers it: a library segment's key (`genres`) or `group:<id>` for one
-     * someone made. Null for a library channel left in its own segment, or a channel built
-     * before every channel had one.
-     */
-    val segment: String? = null,
 )
 
 /**
@@ -155,10 +154,4 @@ data class ChannelDaypartEntity(
     val minRatingScore: Int?,
     /** Optional extra rule group applied only inside the window. */
     val ruleLogicGroup: Int?,
-)
-
-/** A library channel someone deleted: its key isn't made into a channel again. */
-@Entity(tableName = "dismissed_channel")
-data class DismissedChannelEntity(
-    @PrimaryKey val autoKey: String,
 )

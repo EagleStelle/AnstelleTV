@@ -1,33 +1,26 @@
 package tv.anstelle.core.data.channels
 
-import tv.anstelle.core.model.PlaybackOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class GeneratedChannelSyncTest {
     private fun generated(key: String, name: String = key) = GeneratedChannel(
         key = key, name = name, segment = ChannelGenerator.segmentOf(key)!!, lineup = Lineup.EMPTY,
-        order = PlaybackOrder.EPISODE_ORDER,
     ) { MatchResult(emptyList()) }
 
-    private fun channel(id: Long, key: String?, managed: Boolean = key != null) = SyncedChannel(id, key, managed)
-
     @Test
-    fun `new channels are added, managed ones follow the library, edited and deleted ones are left alone`() {
+    fun `new channels are added, library channels follow the library, built ones are left alone`() {
         val existing = listOf(
-            channel(1, "tv:genre:comedy"),
-            channel(2, "tv:genre:drama"),
-            channel(3, "tv:tag:isekai"),
-            channel(4, "tv:studio:netflix", managed = false),
-            channel(5, null),
+            SyncedChannel(1, "tv:genre:comedy"),
+            SyncedChannel(2, "tv:genre:drama"),
+            SyncedChannel(3, "tv:tag:isekai"),
+            SyncedChannel(4, null),
         )
         val actions = GeneratedChannelSync.plan(
             existing = existing,
-            generated = listOf(generated("tv:genre:comedy"), generated("tv:genre:crime"), generated("tv:studio:netflix"), generated("tv:tag:zombies")),
-            dismissed = setOf("tv:tag:zombies"),
+            generated = listOf(generated("tv:genre:comedy"), generated("tv:genre:crime")),
             keep = setOf(3L),
         )
-        // Crime is new; zombies was deleted; netflix is held by an edited channel.
         assertEquals(listOf("tv:genre:crime"), actions.add.map { it.key })
         assertEquals(setOf(1L), actions.refresh.keys)
         // Drama is gone with too little left; isekai is gone but still has content.

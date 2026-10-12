@@ -10,6 +10,7 @@ import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.model.SlotKind
+import tv.anstelle.core.scheduler.PastAiring
 import tv.anstelle.core.scheduler.ScheduleEngine
 import java.time.Instant
 import java.time.ZoneId
@@ -90,7 +91,10 @@ class ScheduleUpdater @Inject constructor(
             stored.inputsHash != hash -> {
                 val cursor = keepUntil(channel.id, now, zone, catalog)
                 val removed = scheduleDao.programItemIdsFrom(channel.id, cursor).toLongArray()
-                val state = ScheduleEngine.rewind(inputs, stored.state, cursor, removed)
+                // The day before the cursor: what the repeat rules go on from.
+                val aired = scheduleDao.programsBetween(channel.id, cursor - maxOf(inputs.config.movieGapMs, DAY_MS), cursor)
+                    .map { PastAiring(it.mediaItemId, it.startUtcMs) }
+                val state = ScheduleEngine.rewind(inputs, stored.state, cursor, removed, aired)
                 schedules.save(channel.id, cursor, ScheduleEngine.generate(inputs, state, horizon), hash)
                 return ScheduleOutcome.REGENERATED
             }

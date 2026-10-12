@@ -5,8 +5,6 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.LibraryDao
 import tv.anstelle.core.database.dao.LiveTvDao
@@ -23,7 +21,6 @@ import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelGroupEntity
 import tv.anstelle.core.database.entity.ChannelRuleEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
-import tv.anstelle.core.database.entity.DismissedChannelEntity
 import tv.anstelle.core.database.entity.HiddenItemEntity
 import tv.anstelle.core.database.entity.LibraryEntity
 import tv.anstelle.core.database.entity.LiveChannelEntity
@@ -57,7 +54,6 @@ import tv.anstelle.core.database.entity.WatchEventEntity
         ChannelRuleEntity::class,
         ChannelSeasonEntity::class,
         ChannelDaypartEntity::class,
-        DismissedChannelEntity::class,
         LiveSourceEntity::class,
         LiveChannelEntity::class,
         LiveProgramEntity::class,
@@ -92,7 +88,7 @@ abstract class AnstelleDatabase : RoomDatabase() {
         /** Tables the web UI can subscribe to for live updates. */
         val OBSERVED_TABLES = arrayOf(
             "media_server", "profile", "library", "media_item", "channel_group", "channel",
-            "channel_rule", "channel_season", "channel_daypart", "dismissed_channel", "live_source", "live_channel",
+            "channel_rule", "channel_season", "channel_daypart", "live_source", "live_channel",
             "live_program", "schedule_slot", "theme", "watch_event", "paired_client", "setting",
         )
 
@@ -106,21 +102,9 @@ abstract class AnstelleDatabase : RoomDatabase() {
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                 // Schemas from before the first public release hold nothing worth migrating.
                 .fallbackToDestructiveMigrationFrom(true, *PRE_RELEASE_VERSIONS)
-                .addMigrations(MIGRATION_9_10)
                 .apply { if (allowDestructiveMigration) fallbackToDestructiveMigration(dropAllTables = true) }
                 .build()
 
-        private val PRE_RELEASE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8)
-
-        /** Every channel gets a segment; one in a segment someone made stays in it. */
-        internal val MIGRATION_9_10 = object : Migration(9, 10) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE `channel` ADD COLUMN `segment` TEXT")
-                db.execSQL(
-                    "UPDATE `channel` SET `segment` = 'group:' || `groupId` " +
-                        "WHERE `groupId` IN (SELECT `id` FROM `channel_group` WHERE `numberStart` IS NOT NULL)",
-                )
-            }
-        }
+        private val PRE_RELEASE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9)
     }
 }

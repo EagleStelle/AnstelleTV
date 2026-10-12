@@ -3,7 +3,6 @@ package tv.anstelle.core.data.channels
 import tv.anstelle.core.data.item
 import tv.anstelle.core.database.dao.CatalogRow
 import tv.anstelle.core.model.MediaType
-import tv.anstelle.core.model.PlaybackOrder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -111,7 +110,7 @@ class ChannelGeneratorTest {
                     shows(2, "drama", listOf("Drama")) +
                     shows(3, "odd-drama", listOf("Oddball", "Drama")) +
                     shows(2, "odd", listOf("Oddball")) +
-                    (1..6).flatMap { movie(listOf("Horror")) },
+                    (1..12).flatMap { movie(listOf("Horror")) },
                 named.types,
             ),
         ).map { it.name }
@@ -169,11 +168,13 @@ class ChannelGeneratorTest {
                 show("anime-1", listOf("Anime", "Drama"), year = 2012) +
                 show("anime-2", listOf("Anime", "Comedy"), year = 2012) +
                 show("anime-3", listOf("Anime", "Horror"), year = 2012) +
-                (1..6).flatMap { movie(listOf("Drama"), year = 1985) },
+                (1..12).flatMap { movie(listOf("Drama"), year = 1985) },
         )
         assertTrue("90s TV" in names, names.toString())
         assertTrue("2010s Anime" in names, names.toString())
         assertTrue("80s Movies" in names, names.toString())
+        // Six two-hour movies can't fill a day.
+        assertFalse("90s Movies" in names, names.toString())
         assertFalse("2010s TV" in names)
         assertEquals("2000s", ChannelGenerator.decadeLabel(2000))
         assertEquals("1910s", ChannelGenerator.decadeLabel(1910))
@@ -189,7 +190,6 @@ class ChannelGeneratorTest {
         ).filter { it.segment == ChannelSegment.PRODUCTIONS }
         val netflix = channels.single { it.name == "Netflix" }
         assertEquals(9, netflix.match.showCount)
-        assertEquals(PlaybackOrder.EPISODE_ORDER, netflix.order)
         assertEquals(1, channels.count { it.name.startsWith("Toho") })
     }
 
@@ -226,9 +226,14 @@ class ChannelGeneratorTest {
     }
 
     @Test
-    fun `movies only shuffle`() {
-        val channel = generate((1..6).flatMap { movie(listOf("Western")) }).single { it.name == "Western Movies" }
-        assertEquals(PlaybackOrder.SHUFFLE, channel.order)
+    fun `movies alone need a full day of them, at any scale`() {
+        val day = (1..12).flatMap { movie(listOf("Western")) }
+        assertTrue("Western Movies" in names(day))
+        // 22 hours: each movie would come back within a day.
+        assertFalse("Western Movies" in names(day.drop(1)))
+        assertFalse("Western Movies" in ChannelGenerator(words, scale = ChannelGenerator.KEEP_SCALE).generate(catalog(day.drop(1))).map { it.name })
+        // Series fill a mixed channel, so its movies needn't.
+        assertTrue("Example Studio" in names((1..3).flatMap { show("s$it", studios = listOf("Example Studio")) } + movie(studios = listOf("Example Studio"))))
     }
 
     @Test
@@ -250,7 +255,7 @@ class ChannelGeneratorTest {
 
     @Test
     fun `series and movies never share a channel`() {
-        val channels = generate(shows(3, "c", listOf("Comedy")) + (1..6).flatMap { movie(listOf("Comedy")) })
+        val channels = generate(shows(3, "c", listOf("Comedy")) + (1..12).flatMap { movie(listOf("Comedy")) })
         assertEquals(setOf(MediaType.EPISODE), channels.single { it.name == "Comedy" }.match.matches.mapTo(HashSet()) { it.item.row.type })
         assertEquals(setOf(MediaType.MOVIE), channels.single { it.name == "Comedy Movies" }.match.matches.mapTo(HashSet()) { it.item.row.type })
     }

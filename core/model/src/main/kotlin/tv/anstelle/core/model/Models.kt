@@ -155,14 +155,27 @@ object ProfileRights {
         target.role != ProfileRole.OWNER && viewer.id != target.id && canEdit(viewer, target)
 }
 
+/**
+ * A guide group: a tab in Live TV and a block of channel numbers counting up from [numberStart].
+ * The library's groups hold the channels made from the library; the rest hold the channels
+ * someone built.
+ */
 @Serializable
 data class ChannelGroup(
     val id: Long,
     val name: String,
     val sortOrder: Int,
-    /** For a segment someone made: where its channels' numbers start. Null for other groups. */
-    val numberStart: Int? = null,
+    val numberStart: Int,
+    val fromLibrary: Boolean,
 )
+
+/** How a channel plays one kind of item. [blockSize] is 2–4 for [PlaybackOrder.BLOCKS], else 1. */
+@Serializable
+data class Playback(val order: PlaybackOrder, val blockSize: Int = 1) {
+    init {
+        require(if (order == PlaybackOrder.BLOCKS) blockSize in 2..4 else blockSize == 1) { "Block size $blockSize for $order" }
+    }
+}
 
 @Serializable
 data class Channel(
@@ -171,17 +184,15 @@ data class Channel(
     val name: String,
     val logoUri: String?,
     val kind: ChannelKind,
-    val playbackOrder: PlaybackOrder,
-    val blockSize: Int,
+    val series: Playback,
+    val movies: Playback,
+    /** Each movie airs at most once in 24 hours, where the lineup can fill a day without repeats. */
+    val moviesOncePerDay: Boolean,
     val isHidden: Boolean,
     val isFavorite: Boolean,
-    val groupId: Long?,
-    /** A channel made from the library that still follows it (until someone edits it). */
-    val isManaged: Boolean,
-    /** Made from the library, edited since or not; false for a channel someone built. */
-    val fromLibrary: Boolean = isManaged,
-    /** The key of the segment that numbers it, or null when it is in none. */
-    val segment: String? = null,
+    val groupId: Long,
+    /** Made from the library: it follows the library and can only be hidden or favorited. */
+    val fromLibrary: Boolean,
 )
 
 @Serializable

@@ -35,6 +35,19 @@ fun show(
     )
 }
 
+/** A movie released on January 1 of [year] (no release date when null). */
+fun movie(id: Long, durationMs: Long, year: Int? = null, rating: Int? = null, weight: Float = 1f): Candidate = Candidate(
+    id = id,
+    durationMs = durationMs,
+    weight = weight,
+    ratingScore = rating,
+    releaseUtcMs = year?.let { LocalDateTime.of(it, 1, 1, 0, 0).atZone(ZoneId.of("UTC")).toInstant().toEpochMilli() },
+)
+
+/** [count] movies without release dates, ids `idBase + 1 ..`. */
+fun movies(idBase: Long, count: Int, durationMs: Long = 90 * MIN, rating: Int? = null, weight: Float = 1f): List<Candidate> =
+    List(count) { movie(idBase + it + 1, durationMs, rating = rating, weight = weight) }
+
 data class Row(val kind: SlotKind, val mediaItemId: Long?, val start: Long, val end: Long)
 
 fun ScheduleSlots.rows(): List<Row> = List(size) { Row(kind(it), mediaItemId(it), startUtcMs(it), endUtcMs(it)) }

@@ -14,12 +14,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.runtime.Composable
@@ -51,7 +52,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,10 +60,11 @@ import tv.anstelle.core.data.channels.Airing
 import tv.anstelle.core.data.channels.Catalog
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.LineupMatcher
-import tv.anstelle.core.data.channels.Segment
+import tv.anstelle.core.data.channels.MatchResult
+import tv.anstelle.core.data.channels.OncePerDay
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.ChannelGroup
-import tv.anstelle.core.model.PlaybackOrder
+import tv.anstelle.core.model.Playback
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.components.ChoiceRow
 import tv.anstelle.core.theme.components.DangerButton
@@ -75,6 +76,7 @@ import tv.anstelle.core.theme.components.OsdButton
 import tv.anstelle.core.theme.components.SettingsButtons
 import tv.anstelle.core.theme.components.SettingsNotice
 import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.SheetSwitch
 import tv.anstelle.core.theme.components.StatusLine
 import tv.anstelle.core.theme.components.SwitchRow
 import tv.anstelle.core.theme.components.TextRow
@@ -84,13 +86,26 @@ import tv.anstelle.core.theme.components.section
 import java.io.IOException
 import javax.inject.Inject
 
+/** What a lineup airs, as far as its playback goes. */
+@Immutable
+data class LineupMix(val series: Boolean, val movies: Boolean, val fitsOncePerDay: Boolean) {
+    companion object {
+        fun of(result: MatchResult) = LineupMix(
+            series = result.matches.any { it.item.row.seriesRemoteId != null },
+            movies = result.matches.any { it.item.row.seriesRemoteId == null },
+            fitsOncePerDay = OncePerDay.fits(result),
+        )
+    }
+}
+
 @Immutable
 data class ChannelDetailUiState(
     val channel: Channel? = null,
     val groups: List<ChannelGroup> = emptyList(),
-    val segments: List<Segment> = emptyList(),
+    val nextGroupStart: Int = 0,
     val airings: List<Airing> = emptyList(),
     val lineupSummary: String? = null,
+    val mix: LineupMix? = null,
     val logo: ImageBitmap? = null,
     val loaded: Boolean = false,
 )
@@ -125,10 +140,19 @@ class ChannelDetailViewModel @Inject constructor(
     val state: StateFlow<ChannelDetailUiState> = repository.observeChannel(channelId)
         .flatMapLatest { channel ->
             if (channel == null) return@flatMapLatest flowOf(ChannelDetailUiState(loaded = true))
-            val summary = summary()
+            val matched = match()
             val logo = logo(channel.logoUri)
-            combine(repository.observeGroups(), repository.observeSegments(), ticks) { groups, segments, _ ->
-                ChannelDetailUiState(channel, groups, segments, repository.upcoming(channelId, 3), summary, logo, loaded = true)
+            combine(repository.observeGroups(), repository.observeNextGroupStart(), ticks) { groups, nextStart, _ ->
+                ChannelDetailUiState(
+                    channel = channel,
+                    groups = groups,
+                    nextGroupStart = nextStart,
+                    airings = repository.upcoming(channelId, 3),
+                    lineupSummary = matchSummary(matched),
+                    mix = LineupMix.of(matched),
+                    logo = logo,
+                    loaded = true,
+                )
             }
         }
         .flowOn(Dispatchers.Default)
@@ -138,16 +162,16 @@ class ChannelDetailViewModel @Inject constructor(
 
     fun setVisible(visible: Boolean) = act { repository.setHidden(channelId, !visible) }
 
-    fun setPlayback(choice: Pair<PlaybackOrder, Int>) = act { repository.setPlayback(channelId, choice.first, choice.second) }
+    fun setSeriesPlayback(playback: Playback) = act { repository.setSeriesPlayback(channelId, playback) }
 
+    fun setMoviePlayback(playback: Playback) = act { repository.setMoviePlayback(channelId, playback) }
+
+    fun setOncePerDay(oncePerDay: Boolean) = act { repository.setMoviesOncePerDay(channelId, oncePerDay) }
+
+    /** Its number follows from the group. */
     fun setGroup(groupId: Long) = act { repository.setGroup(channelId, groupId) }
 
-    fun newGroup(name: String) = act { repository.setGroup(channelId, repository.createGroup(name)) }
-
-    /** Its number follows from the segment. */
-    fun setSegment(segment: String) = act { repository.setSegment(channelId, segment) }
-
-    fun newSegment(name: String) = act { repository.setSegment(channelId, Segment.keyOf(repository.createSegment(name))) }
+    fun newGroup(name: String, start: Int) = act { repository.setGroup(channelId, repository.createGroup(name, start)) }
 
     fun rename(name: String) = act { if (name.isNotBlank()) repository.rename(channelId, name) }
 
@@ -184,9 +208,9 @@ class ChannelDetailViewModel @Inject constructor(
         }
     }
 
-    private suspend fun summary(): String {
+    private suspend fun match(): MatchResult {
         val catalog = catalog ?: repository.catalog().also { catalog = it }
-        return matchSummary(LineupMatcher(repository.lineup(channelId)).match(catalog))
+        return LineupMatcher(repository.lineup(channelId)).match(catalog)
     }
 
     private suspend fun logo(uri: String?): ImageBitmap? {
@@ -206,8 +230,10 @@ class ChannelDetailViewModel @Inject constructor(
 
 /**
  * One channel: what airs on it now, Watch, then its settings. Library channels can only be
- * favorited or hidden; channels built by hand also have lineup, playback, placement, name,
- * logo and deletion controls. Its number comes from its segment and name; it isn't set here.
+ * favorited or hidden; channels built by hand also have lineup, group, playback, name, logo and
+ * deletion controls. Series and movies each have their own playback, offered while the lineup airs
+ * them (both while it airs nothing yet). Once daily sits in the Movies sheet, under its choices,
+ * and only while the lineup can keep to it.
  */
 @Composable
 fun ChannelDetailScreen(
@@ -230,6 +256,11 @@ fun ChannelDetailScreen(
     SettingsPage(
         title = "${channel.number}  ${channel.name}",
         trail = listOf("Settings", "Channels"),
+        about = if (channel.fromLibrary) {
+            null
+        } else {
+            "Movies can air once daily: each at most once in 24 hours, when series or a full day of movies fill the time. Nothing airs twice in a row while anything else can."
+        },
         aside = { OnAir(state.airings, state.logo, channel.name) },
         modifier = modifier,
     ) {
@@ -244,31 +275,17 @@ fun ChannelDetailScreen(
         }
         if (!channel.fromLibrary) {
             item(key = "lineup") {
-            LinkRow(
-                title = "Lineup",
-                summary = state.lineupSummary ?: "Counting…",
-                icon = Icons.Filled.Tune,
-                onClick = { onEditLineup(channel.id) },
-                modifier = if (channel.isHidden) Modifier.focusRequester(firstFocus) else Modifier,
-            )
-        }
-        item(key = "playback") {
-            ChoiceRow(
-                title = "Playback",
-                value = channel.playbackOrder to channel.blockSize,
-                choices = PlaybackChoices,
-                label = { (order, block) -> playbackLabel(order, block) },
-                detail = { (order, block) -> playbackHint(order, block) },
-                onSelect = viewModel::setPlayback,
-                icon = Icons.Filled.Shuffle,
-            )
-        }
-        item(key = "group") {
-            GroupChoiceRow(state.groups, channel.groupId, viewModel::setGroup, viewModel::newGroup)
-        }
-        item(key = "segment") {
-            SegmentChoiceRow(state.segments, channel.segment, viewModel::setSegment, viewModel::newSegment)
-        }
+                LinkRow(
+                    title = "Lineup",
+                    summary = state.lineupSummary ?: "Counting…",
+                    icon = Icons.Filled.Tune,
+                    onClick = { onEditLineup(channel.id) },
+                    modifier = if (channel.isHidden) Modifier.focusRequester(firstFocus) else Modifier,
+                )
+            }
+            item(key = "group") {
+                GroupChoiceRow(state.groups, channel.groupId, state.nextGroupStart, viewModel::setGroup, viewModel::newGroup)
+            }
         }
         item(key = "favorite") {
             SwitchRow(
@@ -286,7 +303,47 @@ fun ChannelDetailScreen(
                 icon = if (channel.isHidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
             )
         }
-        if (!channel.fromLibrary) {
+        if (channel.fromLibrary) return@SettingsPage
+
+        val mix = state.mix
+        if (mix != null) {
+            section("Playback")
+            val nothing = !mix.series && !mix.movies
+            if (mix.series || nothing) {
+                item(key = "series") {
+                    ChoiceRow(
+                        title = "Series",
+                        value = channel.series,
+                        choices = PlaybackChoices,
+                        label = ::seriesPlaybackLabel,
+                        detail = ::seriesPlaybackHint,
+                        onSelect = viewModel::setSeriesPlayback,
+                        icon = Icons.Filled.Tv,
+                    )
+                }
+            }
+            if (mix.movies || nothing) {
+                item(key = "movies") {
+                    // Once daily belongs to the movies: their sheet carries it, and their summary says it.
+                    val oncePerDay = mix.fitsOncePerDay && channel.moviesOncePerDay
+                    ChoiceRow(
+                        title = "Movies",
+                        value = channel.movies,
+                        choices = PlaybackChoices,
+                        label = ::moviePlaybackLabel,
+                        detail = ::moviePlaybackHint,
+                        onSelect = viewModel::setMoviePlayback,
+                        icon = Icons.Filled.Movie,
+                        summary = moviePlaybackLabel(channel.movies) + if (oncePerDay) ", once daily" else "",
+                        switch = if (mix.fitsOncePerDay) {
+                            SheetSwitch("Repeats", "Once daily", "Each movie at most once in 24 hours.", channel.moviesOncePerDay, viewModel::setOncePerDay)
+                        } else {
+                            null
+                        },
+                    )
+                }
+            }
+        }
         section("Name and logo")
         item(key = "name") {
             TextRow(
@@ -324,16 +381,15 @@ fun ChannelDetailScreen(
                 },
             )
         }
-            foot {
-                DangerButton(
-                    text = "Delete channel",
-                    question = "Delete ${channel.name}?",
-                    explanation = "Its schedule goes too.",
-                    confirm = "Delete",
-                    onConfirm = viewModel::delete,
-                    icon = Icons.Filled.DeleteForever,
-                )
-            }
+        foot {
+            DangerButton(
+                text = "Delete channel",
+                question = "Delete ${channel.name}?",
+                explanation = "Its schedule goes too.",
+                confirm = "Delete",
+                onConfirm = viewModel::delete,
+                icon = Icons.Filled.DeleteForever,
+            )
         }
     }
 }

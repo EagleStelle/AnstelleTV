@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.flowOf
 import tv.anstelle.core.database.dao.CatalogRow
 import tv.anstelle.core.database.dao.ChannelAiring
 import tv.anstelle.core.database.dao.GuideAiring
+import tv.anstelle.core.database.dao.ProgramStart
 import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.database.entity.ScheduleStateEntity
@@ -103,6 +104,10 @@ class FakeScheduleDao : ScheduleDao {
     override suspend fun programItemIdsFrom(channelId: Long, fromUtcMs: Long): List<Long> =
         slots.values.filter { it.channelId == channelId && it.startUtcMs >= fromUtcMs && it.kind == SlotKind.PROGRAM }
             .mapNotNull { it.mediaItemId }
+
+    override suspend fun programsBetween(channelId: Long, fromUtcMs: Long, toUtcMs: Long): List<ProgramStart> =
+        slots.values.filter { it.channelId == channelId && it.startUtcMs >= fromUtcMs && it.startUtcMs < toUtcMs && it.kind == SlotKind.PROGRAM }
+            .map { ProgramStart(it.mediaItemId!!, it.startUtcMs) }
 
     /** Items are titled "Item <id>", as [item] names them, and are each a show of their own. */
     override suspend fun guideWindow(channelIds: List<Long>, fromUtcMs: Long, toUtcMs: Long, maxSlotMs: Long): List<GuideAiring> =

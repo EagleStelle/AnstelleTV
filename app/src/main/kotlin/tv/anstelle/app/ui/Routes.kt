@@ -54,8 +54,6 @@ const val PlayerRouteNoChannel = -1
 
 /** [channelId] 0 builds a new channel. */
 @Serializable data class ChannelLineupRoute(val channelId: Long = 0)
-@Serializable data object RemovedChannelsRoute
-@Serializable data object ChannelNumbersRoute
 @Serializable data object ChannelGroupsRoute
 @Serializable data object PlaybackLanguagesRoute
 @Serializable data object WatchHistoryRoute

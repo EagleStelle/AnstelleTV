@@ -5,58 +5,53 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class ChannelNumberingTest {
-    private val starts = linkedMapOf("productions" to 1000, "decades" to 2000, "genres" to 3000, "group:7" to 5000)
+    // Productions, Decades, Genres and a group someone made.
+    private val starts = linkedMapOf(1L to 1000, 2L to 2000, 3L to 3000, 7L to 5000)
 
-    private fun channel(id: Long, segment: String?, name: String, number: Int = 0) = NumberedChannel(id, segment, name, number)
+    private fun channel(id: Long, group: Long, name: String, number: Int = 0) = NumberedChannel(id, group, name, number)
 
     @Test
-    fun `each segment numbers its channels A to Z from its start`() {
+    fun `each group numbers its channels A to Z from its start`() {
         val channels = listOf(
-            channel(1, "genres", "Fright Night"),
-            channel(2, "genres", "case files"),
-            channel(3, "genres", "Ánime After Dark"),
-            channel(4, "productions", "Netflix"),
-            channel(5, "group:7", "Saturday Cartoons"),
-            channel(6, "group:7", "Kids"),
+            channel(1, 3, "Fright Night"),
+            channel(2, 3, "case files"),
+            channel(3, 3, "Ánime After Dark"),
+            channel(4, 1, "Netflix"),
+            channel(5, 7, "Saturday Cartoons"),
+            channel(6, 7, "Kids"),
         )
         assertEquals(
             mapOf(4L to 1000, 3L to 3000, 2L to 3001, 1L to 3002, 6L to 5000, 5L to 5001),
-            ChannelNumbering.numbers(channels, starts, outside = 6000),
+            ChannelNumbering.numbers(channels, starts),
         )
     }
 
     @Test
     fun `numbers in names count by value`() {
         val channels = listOf(
-            channel(1, "decades", "2010s TV"),
-            channel(2, "decades", "90s TV"),
-            channel(3, "decades", "2000s TV"),
-            channel(4, "decades", "50s Movies"),
+            channel(1, 2, "2010s TV"),
+            channel(2, 2, "90s TV"),
+            channel(3, 2, "2000s TV"),
+            channel(4, 2, "50s Movies"),
         )
-        assertEquals(mapOf(4L to 2000, 2L to 2001, 3L to 2002, 1L to 2003), ChannelNumbering.numbers(channels, starts, outside = 6000))
-    }
-
-    @Test
-    fun `a channel in no segment, or one that is gone, counts from outside`() {
-        val channels = listOf(channel(1, null, "Mine"), channel(2, "group:99", "Another"), channel(3, "genres", "Comedy"))
-        assertEquals(mapOf(2L to 6000, 1L to 6001, 3L to 3000), ChannelNumbering.numbers(channels, starts, outside = 6000))
+        assertEquals(mapOf(4L to 2000, 2L to 2001, 3L to 2002, 1L to 2003), ChannelNumbering.numbers(channels, starts))
     }
 
     @Test
     fun `only changed numbers come back, and numbering again changes nothing`() {
-        val channels = listOf(channel(1, "genres", "Comedy", number = 3000), channel(2, "genres", "Drama", number = 3005))
-        assertEquals(mapOf(2L to 3001), ChannelNumbering.numbers(channels, starts, outside = 6000))
-        val renumbered = channels.map { it.copy(number = ChannelNumbering.numbers(channels, starts, 6000)[it.id] ?: it.number) }
-        assertEquals(emptyMap(), ChannelNumbering.numbers(renumbered, starts, outside = 6000))
+        val channels = listOf(channel(1, 3, "Comedy", number = 3000), channel(2, 3, "Drama", number = 3005))
+        assertEquals(mapOf(2L to 3001), ChannelNumbering.numbers(channels, starts))
+        val renumbered = channels.map { it.copy(number = ChannelNumbering.numbers(channels, starts)[it.id] ?: it.number) }
+        assertEquals(emptyMap(), ChannelNumbering.numbers(renumbered, starts))
     }
 
     @Test
     fun `overlapping starts still give every channel its own number`() {
-        val channels = (1L..30L).map { channel(it, listOf("productions", "decades", "genres", "group:7", null)[(it % 5).toInt()], "Channel $it") }
-        val numbers = ChannelNumbering.numbers(channels, starts.mapValues { 10 }, outside = 10)
+        val channels = (1L..30L).map { channel(it, listOf(1L, 2L, 3L, 7L)[(it % 4).toInt()], "Channel $it") }
+        val numbers = ChannelNumbering.numbers(channels, starts.mapValues { 10 })
         assertEquals(channels.size, numbers.size)
         assertEquals(numbers.size, numbers.values.toSet().size)
-        // The first segment by start keeps its run; the next ones go around it.
+        // The first group by start keeps its run; the next ones go around it.
         assertTrue(numbers.values.all { it in 10 until 40 })
     }
 

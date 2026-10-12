@@ -1,5 +1,6 @@
 package tv.anstelle.core.scheduler
 
+import tv.anstelle.core.model.Playback
 import tv.anstelle.core.model.PlaybackOrder
 import java.time.ZoneId
 import kotlin.test.Test
@@ -35,8 +36,9 @@ class EnginePerformanceTest {
             val inputs = ScheduleInputs(
                 config = ChannelConfig(
                     seed = c.toLong(),
-                    playbackOrder = PlaybackOrder.entries[c % 3],
-                    blockSize = 1 + c % 4,
+                    series = playbackOf(c),
+                    movies = playbackOf(c / 3),
+                    movieGapMs = if (c % 2 == 0) DAY else 0,
                 ),
                 pool = CandidatePool.of(candidates),
                 dayparts = if (c % 2 == 0) listOf(Daypart(6 * 60, 9 * 60, maxRatingScore = 7)) else emptyList(),
@@ -49,5 +51,10 @@ class EnginePerformanceTest {
         val elapsedMs = (System.nanoTime() - began) / 1_000_000
         println("Scheduled 100 channels × 30 days ($slots slots) in $elapsedMs ms")
         assertTrue(elapsedMs < 5_000, "took $elapsedMs ms")
+    }
+
+    private fun playbackOf(n: Int): Playback {
+        val order = PlaybackOrder.entries[n % 3]
+        return Playback(order, if (order == PlaybackOrder.BLOCKS) 2 + n % 3 else 1)
     }
 }

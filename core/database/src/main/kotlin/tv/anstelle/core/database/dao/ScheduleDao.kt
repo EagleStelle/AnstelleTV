@@ -54,6 +54,9 @@ data class ChannelAiring(
     val seriesLogoImageTag: String?,
 )
 
+/** A program's item and when it starts. */
+data class ProgramStart(val mediaItemId: Long, val startUtcMs: Long)
+
 @Dao
 interface ScheduleDao {
     /**
@@ -90,6 +93,16 @@ interface ScheduleDao {
         """,
     )
     suspend fun programItemIdsFrom(channelId: Long, fromUtcMs: Long): List<Long>
+
+    /** The programs starting in `[fromUtcMs, toUtcMs)` on a channel, oldest first. */
+    @Query(
+        """
+        SELECT mediaItemId, startUtcMs FROM schedule_slot
+        WHERE channelId = :channelId AND startUtcMs >= :fromUtcMs AND startUtcMs < :toUtcMs AND kind = 0
+        ORDER BY startUtcMs
+        """,
+    )
+    suspend fun programsBetween(channelId: Long, fromUtcMs: Long, toUtcMs: Long): List<ProgramStart>
 
     /**
      * Guide cells (programs and off-air stretches) overlapping `[fromUtcMs, toUtcMs)` for
