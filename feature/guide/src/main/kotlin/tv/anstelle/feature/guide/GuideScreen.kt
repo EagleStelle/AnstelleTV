@@ -6,6 +6,7 @@ import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.StandInSize
+import android.view.View
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
@@ -40,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +54,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.SpanStyle
@@ -81,6 +84,7 @@ import tv.anstelle.core.data.ondemand.WatchKind
 import tv.anstelle.core.data.playback.PlaybackState
 import tv.anstelle.core.data.playback.TuneStatus
 import tv.anstelle.core.player.SubtitleOverlays
+import tv.anstelle.core.player.SubtitleStyle
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
@@ -415,6 +419,8 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
     var focused by remember { mutableStateOf(false) }
     // Beside the details it only rounds its outer corners, so the two meet square.
     val shape = if (edgeToEdge) RectangleShape else RoundedCornerShape(topStart = 2.dp, bottomStart = 2.dp)
+    // The channel strip's height, in pixels: the subtitles keep clear of it.
+    val strip = remember { mutableIntStateOf(0) }
     Box(
         modifier
             .aspectRatio(16f / 9f)
@@ -433,12 +439,18 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
                     setShutterBackgroundColor(android.graphics.Color.BLACK)
                     setKeepContentOnPlayerReset(true)
                     isFocusable = false
+                    subtitleView?.let { subtitles ->
+                        SubtitleStyle.applyTo(subtitles)
+                        // The picture's frame takes the video's shape once it is known, after any update.
+                        subtitles.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> keepSubtitlesClear(strip.intValue) }
+                    }
                 }
             },
             update = { view ->
                 view.player = player
                 // libass draws ASS subtitles in a layer of its own over the video.
                 view.subtitleView?.let { SubtitleOverlays.attach(it, player) }
+                view.keepSubtitlesClear(strip.intValue)
             },
             onRelease = { view ->
                 view.subtitleView?.let(SubtitleOverlays::detach)
@@ -467,7 +479,7 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
         }
         playback.channel?.let { channel ->
             Row(
-                Modifier.align(Alignment.BottomStart).fillMaxWidth().background(theme.banner),
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().background(theme.banner).onSizeChanged { strip.intValue = it.height },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 androidx.compose.material3.Text(
@@ -504,6 +516,27 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
             }
         }
     }
+}
+
+/**
+ * Keeps the picture's subtitles (text cues and the libass layer inside the subtitle view) clear
+ * of the channel strip, [stripPx] tall, across the preview's foot: the layer shrinks evenly
+ * toward the picture's top edge until its foot meets the strip, so dialogue sits just above it,
+ * signs at the top stay put and an ASS layer keeps its proportions. A picture letterboxed clear
+ * of the strip keeps its subtitles at full size.
+ */
+@OptIn(UnstableApi::class)
+private fun PlayerView.keepSubtitlesClear(stripPx: Int) {
+    val subtitles = subtitleView ?: return
+    // The picture's frame: the subtitle view fills it.
+    val frame = subtitles.parent as? View ?: return
+    // How far the strip reaches up into the picture; a letterbox bar under it takes some or all.
+    val overlap = stripPx - (height - frame.bottom)
+    val scale = if (overlap > 0 && subtitles.height > overlap) 1f - overlap.toFloat() / subtitles.height else 1f
+    subtitles.pivotX = subtitles.width / 2f
+    subtitles.pivotY = 0f
+    subtitles.scaleX = scale
+    subtitles.scaleY = scale
 }
 
 /**

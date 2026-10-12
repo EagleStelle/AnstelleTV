@@ -40,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -79,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import tv.anstelle.core.data.guide.ProgramStrip
 import tv.anstelle.core.data.profiles.Restriction
@@ -273,17 +275,8 @@ private fun TimeHeader(grid: GuideGridState, metrics: GridMetrics, now: State<Lo
     val style = TextStyle(color = theme.textMuted, fontSize = labelSize, fontWeight = FontWeight.SemiBold, fontFamily = theme.displayFont, fontFeatureSettings = "tnum")
     val labels = remember { HashMap<Long, String>() }
     val format = remember { DateFormat.getTimeInstance(DateFormat.SHORT) }
-    val day by remember(grid) { derivedStateOf { dayLabel(grid.windowStart, now.value) } }
     Row(Modifier.fillMaxWidth().height(metrics.headerHeight), verticalAlignment = Alignment.CenterVertically) {
-        androidx.compose.material3.Text(
-            day.uppercase(),
-            color = theme.text,
-            fontSize = labelSize,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = theme.displayFont,
-            letterSpacing = 0.06.em,
-            modifier = Modifier.width(metrics.channelWidth).padding(start = 8.dp),
-        )
+        ClockLabel(grid, now, metrics, Modifier.width(metrics.channelWidth).padding(start = 8.dp))
         Canvas(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
             val start = grid.windowStart
             val end = start + (size.width / grid.pxPerMs).toLong()
@@ -308,6 +301,58 @@ private fun TimeHeader(grid: GuideGridState, metrics: GridMetrics, now: State<Lo
         }
     }
 }
+
+/**
+ * The header's corner: the day the hours show, then the current time. It reads its own state,
+ * so only this label recomposes: the time once a minute (one wake-up at each minute's edge, a
+ * single format call), the day when the hours cross midnight. Nothing here touches the grid.
+ */
+@Composable
+private fun ClockLabel(grid: GuideGridState, now: State<Long>, metrics: GridMetrics, modifier: Modifier) {
+    val theme = LocalAnstelleTheme.current
+    val format = remember { DateFormat.getTimeInstance(DateFormat.SHORT) }
+    var minute by remember { mutableLongStateOf(System.currentTimeMillis() / MINUTE_MS) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val ms = System.currentTimeMillis()
+            minute = ms / MINUTE_MS
+            delay(MINUTE_MS - ms % MINUTE_MS + 50)
+        }
+    }
+    val time by remember { derivedStateOf { format.format(Date(minute * MINUTE_MS)) } }
+    val day by remember(grid) { derivedStateOf { dayLabel(grid.windowStart, now.value).uppercase() } }
+    val size = if (metrics.touch) 11.sp else 12.sp
+    // Today is the clock itself; only another day gets a label.
+    val dayText: @Composable () -> Unit = {
+        if (day.isNotEmpty()) androidx.compose.material3.Text(day, color = theme.text, fontSize = size, lineHeight = size * 1.15f, fontWeight = FontWeight.SemiBold, fontFamily = theme.displayFont, letterSpacing = 0.06.em, maxLines = 1)
+    }
+    val timeText: @Composable () -> Unit = {
+        androidx.compose.material3.Text(
+            time.uppercase(),
+            color = theme.accent,
+            fontSize = size,
+            lineHeight = size * 1.15f,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = theme.displayFont,
+            style = TextStyle(fontFeatureSettings = "tnum"),
+            maxLines = 1,
+        )
+    }
+    if (metrics.touch) {
+        // The narrow phone column stacks them.
+        Column(modifier, verticalArrangement = Arrangement.Center) {
+            dayText()
+            timeText()
+        }
+    } else {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            dayText()
+            timeText()
+        }
+    }
+}
+
+private const val MINUTE_MS = 60_000L
 
 @Composable
 private fun GuideRow(
@@ -686,7 +731,7 @@ private fun dayLabel(windowStart: Long, now: Long): String {
     val day = java.time.Instant.ofEpochMilli(windowStart).atZone(zone).toLocalDate()
     val today = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
     return when (day) {
-        today -> "Today"
+        today -> ""
         today.plusDays(1) -> "Tomorrow"
         else -> day.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM"))
     }

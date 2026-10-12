@@ -80,6 +80,7 @@ import tv.anstelle.core.data.playback.TRACK_TYPE_TEXT
 import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.player.SubtitleOverlays
+import tv.anstelle.core.player.SubtitleStyle
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AirMarker
@@ -162,6 +163,8 @@ fun OnDemandPlayerScreen(
     var panel by remember { mutableStateOf<DemandPanel?>(null) }
     var overlay by remember { mutableLongStateOf(0L) }
     var overlayVisible by remember { mutableStateOf(true) }
+    // Hidden by hand: stays hidden, even while paused, until the next key or tap brings it back.
+    var hiddenByUser by remember { mutableStateOf(false) }
     // The banner's height, so the subtitles can step above it while it is up.
     var overlayHeight by remember { mutableIntStateOf(0) }
 
@@ -176,7 +179,18 @@ fun OnDemandPlayerScreen(
             overlayVisible = false
         }
     }
-    BackHandler(enabled = panel != null) { panel = if (panel == DemandPanel.CONTROLS) null else DemandPanel.CONTROLS }
+LaunchedEffect(overlay) { hiddenByUser = false }
+    // Back steps out of a track list, then hides the banner, and only then leaves the player.
+    BackHandler(enabled = panel != null || !hiddenByUser && (overlayVisible || !state.playing)) {
+        when (panel) {
+            null -> hiddenByUser = true
+            DemandPanel.CONTROLS -> {
+                panel = null
+                hiddenByUser = true
+            }
+            else -> panel = DemandPanel.CONTROLS
+        }
+    }
     val playKey = remember { FocusRequester() }
     val audioKey = remember { FocusRequester() }
     val subtitlesKey = remember { FocusRequester() }
@@ -226,13 +240,18 @@ fun OnDemandPlayerScreen(
             }
             .focusable()
             .pointerInput(Unit) {
+                // A tap hides the banner while it shows, and brings it back while it is hidden.
                 detectTapGestures {
-                    panel = if (panel == null) DemandPanel.CONTROLS else null
-                    overlay++
+                    if (!hiddenByUser && (overlayVisible || panel != null || !state.playing)) {
+                        panel = null
+                        hiddenByUser = true
+                    } else {
+                        overlay++
+                    }
                 }
             },
     ) {
-        val overlayShown = overlayVisible || panel != null || !state.playing
+        val overlayShown = !hiddenByUser && (overlayVisible || panel != null || !state.playing)
         Video(viewModel.player, subtitleLift = if (overlayShown) overlayHeight else 0)
         when (state.status) {
             // The same dark screen as a restricted channel's, with no stretch to wait out.
@@ -327,6 +346,7 @@ private fun Video(player: androidx.media3.common.Player, subtitleLift: Int) {
                 setShutterBackgroundColor(android.graphics.Color.BLACK)
                 keepScreenOn = true
                 isFocusable = false
+                subtitleView?.let(SubtitleStyle::applyTo)
             }
         },
         update = { view ->
@@ -439,13 +459,14 @@ private fun DetailLine(text: String, modifier: Modifier = Modifier) {
 /** What plays next, behind a hollow marker. */
 @Composable
 private fun NextLine(next: String, modifier: Modifier = Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        AirMarker(onAir = false)
+    // Two lines before it truncates; the marker stays level with the first.
+    Row(modifier, verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AirMarker(onAir = false, modifier = Modifier.padding(top = 4.dp))
         androidx.compose.material3.Text(
             "NEXT  $next",
             style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
             color = LocalAnstelleTheme.current.textMuted,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
     }
@@ -469,7 +490,7 @@ private fun Message(text: String) {
 
 private const val BACK_MS = 10_000L
 private const val AHEAD_MS = 30_000L
-private const val OVERLAY_MS = 4_000L
+private const val OVERLAY_MS = 3_000L
 private const val POSITION_MS = 500L
 
 /** How much of the detail line NEXT may take on phones and tablets. */

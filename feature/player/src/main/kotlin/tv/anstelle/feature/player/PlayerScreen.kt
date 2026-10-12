@@ -87,6 +87,7 @@ import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.player.SubtitleOverlays
+import tv.anstelle.core.player.SubtitleStyle
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.OffAirMark
@@ -140,7 +141,17 @@ fun PlayerScreen(
     var panel by remember { mutableStateOf<Panel?>(null) }
     // The banner's height, so the subtitles can step above it while it is up.
     var bannerHeight by remember { mutableIntStateOf(0) }
-    BackHandler(enabled = panel != null) { panel = if (panel == Panel.CONTROLS) null else Panel.CONTROLS }
+    // Back steps out of a track list, then hides the banner, and only then leaves the player.
+    BackHandler(enabled = panel != null || bannerVisible) {
+        when (panel) {
+            null -> bannerVisible = false
+            Panel.CONTROLS -> {
+                panel = null
+                bannerVisible = false
+            }
+            else -> panel = Panel.CONTROLS
+        }
+    }
     val audioKey = remember { FocusRequester() }
     val subtitlesKey = remember { FocusRequester() }
     // The key that opened a track list gets focus back when the list closes.
@@ -196,7 +207,17 @@ fun PlayerScreen(
                 true
             }
             .focusable()
-            .pointerInput(Unit) { detectTapGestures { panel = if (panel == null) Panel.CONTROLS else null } }
+            // A tap hides the banner while it shows, and brings it back while it is hidden.
+            .pointerInput(Unit) {
+                detectTapGestures {
+                    if (bannerVisible || panel != null) {
+                        panel = null
+                        bannerVisible = false
+                    } else {
+                        bannerRequest++
+                    }
+                }
+            }
             .pointerInput(Unit) {
                 var dragged = 0f
                 detectVerticalDragGestures(
@@ -301,6 +322,7 @@ private fun Video(player: androidx.media3.common.Player?, subtitleLift: Int) {
                 setKeepContentOnPlayerReset(true)
                 keepScreenOn = true
                 isFocusable = false
+                subtitleView?.let(SubtitleStyle::applyTo)
             }
         },
         update = { view ->
@@ -608,7 +630,7 @@ private fun time(utcMs: Long): String = DateFormat.getTimeInstance(DateFormat.SH
 private fun timeRange(program: ProgramInfo) = "${time(program.startUtcMs)} – ${time(program.endUtcMs)}"
 
 
-private const val BANNER_MS = 5_000L
+private const val BANNER_MS = 3_000L
 
 /** Left and right seek this far back and ahead. */
 private const val BACK_MS = 10_000L

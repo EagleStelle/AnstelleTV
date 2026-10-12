@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -190,7 +191,7 @@ fun OsdBadge(text: String, modifier: Modifier = Modifier) {
 
 /** A channel number as the OSD shows it: tabular digits on an accent block. */
 @Composable
-fun NumberBlock(number: String, style: TextStyle, modifier: Modifier = Modifier) {
+fun NumberBlock(number: String, style: TextStyle, modifier: Modifier = Modifier, inset: Dp = 10.dp) {
     val theme = LocalAnstelleTheme.current
     Box(modifier.background(theme.accent, ControlShape), contentAlignment = Alignment.Center) {
         androidx.compose.material3.Text(
@@ -198,8 +199,38 @@ fun NumberBlock(number: String, style: TextStyle, modifier: Modifier = Modifier)
             style = style,
             color = theme.onAccent,
             maxLines = 1,
-            modifier = Modifier.padding(horizontal = 10.dp),
+            modifier = Modifier.padding(horizontal = inset),
         )
+    }
+}
+
+/**
+ * A short code (the pairing PIN, a Quick Connect code) as one row of number blocks. The blocks
+ * share the available width up to a cap, so a narrow phone never pushes the code off screen;
+ * a null [code] draws hollow slots while it loads.
+ */
+@Composable
+fun CodeBlocks(code: String?, modifier: Modifier = Modifier, length: Int = 6) {
+    val theme = LocalAnstelleTheme.current
+    val isTv = LocalIsTv.current
+    val style = if (isTv) {
+        androidx.compose.material3.MaterialTheme.typography.displayMedium
+    } else {
+        androidx.compose.material3.MaterialTheme.typography.headlineLarge
+    }
+    Row(
+        modifier.fillMaxWidth().widthIn(max = if (isTv) 366.dp else 320.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        val slot = Modifier.weight(1f).aspectRatio(56f / 72f)
+        for (i in 0 until (code?.length ?: length)) {
+            val char = code?.getOrNull(i)
+            if (char != null) {
+                NumberBlock(char.toString(), style = style, modifier = slot, inset = 2.dp)
+            } else {
+                Box(slot.border(1.dp, theme.line, ControlShape))
+            }
+        }
     }
 }
 

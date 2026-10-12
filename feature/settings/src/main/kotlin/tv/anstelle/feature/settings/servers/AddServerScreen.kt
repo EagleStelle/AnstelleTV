@@ -42,7 +42,7 @@ import tv.anstelle.core.model.ServerProblem
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AnstelleTextField
-import tv.anstelle.core.theme.components.NumberBlock
+import tv.anstelle.core.theme.components.CodeBlocks
 import tv.anstelle.core.theme.components.OsdButton
 import tv.anstelle.core.theme.components.SettingsButtons
 import tv.anstelle.core.theme.components.SettingsNotice
@@ -330,27 +330,13 @@ private fun SignInStep(state: AddServerUiState, viewModel: AddServerViewModel, t
 
 @Composable
 private fun QuickConnectStep(state: AddServerUiState, viewModel: AddServerViewModel, trail: List<String>, modifier: Modifier) {
-    val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
     val firstFocus = rememberInitialFocus()
     SettingsPage(
         title = "Quick Connect",
         trail = trail,
         about = "In Jellyfin on another device, open your profile, choose Quick Connect and enter this code.",
         aside = {
-            // The code on blocks, like the PIN and the channel number entry; hollow slots while it loads.
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                val code = state.quickConnectCode
-                val slot = Modifier.width(if (isTv) 52.dp else 44.dp).height(if (isTv) 72.dp else 60.dp)
-                for (i in 0 until (code?.length ?: 6)) {
-                    val char = code?.getOrNull(i)
-                    if (char != null) {
-                        NumberBlock(char.toString(), style = androidx.compose.material3.MaterialTheme.typography.displayMedium, modifier = slot)
-                    } else {
-                        Box(slot.border(1.dp, theme.line, ControlShape))
-                    }
-                }
-            }
+            CodeBlocks(state.quickConnectCode)
         },
         modifier = modifier,
     ) {

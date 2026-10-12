@@ -5,12 +5,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import tv.anstelle.core.data.ProfileRepository
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,7 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AnstelleMark
-import tv.anstelle.core.theme.components.NumberBlock
+import tv.anstelle.core.theme.components.CodeBlocks
 import tv.anstelle.core.theme.components.OsdButton
 import tv.anstelle.core.theme.components.OsdPanel
 import tv.anstelle.core.theme.components.SegmentLadder
@@ -91,21 +88,7 @@ fun PairingOverlay(viewModel: PairingViewModel = hiltViewModel()) {
                 style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
                 color = theme.textMuted,
             )
-            // Six digits in two groups of three, each on its own block, like the channel number entry.
-            Row(
-                Modifier.padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                current.pin.forEachIndexed { i, digit ->
-                    if (i == 3) Box(Modifier.width(14.dp))
-                    NumberBlock(
-                        digit.toString(),
-                        style = androidx.compose.material3.MaterialTheme.typography.displayMedium,
-                        modifier = Modifier.width(if (isTv) 60.dp else 44.dp).height(if (isTv) 76.dp else 60.dp),
-                    )
-                }
-            }
+            CodeBlocks(current.pin, Modifier.padding(vertical = 8.dp))
             SegmentLadder(secondsLeft / PIN_LIFETIME_S.toFloat(), segments = 30)
             androidx.compose.material3.Text(
                 "Expires in ${secondsLeft} s",
