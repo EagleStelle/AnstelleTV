@@ -11,8 +11,8 @@ import tv.anstelle.core.data.guide.ProgramStrip
 /**
  * Where the guide grid is: the visible hours, shared by every row, and the selected cell.
  *
- * The selection is a channel and a time inside the selected cell. Moving up or down keeps
- * the time, so focus stays on what airs at that moment; moving left or right steps to the
+ * The selection is a channel and a time inside the selected cell. Moving up or down lands on
+ * what airs now on the new channel; moving left or right steps to the
  * neighboring cell and pages the hours when it leaves the view. All of it is snapshot state
  * read in layout and drawing, so scrolling the hours relays rows out without recomposing
  * them.
@@ -82,13 +82,12 @@ class GuideGridState(openingUtcMs: Long, val pxPerMs: Float) {
         return true
     }
 
-    /** Selects the channel [delta] rows away; false when that leaves the list. */
-    fun moveVertically(channels: List<GuideChannel>, delta: Int): Boolean {
+    /** Selects the program on now of the channel [delta] rows away; false when that leaves the list. */
+    fun moveVertically(channels: List<GuideChannel>, delta: Int, nowMs: Long): Boolean {
         val index = channels.indexOfFirst { it.id == selectedChannel }
         val target = index + delta
         if (index < 0 || target !in channels.indices) return false
-        selectedChannel = channels[target].id
-        if (selectedTime < targetStart) selectedTime = targetStart
+        selectNow(channels[target].id, nowMs)
         return true
     }
 

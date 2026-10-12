@@ -213,12 +213,17 @@ internal fun GuideGrid(
                     when (key) {
                         Key.DirectionRight -> grid.moveRight(strip, now.value)
                         Key.DirectionLeft -> return@onKeyEvent grid.moveLeft(strip, now.value)
-                        Key.DirectionUp -> if (!grid.moveVertically(channels, -1)) return@onKeyEvent false
-                        Key.DirectionDown -> grid.moveVertically(channels, 1)
-                        Key.ChannelUp, Key.PageUp -> grid.moveVertically(channels, -minOf(visibleRows(), channels.indexOfFirst { it.id == grid.selectedChannel }))
+                        Key.DirectionUp -> if (!grid.moveVertically(channels, -1, System.currentTimeMillis())) return@onKeyEvent false
+                        Key.DirectionDown -> grid.moveVertically(channels, 1, System.currentTimeMillis())
+                        Key.ChannelUp, Key.PageUp -> grid.moveVertically(
+                            channels,
+                            -minOf(visibleRows(), channels.indexOfFirst { it.id == grid.selectedChannel }),
+                            System.currentTimeMillis(),
+                        )
                         Key.ChannelDown, Key.PageDown -> grid.moveVertically(
                             channels,
                             minOf(visibleRows(), channels.lastIndex - channels.indexOfFirst { it.id == grid.selectedChannel }),
+                            System.currentTimeMillis(),
                         )
                         else -> return@onKeyEvent false
                     }

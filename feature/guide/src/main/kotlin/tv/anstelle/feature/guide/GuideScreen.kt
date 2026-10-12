@@ -233,6 +233,15 @@ fun GuideScreen(
     LaunchedEffect(selected?.channel?.id) {
         selected?.let { viewModel.focus(it.channel.id) }
     }
+    // Browsing that rests on a program airing now shows its channel in the preview.
+    LaunchedEffect(selected?.channel?.id, selected?.startUtcMs, actions == null) {
+        val program = selected ?: return@LaunchedEffect
+        if (actions != null) return@LaunchedEffect
+        delay(AUTO_PREVIEW_MS)
+        if (program.isOn(System.currentTimeMillis()) && viewModel.playbackState.value.channel?.id != program.channel.id) {
+            viewModel.preview(program.channel.id)
+        }
+    }
     // The preview can't show a program that isn't on now, so the details stay on what it plays.
     val described by remember(state.channels, state.access) {
         derivedStateOf { selected?.takeIf { it.isOn(now.value) } ?: playingProgram(playback) }
@@ -817,6 +826,9 @@ private fun ProgramActions(
 private fun timeRange(startUtcMs: Long, endUtcMs: Long) = WatchChoices.clockRange(startUtcMs, endUtcMs)
 
 private const val CLOCK_MS = 30_000L
+
+/** How long browsing rests on a program airing now before its channel shows in the preview. */
+private const val AUTO_PREVIEW_MS = 2_000L
 
 /**
  * Lines kept for the selected program's overview. TV keeps fewer, paying for a logo large

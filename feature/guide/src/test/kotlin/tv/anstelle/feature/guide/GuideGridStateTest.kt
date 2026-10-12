@@ -91,16 +91,16 @@ class GuideGridStateTest {
     }
 
     @Test
-    fun `up and down keep the time and stop at the ends of the list`() {
+    fun `up and down land on what airs now and stop at the ends of the list`() {
         val grid = grid()
-        grid.selectedTime = at(10, 40)
-        assertTrue(grid.moveVertically(channels, 1))
+        grid.selectedTime = at(12, 40)
+        assertTrue(grid.moveVertically(channels, 1, now))
         assertEquals(2, grid.selectedChannel)
-        assertEquals(at(10, 40), grid.selectedTime)
-        assertTrue(grid.moveVertically(channels, 1))
-        assertFalse(grid.moveVertically(channels, 1))
-        assertTrue(grid.moveVertically(channels, -2))
-        assertFalse(grid.moveVertically(channels, -1))
+        assertEquals(now, grid.selectedTime)
+        assertTrue(grid.moveVertically(channels, 1, now))
+        assertFalse(grid.moveVertically(channels, 1, now))
+        assertTrue(grid.moveVertically(channels, -2, now))
+        assertFalse(grid.moveVertically(channels, -1, now))
         assertEquals(1, grid.selectedChannel)
     }
 
