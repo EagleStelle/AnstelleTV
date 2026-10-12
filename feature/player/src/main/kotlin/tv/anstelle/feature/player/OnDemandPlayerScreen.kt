@@ -4,7 +4,6 @@ import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +51,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,7 +82,6 @@ import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.PanelShape
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.StandInSize
@@ -162,6 +162,8 @@ fun OnDemandPlayerScreen(
     var panel by remember { mutableStateOf<DemandPanel?>(null) }
     var overlay by remember { mutableLongStateOf(0L) }
     var overlayVisible by remember { mutableStateOf(true) }
+    // The banner's height, so the subtitles can step above it while it is up.
+    var overlayHeight by remember { mutableIntStateOf(0) }
 
     LifecycleStartEffect(viewModel) {
         onStopOrDispose { viewModel.pause() }
@@ -230,7 +232,8 @@ fun OnDemandPlayerScreen(
                 }
             },
     ) {
-        Video(viewModel.player)
+        val overlayShown = overlayVisible || panel != null || !state.playing
+        Video(viewModel.player, subtitleLift = if (overlayShown) overlayHeight else 0)
         when (state.status) {
             // The same dark screen as a restricted channel's, with no stretch to wait out.
             OnDemandStatus.RESTRICTED -> Box(Modifier.fillMaxSize().background(LocalAnstelleTheme.current.background), contentAlignment = Alignment.Center) {
@@ -240,14 +243,14 @@ fun OnDemandPlayerScreen(
             OnDemandStatus.LOADING -> Message("Loading…")
             else -> if (state.buffering) Message("Loading…")
         }
-        if (overlayVisible || panel != null || !state.playing) {
+        if (overlayShown) {
             // Read again whenever the playback state moves: the keys stay on screen across episodes.
             val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.short }
             val subtitles = remember(state, panel) { viewModel.subtitleOptions().firstOrNull { it.selected }?.short }
             Overlay(
                 state = state,
                 viewModel = viewModel,
-                modifier = Modifier.align(Alignment.BottomCenter),
+                modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { overlayHeight = it.height },
                 keys = when (panel) {
                     null, DemandPanel.CONTROLS -> {
                         {
@@ -314,7 +317,7 @@ fun OnDemandPlayerScreen(
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun Video(player: androidx.media3.common.Player) {
+private fun Video(player: androidx.media3.common.Player, subtitleLift: Int) {
     AndroidView(
         factory = { context ->
             PlayerView(context).apply {
@@ -330,6 +333,7 @@ private fun Video(player: androidx.media3.common.Player) {
             view.player = player
             // libass draws ASS subtitles in a layer of its own over the video.
             view.subtitleView?.let { SubtitleOverlays.attach(it, player) }
+            view.liftSubtitles(subtitleLift)
         },
         onRelease = { view ->
             view.subtitleView?.let(SubtitleOverlays::detach)
@@ -340,10 +344,10 @@ private fun Video(player: androidx.media3.common.Player) {
 }
 
 /**
- * The on-demand banner: ON DEMAND or PAUSED with the stream's technical line beside it, the
- * title, the time in with the bar and the length, what plays next and the [keys] under a
- * hairline. Phones and tablets set what plays next beside the detail line, and their ladder
- * takes taps and drags.
+ * The on-demand banner, straight on the picture over the edge shade: ON DEMAND or PAUSED with
+ * the stream's technical line beside it, the title, the time in with the bar and the length,
+ * what plays next and the [keys] under a hairline. Phones and tablets set what plays next
+ * beside the detail line, and their ladder takes taps and drags.
  */
 @Composable
 private fun Overlay(
@@ -367,13 +371,11 @@ private fun Overlay(
     Column(
         modifier
             .fillMaxWidth()
-            .padding(12.dp)
-            .background(theme.banner, PanelShape)
-            .border(1.dp, theme.line, PanelShape),
+            .edgeShade(theme.banner, shadeFade),
     ) {
-        // Hand-held sizes off TV: the touch keys close the column, so it needs no bottom padding.
+        // Hand-held sizes off TV: the touch keys close the banner, so their own height is the air under it.
         Column(
-            Modifier.padding(start = 16.dp, end = 16.dp, top = if (isTv) 14.dp else 12.dp, bottom = if (isTv) 14.dp else 0.dp),
+            Modifier.padding(start = osdSide, end = osdSide, bottom = if (isTv) osdEdge else 4.dp),
             verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 2.dp),
         ) {
             BannerHeader(state.stream) {
@@ -458,8 +460,7 @@ private fun Message(text: String) {
             style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
             color = theme.text,
             modifier = Modifier
-                .background(theme.banner, PanelShape)
-                .border(1.dp, theme.line, PanelShape)
+                .softShade(theme.banner)
                 .padding(horizontal = 24.dp, vertical = 14.dp),
         )
     }

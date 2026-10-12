@@ -273,6 +273,24 @@ class ChannelRepository @Inject constructor(
     /** The channel's stored logo file, or null. */
     suspend fun logoFile(channelId: Long) = withContext(io) { logos.file(channelDao.byId(channelId)?.logoUri) }
 
+    /** Makes every logo stored before the current standard again (see [ChannelLogos]). Cheap when there is none. */
+    suspend fun standardizeLogos() = withContext(io) {
+        for (channel in channelDao.all()) {
+            val uri = channel.logoUri ?: continue
+            if (ChannelLogos.isStandard(uri)) continue
+            val file = logos.file(uri) ?: continue
+            val standard = try {
+                logos.store(channel.id, file.readBytes())
+            } catch (e: Exception) {
+                // A logo that can't be made again stays as it was; it must never stop the channel sync after it.
+                AppLog.w(TAG, "Kept channel ${channel.number}'s logo as it was: ${e.message}")
+                continue
+            }
+            channelDao.setLogo(channel.id, standard, time.nowUtcMs())
+            logos.delete(uri)
+        }
+    }
+
     /** Makes a group whose channels count up from [start], at the end of the guide. Returns its id. */
     suspend fun createGroup(name: String, start: Int): Long = withContext(io) {
         database.withTransaction {

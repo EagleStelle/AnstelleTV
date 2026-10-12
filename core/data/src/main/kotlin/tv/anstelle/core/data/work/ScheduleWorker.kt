@@ -30,6 +30,8 @@ class ScheduleWorker @AssistedInject constructor(
     private val updater: ScheduleUpdater,
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = try {
+        // Logos stored before the current standard are made again once; afterwards this only reads the channels.
+        channels.standardizeLogos()
         channels.syncGenerated()
         updater.updateAll()
         Result.success()

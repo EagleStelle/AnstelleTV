@@ -79,12 +79,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 
-import coil3.compose.AsyncImage
 import kotlinx.coroutines.flow.collectLatest
 import tv.anstelle.core.data.guide.ProgramStrip
 import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.theme.LocalAnstelleTheme
+import tv.anstelle.core.theme.components.ChannelLogo
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.max
@@ -94,6 +94,10 @@ import kotlin.math.min
 internal class GridMetrics(
     val rowHeight: Dp,
     val channelWidth: Dp,
+    /** How tall a channel logo's box is in the channel column. */
+    val channelLogoHeight: Dp,
+    /** Lines a channel's name may take under its number beside a logo. */
+    val channelNameLines: Int,
     val headerHeight: Dp,
     val dpPerMinute: Float,
     val showDetailLine: Boolean,
@@ -318,7 +322,7 @@ private fun GuideRow(
     onChannelTap: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().height(metrics.rowHeight).padding(vertical = 2.dp)) {
-        ChannelCell(channel, stacked = metrics.touch, Modifier.width(metrics.channelWidth).fillMaxHeight().clickable(onClick = onChannelTap))
+        ChannelCell(channel, metrics, Modifier.width(metrics.channelWidth).fillMaxHeight().clickable(onClick = onChannelTap))
         ProgramCells(
             channelId = channel.id,
             strip = strip,
@@ -339,12 +343,54 @@ private fun GuideRow(
 }
 
 /**
- * The channel column. On the narrow phone column the number sits above the name, so names
- * get the cell's full width instead of breaking mid-word beside the number.
+ * The channel column. A channel with a logo shows it at the start in its standard box,
+ * centered, with the number over the name beside it, as set-top guides set a channel's mark.
+ * Without one, on the narrow phone column the number sits above the name, so names get the
+ * cell's full width instead of breaking mid-word beside the number; TV sets them in a row.
  */
 @Composable
-private fun ChannelCell(channel: GuideChannel, stacked: Boolean, modifier: Modifier) {
+private fun ChannelCell(channel: GuideChannel, metrics: GridMetrics, modifier: Modifier) {
     val theme = LocalAnstelleTheme.current
+    val stacked = metrics.touch
+    if (channel.logo != null) {
+        Row(
+            modifier = modifier
+                .padding(end = 4.dp)
+                .background(theme.surface, cellShape())
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(if (stacked) 6.dp else 8.dp),
+        ) {
+            ChannelLogo(channel.logo, height = metrics.channelLogoHeight)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    androidx.compose.material3.Text(
+                        "${channel.number}",
+                        color = theme.accent,
+                        fontSize = if (stacked) 15.sp else 14.sp,
+                        lineHeight = if (stacked) 17.sp else 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = theme.displayFont,
+                        style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
+                        maxLines = 1,
+                    )
+                    if (channel.isFavorite) {
+                        androidx.compose.material3.Icon(Icons.Filled.Star, contentDescription = "Favorite", tint = theme.accent, modifier = Modifier.size(12.dp))
+                    }
+                }
+                androidx.compose.material3.Text(
+                    channel.name,
+                    color = theme.text,
+                    fontSize = 12.sp,
+                    lineHeight = 14.sp,
+                    fontFamily = theme.bodyFont,
+                    maxLines = metrics.channelNameLines,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        return
+    }
     if (stacked) {
         Column(
             modifier = modifier
@@ -363,9 +409,6 @@ private fun ChannelCell(channel: GuideChannel, stacked: Boolean, modifier: Modif
                     style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
                     maxLines = 1,
                 )
-                if (channel.logo != null) {
-                    AsyncImage(model = channel.logo, contentDescription = null, modifier = Modifier.size(18.dp))
-                }
                 if (channel.isFavorite) {
                     androidx.compose.material3.Icon(Icons.Filled.Star, contentDescription = "Favorite", tint = theme.accent, modifier = Modifier.size(12.dp))
                 }
@@ -376,7 +419,7 @@ private fun ChannelCell(channel: GuideChannel, stacked: Boolean, modifier: Modif
                 fontSize = 12.sp,
                 lineHeight = 14.sp,
                 fontFamily = theme.bodyFont,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -399,9 +442,6 @@ private fun ChannelCell(channel: GuideChannel, stacked: Boolean, modifier: Modif
             style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
             maxLines = 1,
         )
-        if (channel.logo != null) {
-            AsyncImage(model = channel.logo, contentDescription = null, modifier = Modifier.size(24.dp))
-        }
         androidx.compose.material3.Text(
             channel.name,
             color = theme.text,

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -85,6 +86,7 @@ import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.Backdrop
+import tv.anstelle.core.theme.components.ChannelLogo
 import tv.anstelle.core.theme.components.DialogAction
 import tv.anstelle.core.theme.components.NumberBlock
 import tv.anstelle.core.theme.components.OsdBadge
@@ -168,12 +170,20 @@ fun GuideScreen(
 
     val now = rememberClock()
     val density = LocalDensity.current
-    val metrics = remember(isTv, theme) {
+    val metrics = remember(isTv, theme, state.hasLogos) {
         val rows = theme.spec.guide.density
         val rowHeight = if (isTv) rows.tvRowHeightDp else rows.rowHeightDp
         GridMetrics(
             rowHeight = rowHeight.dp,
-            channelWidth = if (isTv) 148.dp else 96.dp,
+            // Logos take the column's start, so it widens to keep the names their room.
+            channelWidth = when {
+                isTv -> if (state.hasLogos) 172.dp else 148.dp
+                else -> if (state.hasLogos) 132.dp else 96.dp
+            },
+            // The logo's box fills the row less its air, capped so the name keeps its width.
+            channelLogoHeight = (rowHeight - if (isTv) 16 else 20).coerceIn(22, if (isTv) 36 else 28).dp,
+            // A phone truncates a long name on one line; TV may break it over two.
+            channelNameLines = if (isTv && rowHeight >= 50) 2 else 1,
             headerHeight = if (isTv) 26.dp else 32.dp,
             dpPerMinute = if (isTv) 5f else 4f,
             showDetailLine = rowHeight >= 50,
@@ -498,7 +508,8 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
 
 /**
  * The selected program while it is on now, otherwise what the preview plays, over its show's
- * backdrop. The show's logo stands in for its title when the server has one. Five lines are
+ * backdrop, its channel's ident in the top-end corner. The show's logo stands in for its title
+ * when the server has one. Five lines are
  * kept for the overview whether or not it fills them, so the grid never jumps as the
  * selection moves. A program the profile may not watch shows no artwork or
  * overview: the restriction takes the overview's place. Off air, the off-air mark takes the
@@ -521,12 +532,8 @@ private fun Details(
     if (selected != null) {
         title = selected.title
         detail = selected.detail
-        // Phones keep the line short enough never to cut the channel off: its name is under the preview.
-        time = if (isTv) {
-            "${timeRange(selected.startUtcMs, selected.endUtcMs)}  ·  ${selected.channel.number}  ${selected.channel.name}"
-        } else {
-            "${timeRange(selected.startUtcMs, selected.endUtcMs)}  ·  ${selected.channel.number}"
-        }
+        // The channel is named by the ident in the top-end corner.
+        time = timeRange(selected.startUtcMs, selected.endUtcMs)
     } else {
         val on = playback.now
         title = on?.title.orEmpty()
@@ -555,25 +562,30 @@ private fun Details(
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             val titleHeight = if (isTv) 56.dp else 30.dp
-            if (offAir) {
-                // Off air has no title: the preview's mark takes its place, in the slot's height.
-                Box(Modifier.height(titleHeight), contentAlignment = Alignment.BottomStart) {
-                    OffAirMark(size = StandInSize.PANEL, alignStart = true)
+            val channel = selected?.channel ?: playback.channel?.let { GuideChannel(it.id, it.number, it.name, it.logoUri, it.isFavorite) }
+            // The title's slot, with the channel's ident in the top-end corner beside it, inside the slot's height.
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (offAir) {
+                    // Off air has no title: the preview's mark takes its place, in the slot's height.
+                    Box(Modifier.weight(1f).height(titleHeight), contentAlignment = Alignment.BottomStart) {
+                        OffAirMark(size = StandInSize.PANEL, alignStart = true)
+                    }
+                } else {
+                    TitleLogo(
+                        logoUrl = artwork?.logoUrl,
+                        title = title,
+                        height = titleHeight,
+                        maxLogoWidth = if (isTv) 320.dp else 200.dp,
+                        style = androidx.compose.ui.text.TextStyle(
+                            fontSize = if (isTv) 24.sp else 20.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = theme.displayFont,
+                        ),
+                        // A restricted program's title and logo are blurred.
+                        modifier = Modifier.weight(1f).obscured(restricted, theme.textMuted, radius = 10.dp),
+                    )
                 }
-            } else {
-                TitleLogo(
-                    logoUrl = artwork?.logoUrl,
-                    title = title,
-                    height = titleHeight,
-                    maxLogoWidth = if (isTv) 320.dp else 200.dp,
-                    style = androidx.compose.ui.text.TextStyle(
-                        fontSize = if (isTv) 24.sp else 20.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = theme.displayFont,
-                    ),
-                    // A restricted program's title and logo are blurred.
-                    modifier = Modifier.obscured(restricted, theme.textMuted, radius = 10.dp),
-                )
+                channel?.let { DetailsIdent(it) }
             }
             // The episode (or a movie's title and year) in full ink, then its facts quieter on the same line.
             val lead = lineUnderLogo(detail, title, isEpisode = more?.isEpisode ?: true, hasLogo = artwork?.logoUrl != null)
@@ -633,6 +645,42 @@ private fun Details(
                 maxLines = overviewLines,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The channel in the details' top-end corner, on the backdrop like the player's corner bug:
+ * its logo in the standard box with its number over its name beside it, or the number over
+ * the name alone, set to the corner. It never takes more than the title slot's height.
+ */
+@Composable
+private fun DetailsIdent(channel: GuideChannel) {
+    val theme = LocalAnstelleTheme.current
+    val isTv = LocalIsTv.current
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        channel.logo?.let { ChannelLogo(it, height = if (isTv) 56.dp else 30.dp) }
+        Column(horizontalAlignment = if (channel.logo != null) Alignment.Start else Alignment.End) {
+            androidx.compose.material3.Text(
+                "${channel.number}",
+                color = theme.accent,
+                fontSize = if (isTv) 18.sp else 13.sp,
+                lineHeight = if (isTv) 21.sp else 15.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = theme.displayFont,
+                style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
+                maxLines = 1,
+            )
+            androidx.compose.material3.Text(
+                channel.name,
+                color = theme.text,
+                fontSize = if (isTv) 12.sp else 11.sp,
+                lineHeight = if (isTv) 15.sp else 13.sp,
+                fontFamily = theme.bodyFont,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = if (isTv) 160.dp else 104.dp),
             )
         }
     }

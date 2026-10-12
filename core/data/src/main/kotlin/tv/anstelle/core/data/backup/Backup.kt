@@ -117,7 +117,7 @@ data class BackupGroup(
 /**
  * A channel with its lineup, seasons and dayparts. Library channels come along too, so their
  * numbers, favorites and dashboard history keep their place until the library sync takes them
- * over again. [logo] is the stored PNG in Base64.
+ * over again. [logo] is the stored logo file (WebP or PNG) in Base64.
  */
 @Serializable
 data class BackupChannel(

@@ -55,6 +55,8 @@ data class GuideUiState(
     val tab: String = GuideViewModel.TAB_ALL,
     /** False when there is no channel to watch at all. */
     val hasChannels: Boolean = false,
+    /** True when any channel on any tab has a logo: the channel column then widens for it, the same on every tab. */
+    val hasLogos: Boolean = false,
     /** What the profile may watch: programs beyond it are blacked out. */
     val access: ProfileAccess = ProfileAccess.OPEN,
 )
@@ -162,6 +164,7 @@ class GuideViewModel @Inject constructor(
                     tabs = tabs,
                     tab = key,
                     hasChannels = tunable.isNotEmpty(),
+                    hasLogos = tunable.any { it.logoUri != null },
                     access = profileAccess,
                 )
                 // New or changed channels: their cells load with the next window read.

@@ -200,7 +200,9 @@ fun Application.anstelleModule(deps: ServerDependencies) {
                     // Logo URLs carry a version, so a versioned request never changes.
                     val versioned = call.request.queryParameters["v"] != null
                     call.response.header(HttpHeaders.CacheControl, if (versioned) "private, max-age=31536000, immutable" else "no-cache")
-                    call.respondBytes(bytes, ContentType.Image.PNG)
+                    // Stored as lossless WebP where the device encodes it, else PNG: the file says which.
+                    val webp = bytes.size >= 12 && String(bytes, 8, 4, Charsets.US_ASCII) == "WEBP"
+                    call.respondBytes(bytes, if (webp) ContentType("image", "webp") else ContentType.Image.PNG)
                 }
 
                 put {

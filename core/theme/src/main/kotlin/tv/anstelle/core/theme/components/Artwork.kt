@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -19,6 +20,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import tv.anstelle.core.theme.LocalAnstelleTheme
 
 /**
@@ -53,6 +57,30 @@ fun Backdrop(
         }
         content()
     }
+}
+
+/** A channel logo's box, width over height: the 5:3 set-top picons use. */
+const val CHANNEL_LOGO_ASPECT = 5f / 3f
+
+/**
+ * A channel's logo in its standard box, [height] tall and [CHANNEL_LOGO_ASPECT] as wide, the
+ * same box everywhere so every channel's mark carries the same weight. The logo keeps its
+ * proportions inside it, placed by [alignment]. Stored logos are already trimmed and fitted
+ * to this box (`ChannelLogos`), so it decodes small and shows little margin. The channel's
+ * name always sits beside it, so the logo is silent to screen readers.
+ */
+@Composable
+fun ChannelLogo(uri: String, height: Dp, modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center) {
+    val context = LocalPlatformContext.current
+    // No crossfade: rows rebind as the guide scrolls, and a logo should never flicker in.
+    val request = remember(uri, context) { ImageRequest.Builder(context).data(uri).crossfade(false).build() }
+    AsyncImage(
+        model = request,
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        alignment = alignment,
+        modifier = modifier.size(width = height * CHANNEL_LOGO_ASPECT, height = height),
+    )
 }
 
 /**

@@ -2,6 +2,7 @@ package tv.anstelle.feature.player
 
 import android.content.pm.ActivityInfo
 import androidx.activity.compose.LocalActivity
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -35,7 +36,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
@@ -43,10 +49,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.PlayerView
+import kotlin.math.hypot
 import tv.anstelle.core.data.playback.StreamFacts
 import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.theme.LocalAnstelleTheme
@@ -76,6 +86,112 @@ internal fun LandscapeFullScreen() {
         }
     }
 }
+
+/** The OSD's side margin: TV's title-safe 48 dp, a hand's width less on phones. */
+internal val osdSide: Dp
+    @Composable get() = if (LocalIsTv.current) 48.dp else 24.dp
+
+/** The OSD's top and bottom margin on TV (title-safe); touch keys close the banner on phones instead. */
+internal val osdEdge: Dp
+    @Composable get() = if (LocalIsTv.current) 24.dp else 12.dp
+
+/** How far above the banner its edge shade fades out. */
+internal val shadeFade: Dp
+    @Composable get() = if (LocalIsTv.current) 96.dp else 48.dp
+
+/**
+ * The banner's edge shade: [color] fading up from the screen's bottom edge, deepest at the
+ * banner's foot, dark enough at its first line for text to read over a white sky, and gone
+ * [fade] above it. A fade, not a panel: nothing edges it, and the picture runs on under the
+ * banner the way a broadcast's own lower graphics sit on it.
+ */
+internal fun Modifier.edgeShade(color: Color, fade: Dp) = drawBehind {
+    val above = fade.toPx()
+    val total = above + size.height
+    val top = above / total
+    drawRect(
+        Brush.verticalGradient(
+            0f to color.copy(alpha = 0f),
+            top * 0.45f to color.copy(alpha = 0.18f),
+            top * 0.8f to color.copy(alpha = 0.5f),
+            top to color.copy(alpha = 0.7f),
+            top + (1f - top) * 0.35f to color.copy(alpha = 0.8f),
+            1f to color.copy(alpha = SHADE_DEEPEST),
+            startY = -above,
+            endY = size.height,
+        ),
+        topLeft = Offset(0f, -above),
+        size = Size(size.width, total),
+    )
+}
+
+/**
+ * The corner shade behind the channel ident: [color] deepest in the element's top-end corner
+ * (the screen's, where the ident sits) and gone at [CORNER_REACH] times the element's
+ * diagonal, a quarter ellipse a little wider than tall, whatever the ident's own shape, so a
+ * short row of typed digits gets the same corner vignette as a tall logo. A broadcaster's
+ * corner bug sits on a vignette like this, never on a plate.
+ */
+internal fun Modifier.cornerShade(color: Color) = drawBehind {
+    val rx = hypot(size.width, size.height) * CORNER_REACH
+    val ry = rx * 0.8f
+    val rtl = layoutDirection == LayoutDirection.Rtl
+    val corner = if (rtl) Offset.Zero else Offset(size.width, 0f)
+    val brush = Brush.radialGradient(
+        0f to color.copy(alpha = SHADE_DEEPEST),
+        0.5f to color.copy(alpha = 0.72f),
+        0.78f to color.copy(alpha = 0.32f),
+        1f to color.copy(alpha = 0f),
+        center = corner,
+        radius = ry,
+    )
+    // A circle of radius ry around the corner, stretched sideways to rx.
+    scale(scaleX = rx / ry, scaleY = 1f, pivot = corner) {
+        drawRect(brush, topLeft = Offset(if (rtl) 0f else corner.x - ry, 0f), size = Size(ry, ry))
+    }
+}
+
+/**
+ * A soft shade behind a line of text over the picture (Tuning…, a notice): [color] deepest at
+ * its center and gone well past its ends, an ellipse around the text instead of a box.
+ */
+internal fun Modifier.softShade(color: Color) = drawBehind {
+    val rx = size.width / 2 + 80.dp.toPx()
+    val ry = size.height / 2 + 40.dp.toPx()
+    val brush = Brush.radialGradient(
+        0f to color.copy(alpha = 0.8f),
+        0.65f to color.copy(alpha = 0.65f),
+        1f to color.copy(alpha = 0f),
+        center = center,
+        radius = ry,
+    )
+    scale(scaleX = rx / ry, scaleY = 1f, pivot = center) {
+        drawCircle(brush, radius = ry, center = center)
+    }
+}
+
+/**
+ * Lifts the picture's subtitles (text cues and the libass layer inside the subtitle view)
+ * [liftPx] up while the banner is up, and lets them back down after: with no panel under the
+ * banner they would otherwise run through its text, so they step above it the way a
+ * streaming player's captions clear its controls. An ASS layer moves whole, top signs too,
+ * for the seconds the banner shows.
+ */
+@OptIn(UnstableApi::class)
+internal fun PlayerView.liftSubtitles(liftPx: Int) {
+    val view = subtitleView ?: return
+    val target = -liftPx.toFloat()
+    if (view.translationY != target) view.animate().translationY(target).setDuration(LIFT_MS).start()
+}
+
+/** The subtitles move with the banner's own snap. */
+private const val LIFT_MS = 140L
+
+/** How dark the shades get where they are deepest: the banner's foot and the ident's corner. */
+private const val SHADE_DEEPEST = 0.88f
+
+/** How far the corner shade reaches, in multiples of the ident's diagonal. */
+private const val CORNER_REACH = 1.25f
 
 /**
  * The stream's technical line, as a set-top box prints it under its banner, read from the top
@@ -124,8 +240,8 @@ internal fun BannerHeader(stream: StreamFacts?, label: @Composable () -> Unit) {
 }
 
 /**
- * The banner's keys, under a hairline, inside the column they act on: the number block and the
- * NEXT column beside it stay as they are. The row runs [KEY_PADDING] past the column on both
+ * The banner's keys, under a hairline, inside the column they act on: the NEXT column beside
+ * it stays as it is. The row runs [KEY_PADDING] past the column on both
  * sides, so the first and last keys' labels line up with the text above while their fills
  * use the margin. Callers anchor groups with a weighted spacer: tracks on the left, the
  * player's own actions on the right. Touch keys are tall enough to need no gap under the

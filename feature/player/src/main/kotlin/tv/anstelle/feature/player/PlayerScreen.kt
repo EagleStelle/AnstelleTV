@@ -13,7 +13,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -40,6 +39,7 @@ import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +51,7 @@ import androidx.compose.ui.draw.drawBehind
 
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -59,13 +60,16 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -81,16 +85,15 @@ import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.data.playback.TuneStatus
 import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.data.profiles.Restriction
+import tv.anstelle.core.model.Channel
 import tv.anstelle.core.player.SubtitleOverlays
-import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.PanelShape
 import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.StandInSize
 import tv.anstelle.core.theme.components.AirMarker
-import tv.anstelle.core.theme.components.NumberBlock
+import tv.anstelle.core.theme.components.ChannelLogo
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.TitleLogo
 
@@ -118,6 +121,7 @@ fun PlayerScreen(
     val entry by viewModel.entry.collectAsStateWithLifecycle()
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val isTv = LocalIsTv.current
+    val theme = LocalAnstelleTheme.current
     val focus = remember { FocusRequester() }
 
     LifecycleStartEffect(viewModel) {
@@ -134,6 +138,8 @@ fun PlayerScreen(
         bannerVisible = false
     }
     var panel by remember { mutableStateOf<Panel?>(null) }
+    // The banner's height, so the subtitles can step above it while it is up.
+    var bannerHeight by remember { mutableIntStateOf(0) }
     BackHandler(enabled = panel != null) { panel = if (panel == Panel.CONTROLS) null else Panel.CONTROLS }
     val audioKey = remember { FocusRequester() }
     val subtitlesKey = remember { FocusRequester() }
@@ -202,7 +208,7 @@ fun PlayerScreen(
                 )
             },
     ) {
-        Video(player)
+        Video(player, subtitleLift = if (bannerVisible || panel != null) bannerHeight else 0)
 
         when (state.status) {
             TuneStatus.OFF_AIR, TuneStatus.RESTRICTED -> StandIn(state)
@@ -214,7 +220,7 @@ fun PlayerScreen(
             visible = bannerVisible || panel != null,
             enter = slideInVertically(tween(SNAP_MS)) { it / 2 } + fadeIn(tween(SNAP_MS)),
             exit = slideOutVertically(tween(SNAP_MS)) { it / 2 } + fadeOut(tween(SNAP_MS)),
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { bannerHeight = it.height },
         ) {
             // Read again whenever the playback state moves: the keys stay on screen across tunes.
             val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.short }
@@ -262,8 +268,19 @@ fun PlayerScreen(
                 },
             )
         }
-        if (entry.isNotEmpty()) {
-            NumberEntry(entry, Modifier.align(Alignment.TopEnd).padding(12.dp))
+        // The channel's corner ident comes and goes with the banner; typed digits take its place while they are entered.
+        AnimatedVisibility(
+            visible = entry.isNotEmpty() || ((bannerVisible || panel != null) && state.channel != null),
+            enter = slideInVertically(tween(SNAP_MS)) { -it / 4 } + fadeIn(tween(SNAP_MS)),
+            exit = slideOutVertically(tween(SNAP_MS)) { -it / 4 } + fadeOut(tween(SNAP_MS)),
+            modifier = Modifier.align(Alignment.TopEnd),
+        ) {
+            Box(
+                Modifier.cornerShade(theme.banner).padding(start = 32.dp, top = osdEdge, end = osdSide, bottom = 24.dp),
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                if (entry.isNotEmpty()) NumberEntry(entry) else state.channel?.let { ChannelIdent(it) }
+            }
         }
         notice?.let { Message(it, modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp)) }
 
@@ -272,7 +289,7 @@ fun PlayerScreen(
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun Video(player: androidx.media3.common.Player?) {
+private fun Video(player: androidx.media3.common.Player?, subtitleLift: Int) {
     AndroidView(
         factory = { context ->
             PlayerView(context).apply {
@@ -290,6 +307,7 @@ private fun Video(player: androidx.media3.common.Player?) {
             view.player = player
             // libass draws ASS subtitles in a layer of its own over the video.
             view.subtitleView?.let { SubtitleOverlays.attach(it, player) }
+            view.liftSubtitles(subtitleLift)
         },
         onRelease = { view ->
             view.subtitleView?.let(SubtitleOverlays::detach)
@@ -300,11 +318,11 @@ private fun Video(player: androidx.media3.common.Player?) {
 }
 
 /**
- * The OSD banner: the channel number on its accent block, NOW with the stream's technical line
- * beside it, the program on now with its progress (time in, segment ladder, length), the
- * [keys] under a hairline, and what's next behind a hollow marker. The number block and NEXT
- * are squares of one size, as tall as the banner, with the program's column between them. With
- * [onSeek] (phones), the ladder takes taps and drags.
+ * The OSD banner, straight on the picture over the edge shade: NOW with the stream's technical
+ * line beside it, the program on now with its progress (time in, segment ladder, length), the
+ * [keys] under a hairline, and what's next in a column of its own behind a hairline. The
+ * channel is named by its ident in the top-end corner. With [onSeek] (phones), the ladder
+ * takes taps and drags.
  */
 @Composable
 private fun InfoBanner(
@@ -314,7 +332,7 @@ private fun InfoBanner(
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
-    val channel = state.channel ?: return
+    if (state.channel == null) return
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -325,39 +343,21 @@ private fun InfoBanner(
     val typography = androidx.compose.material3.MaterialTheme.typography
     // A small phone needs all of its width for the program's column.
     val withNext = isTv || with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } >= NEXT_MIN_WIDTH
-    SquareEnds(
-        modifier = Modifier
+    Column(
+        Modifier
             .fillMaxWidth()
-            .padding(12.dp)
-            .background(theme.banner, PanelShape)
-            .border(1.dp, theme.line, PanelShape),
-        start = {
-            Column(
-                Modifier.background(theme.accent, PanelShape).padding(horizontal = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                androidx.compose.material3.Text(
-                    "${channel.number}",
-                    style = if (isTv) typography.displayMedium else typography.displaySmall,
-                    color = theme.onAccent,
-                    maxLines = 1,
-                )
-                androidx.compose.material3.Text(
-                    channel.name,
-                    style = typography.labelMedium,
-                    color = theme.onAccent,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        },
+            .edgeShade(theme.banner, shadeFade)
+            // Hand-held sizes off TV: the touch keys close the banner, so their own height is the air under it.
+            .padding(start = osdSide, end = osdSide, bottom = if (isTv) osdEdge else 4.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isTv) 6.dp else 2.dp),
+    ) {
+    BannerColumns(
+        modifier = Modifier.fillMaxWidth(),
+        endWidth = if (isTv) NEXT_WIDTH_TV else NEXT_WIDTH_TOUCH,
         middle = {
-            // Hand-held sizes off TV: the touch keys close the column, so it needs no bottom padding.
             Column(
-                Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (isTv) 12.dp else 0.dp),
-                verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 2.dp, Alignment.CenterVertically),
+                Modifier.padding(end = if (withNext) 24.dp else 0.dp),
+                verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 2.dp),
             ) {
                 val program = state.now
                 val label = @Composable {
@@ -397,37 +397,42 @@ private fun InfoBanner(
                         onSeek = onSeek,
                     )
                 }
-                OsdKeys(Modifier.padding(top = if (isTv) 2.dp else 0.dp), keys)
             }
         },
         end = if (!withNext) {
             null
         } else {
             {
-                // A hairline divides NEXT off the program's column.
+                // A hairline divides NEXT off the program's column; its first line sits level with NOW.
                 Box(
-                    Modifier.drawBehind { drawRect(theme.line, size = size.copy(width = 1.dp.toPx())) }.padding(horizontal = if (isTv) 16.dp else 14.dp),
-                    contentAlignment = Alignment.CenterStart,
+                    Modifier
+                        .drawBehind {
+                            val x = if (layoutDirection == LayoutDirection.Rtl) size.width - 1.dp.toPx() else 0f
+                            drawRect(theme.line, topLeft = Offset(x, 0f), size = size.copy(width = 1.dp.toPx()))
+                        }
+                        .padding(start = if (isTv) 20.dp else 16.dp),
+                    contentAlignment = Alignment.TopStart,
                 ) {
                     state.next?.let { next ->
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 2.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 AirMarker(onAir = false)
                                 androidx.compose.material3.Text("NEXT  ${time(next.startUtcMs)}", style = typography.labelMedium, color = theme.textMuted, maxLines = 1)
                             }
+                            // The same logo and type as NOW, so the two read as one pair.
                             TitleLogo(
                                 logoUrl = next.logoUrl,
                                 title = next.title,
-                                height = if (isTv) 44.dp else 24.dp,
-                                maxLogoWidth = 260.dp,
-                                style = typography.titleMedium,
+                                height = if (isTv) 56.dp else 28.dp,
+                                maxLogoWidth = if (isTv) 360.dp else 220.dp,
+                                style = if (isTv) typography.headlineMedium else typography.headlineSmall,
                                 maxLines = 2,
-                                modifier = Modifier.obscured(next.restricted, theme.textMuted),
+                                modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp).obscured(next.restricted, theme.textMuted, radius = 10.dp),
                             )
                             nextLine(next)?.let {
                                 androidx.compose.material3.Text(
                                     it,
-                                    style = typography.bodySmall,
+                                    style = typography.bodyMedium,
                                     color = theme.textMuted,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
@@ -440,51 +445,83 @@ private fun InfoBanner(
             }
         },
     )
+    // The keys run the banner's whole width, under NEXT as well.
+    OsdKeys(Modifier, keys)
+    }
 }
 
 /** "S1E2 - Two Forces" for an episode; "Title (2025)" for a movie whose logo stands for its title. */
 private fun nextLine(next: ProgramInfo): String? = lineUnderLogo(next.detail, next.title, next.isEpisode, next.logoUrl != null)
 
 /**
- * Lays out a banner as two squares of one size with [middle] between them: the squares are as
- * tall as the banner, and the banner is as tall as [middle] needs at the width the squares leave
- * it, so the side is settled in a few rounds of asking [middle] its height. The squares are
- * never narrower than [start]'s content.
+ * Lays the banner out as [middle], the program's column, with [end] beside it [endWidth] wide
+ * and as tall as [middle], so NEXT keeps one place however the program's column runs.
  */
 @Composable
-private fun SquareEnds(
-    start: @Composable () -> Unit,
+private fun BannerColumns(
     middle: @Composable () -> Unit,
     end: (@Composable () -> Unit)?,
+    endWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
-    Layout(contents = listOfNotNull(start, middle, end), modifier = modifier) { measurables, constraints ->
-        val first = measurables[0].first()
-        val center = measurables[1].first()
-        val last = measurables.getOrNull(2)?.firstOrNull()
+    Layout(contents = listOfNotNull(middle, end), modifier = modifier) { measurables, constraints ->
+        val center = measurables[0].first()
+        val last = measurables.getOrNull(1)?.firstOrNull()
         val width = constraints.maxWidth
-        val ends = if (last != null) 2 else 1
-        var side = first.maxIntrinsicWidth(Constraints.Infinity)
-        repeat(SQUARE_ROUNDS) { side = maxOf(side, center.maxIntrinsicHeight((width - ends * side).coerceAtLeast(0))) }
-        val middleWidth = (width - ends * side).coerceAtLeast(0)
-        val centerPlaceable = center.measure(Constraints(minWidth = middleWidth, maxWidth = middleWidth, minHeight = side))
-        val height = maxOf(side, centerPlaceable.height)
-        val firstPlaceable = first.measure(Constraints.fixed(side, height))
+        val side = if (last == null) 0 else endWidth.roundToPx().coerceAtMost(width / 2)
+        val centerPlaceable = center.measure(Constraints.fixedWidth(width - side))
+        val height = centerPlaceable.height
         val lastPlaceable = last?.measure(Constraints.fixed(side, height))
         layout(width, height) {
-            firstPlaceable.place(0, 0)
-            centerPlaceable.place(side, 0)
-            lastPlaceable?.place(side + middleWidth, 0)
+            centerPlaceable.placeRelative(0, 0)
+            lastPlaceable?.placeRelative(width - side, 0)
         }
     }
 }
 
 /**
- * The digits typed so far, each dropping onto its own accent block, with hollow slots for
- * the rest; the ladder under them drains for the two seconds before the channel tunes.
+ * The channel as a broadcaster's corner bug: its logo over its number over its name, set to
+ * the screen's top-end corner on the corner shade. It comes and goes with the banner.
  */
 @Composable
-private fun NumberEntry(entry: String, modifier: Modifier) {
+private fun ChannelIdent(channel: Channel) {
+    val theme = LocalAnstelleTheme.current
+    val isTv = LocalIsTv.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    Column(horizontalAlignment = Alignment.End) {
+        channel.logoUri?.let {
+            ChannelLogo(
+                it,
+                height = if (isTv) 96.dp else 56.dp,
+                alignment = Alignment.CenterEnd,
+                modifier = Modifier.padding(bottom = if (isTv) 6.dp else 4.dp),
+            )
+        }
+        androidx.compose.material3.Text(
+            "${channel.number}",
+            style = if (isTv) typography.displayMedium else typography.displaySmall,
+            color = theme.accent,
+            maxLines = 1,
+        )
+        androidx.compose.material3.Text(
+            channel.name,
+            style = typography.labelMedium,
+            color = theme.bannerText,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.widthIn(max = if (isTv) 240.dp else 180.dp),
+        )
+    }
+}
+
+/**
+ * The digits typed so far, in the ident's corner and in its number's type, with an empty slot
+ * marked for each digit still to come; the ladder under them drains for the two seconds before
+ * the channel tunes, and the new channel's ident takes the corner.
+ */
+@Composable
+private fun NumberEntry(entry: String) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
@@ -493,22 +530,22 @@ private fun NumberEntry(entry: String, modifier: Modifier) {
         left.snapTo(1f)
         left.animateTo(0f, tween(ENTRY_MS.toInt(), easing = LinearEasing))
     }
-    Column(
-        modifier
-            .background(theme.banner, PanelShape)
-            .border(1.dp, theme.line, PanelShape)
-            .padding(12.dp)
-            .width(IntrinsicSize.Min),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            val slot = Modifier.width(if (isTv) 48.dp else 40.dp).height(if (isTv) 64.dp else 56.dp)
+    Column(Modifier.width(IntrinsicSize.Min), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            val style = if (isTv) typography.displayMedium else typography.displaySmall
             for (i in 0 until ENTRY_DIGITS) {
                 val digit = entry.getOrNull(i)
-                if (digit != null) {
-                    NumberBlock(digit.toString(), style = if (isTv) typography.displayMedium else typography.displaySmall, modifier = slot)
-                } else {
-                    Box(slot.border(1.dp, theme.line, ControlShape))
+                Box(Modifier.width(if (isTv) 30.dp else 24.dp), contentAlignment = Alignment.BottomCenter) {
+                    // Every slot sets a digit's line, so the row holds its height as digits arrive.
+                    androidx.compose.material3.Text(
+                        digit?.toString() ?: "0",
+                        style = style,
+                        color = if (digit != null) theme.accent else Color.Transparent,
+                        maxLines = 1,
+                    )
+                    if (digit == null) {
+                        Box(Modifier.padding(bottom = if (isTv) 9.dp else 7.dp).fillMaxWidth().height(3.dp).background(theme.textMuted))
+                    }
                 }
             }
         }
@@ -518,7 +555,7 @@ private fun NumberEntry(entry: String, modifier: Modifier) {
 
 /**
  * Off air, or a program the profile may not watch: the picture stays dark until the stretch
- * ends, one mark saying why and until when. The banner, in on every tune, names the channel.
+ * ends, one mark saying why and until when. The corner ident, in on every tune, names the channel.
  */
 @Composable
 private fun StandIn(state: PlaybackState) {
@@ -546,8 +583,7 @@ private fun Message(text: String, modifier: Modifier = Modifier, subtle: Boolean
             },
             color = if (subtle) theme.textMuted else theme.text,
             modifier = modifier
-                .background(theme.banner, PanelShape)
-                .border(1.dp, theme.line, PanelShape)
+                .softShade(theme.banner)
                 .padding(horizontal = 24.dp, vertical = 14.dp),
         )
     }
@@ -584,8 +620,9 @@ private const val SNAP_MS = 140
 /** Narrower touch screens leave NEXT out of the banner. */
 private val NEXT_MIN_WIDTH = 720.dp
 
-/** Rounds of asking the banner's middle its height before the squares' side settles. */
-private const val SQUARE_ROUNDS = 4
+/** How wide the banner's NEXT column is. */
+private val NEXT_WIDTH_TV = 240.dp
+private val NEXT_WIDTH_TOUCH = 200.dp
 
 /** Mirrors `PlayerViewModel`: four digits at most, tuned 2 s after the last one. */
 private const val ENTRY_DIGITS = 4
