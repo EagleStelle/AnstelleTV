@@ -14,10 +14,12 @@ internal fun MediaServer.statusLine(progress: String?, nowUtcMs: Long): String {
 }
 
 /** "just now", "5 minutes ago", "Yesterday": when the last sync finished, or null before the first. */
-internal fun MediaServer.syncedAgo(nowUtcMs: Long): String? {
-    val synced = lastSyncUtcMs ?: return null
-    if (nowUtcMs - synced < DateUtils.MINUTE_IN_MILLIS) return "just now"
-    return DateUtils.getRelativeTimeSpanString(synced, nowUtcMs, DateUtils.MINUTE_IN_MILLIS).toString()
+internal fun MediaServer.syncedAgo(nowUtcMs: Long): String? = lastSyncUtcMs?.let { ago(it, nowUtcMs) }
+
+/** "just now", "5 minutes ago", "Yesterday": how long ago [atUtcMs] was, the way every settings status says it. */
+internal fun ago(atUtcMs: Long, nowUtcMs: Long): String {
+    if (nowUtcMs - atUtcMs < DateUtils.MINUTE_IN_MILLIS) return "just now"
+    return DateUtils.getRelativeTimeSpanString(atUtcMs, nowUtcMs, DateUtils.MINUTE_IN_MILLIS).toString()
 }
 
 internal fun MediaType.label(count: Int): String {

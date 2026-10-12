@@ -124,7 +124,7 @@ fun Application.anstelleModule(deps: ServerDependencies) {
 
             post("/pair/start") {
                 val body = call.receiveOrBadRequest<PairStartRequest>() ?: return@post
-                when (val result = deps.pairing.start(body.clientName, call.request.origin.remoteAddress)) {
+                when (val result = deps.pairing.start(body.clientName, call.request.origin.remoteAddress, isDevice = body.device)) {
                     is PairStartResult.Started -> call.respond(
                         PairStartResponse(
                             requestId = result.request.id,

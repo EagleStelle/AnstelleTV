@@ -12,16 +12,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.InsertChart
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -46,6 +48,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.WebServerController
 import tv.anstelle.core.data.backup.Backup
@@ -62,14 +65,15 @@ import tv.anstelle.core.theme.components.ConfirmSheet
 import tv.anstelle.core.theme.components.EditSheet
 import tv.anstelle.core.theme.components.LinkRow
 import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.PinEntry
 import tv.anstelle.core.theme.components.SettingsButtons
 import tv.anstelle.core.theme.components.SettingsNotice
 import tv.anstelle.core.theme.components.SettingsPage
-import tv.anstelle.core.theme.components.TextRow
-import tv.anstelle.core.theme.components.foot
+import tv.anstelle.core.theme.components.StatusLine
 import tv.anstelle.core.theme.components.rememberInitialFocus
 import tv.anstelle.core.theme.components.rememberSettingsSheets
 import tv.anstelle.core.theme.components.section
+import tv.anstelle.feature.settings.servers.ago
 import javax.inject.Inject
 
 /** Where copying a backup in has got to. */
@@ -77,8 +81,17 @@ import javax.inject.Inject
 sealed interface BackupStep {
     data object Idle : BackupStep
 
-    /** [peer] shows a PIN to type in; [problem] says why the last one didn't do. */
-    data class Pin(val peer: Peer, val requestId: String, val problem: String? = null) : BackupStep
+    /**
+     * [peer] shows a PIN to type on the PIN pad. [attempt] clears the pad after a wrong one, which
+     * [problem] names; while [copying], the pad waits.
+     */
+    data class Pin(
+        val peer: Peer,
+        val requestId: String,
+        val attempt: Int = 0,
+        val problem: String? = null,
+        val copying: Boolean = false,
+    ) : BackupStep
 
     /** [backup] came in from [from] and waits for the answer to "replace everything?". */
     data class Confirm(val backup: Backup, val from: String) : BackupStep
@@ -86,12 +99,13 @@ sealed interface BackupStep {
 
 @Immutable
 data class BackupUiState(
-    /** What a backup of this device holds. */
+    /** What a backup of this device holds, and when one was last taken. */
     val summary: BackupSummary = BackupSummary(),
     /** Restoring replaces every profile, the owner's too, so only the owner does it (or a device with no profile yet). */
     val canRestore: Boolean = false,
     /** Other devices serving web control, as they are found. */
     val peers: List<Peer> = emptyList(),
+    val nowUtcMs: Long = 0,
     val loaded: Boolean = false,
 )
 
@@ -105,6 +119,7 @@ class BackupViewModel @Inject constructor(
     nearby: NearbyDevices,
     profiles: ProfileRepository,
     private val webServer: WebServerController,
+    time: TimeSource,
 ) : ViewModel() {
     /** Opened before any profile exists, from adding the first server: only copying in makes sense. */
     val firstRun: Boolean = savedState.get<Boolean>("firstRun") ?: false
@@ -116,7 +131,7 @@ class BackupViewModel @Inject constructor(
         canRestore,
         // Only someone who may copy a backup in looks for devices to copy from.
         canRestore.flatMapLatest { if (it) nearby.observe() else flowOf(emptyList()) },
-    ) { summary, restores, peers -> BackupUiState(summary, restores, peers, loaded = true) }
+    ) { summary, restores, peers -> BackupUiState(summary, restores, peers, time.nowUtcMs(), loaded = true) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BackupUiState())
 
     private val _step = MutableStateFlow<BackupStep>(BackupStep.Idle)
@@ -145,15 +160,12 @@ class BackupViewModel @Inject constructor(
         _step.value = BackupStep.Confirm(backup, "the file")
     }
 
-    /** The pairing waiting for its PIN; it outlives its sheet. */
-    private var asked: BackupStep.Pin? = null
-
-    /** Asks [peer] to show a PIN to pair with. */
+    /** Asks [peer] to show a PIN to pair with, then opens the PIN pad. */
     fun ask(peer: Peer) = act("Asking ${peer.name} for a PIN…") {
         val pairing = transfer.ask(peer.address)
         _message.value = null
         // A device typed in by address is named by what it calls itself.
-        _step.value = BackupStep.Pin(peer.copy(name = pairing.deviceName), pairing.requestId).also { asked = it }
+        _step.value = BackupStep.Pin(peer.copy(name = pairing.deviceName), pairing.requestId)
     }
 
     /** A device by the address typed in; returns why it isn't one, or null. */
@@ -163,27 +175,38 @@ class BackupViewModel @Inject constructor(
         return null
     }
 
-    /** Pairs with the [pin] the device shows and copies its backup in. */
+    /** Pairs with the [pin] the device shows and copies its backup in. A wrong PIN clears the pad for another try. */
     fun pair(pin: String) {
-        val pairing = asked ?: return
-        asked = null
-        act("Copying from ${pairing.peer.name}…") {
-            try {
-                val backup = transfer.fetch(pairing.peer.address, pairing.requestId, pin)
-                _message.value = null
-                _step.value = BackupStep.Confirm(backup, pairing.peer.name)
+        val pairing = _step.value as? BackupStep.Pin ?: return
+        if (pairing.copying) return
+        _step.value = pairing.copy(problem = null, copying = true)
+        viewModelScope.launch {
+            _step.value = try {
+                BackupStep.Confirm(transfer.fetch(pairing.peer.address, pairing.requestId, pin), pairing.peer.name)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: PeerException) {
-                if (!e.wrongPin) throw e
-                // The same PIN is still up on the other device: ask for it again.
-                _message.value = null
-                _step.value = pairing.copy(problem = e.message).also { asked = it }
+                if (e.wrongPin) {
+                    pairing.copy(attempt = pairing.attempt + 1, problem = e.message)
+                } else {
+                    _message.value = e.message.orEmpty() to true
+                    BackupStep.Idle
+                }
+            } catch (e: Exception) {
+                _message.value = (e.message ?: "That didn't work.") to true
+                BackupStep.Idle
             }
         }
     }
 
-    /** The sheet for [step] is open; it holds what it needs. */
-    fun shown() {
-        _step.value = BackupStep.Idle
+    /** Leaves the PIN pad; the PIN on the other device runs out by itself. */
+    fun cancelPin() {
+        if (_step.value is BackupStep.Pin) _step.value = BackupStep.Idle
+    }
+
+    /** The question for [BackupStep.Confirm] is open; it holds what it needs. */
+    fun asked() {
+        if (_step.value is BackupStep.Confirm) _step.value = BackupStep.Idle
     }
 
     /** Replaces everything with [backup]; the app then starts over on it (see `RestoreSignal`). */
@@ -214,9 +237,10 @@ class BackupViewModel @Inject constructor(
 }
 
 /**
- * Backup: saves everything this device holds to a file, restores one, or copies it in from another
- * device on the network. The guidance shows what a backup holds; restoring asks first and says
- * what comes in, and the app then starts over on it.
+ * Backup: saves everything this device holds to a file, restores one, or copies it in from a
+ * nearby device. The guidance shows what a backup holds and when one was last taken; copying
+ * types the other device's PIN on the PIN pad, and restoring asks first, says what comes in,
+ * then starts the app over on it.
  */
 @Composable
 fun BackupScreen(
@@ -226,8 +250,25 @@ fun BackupScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val step by viewModel.step.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
-    val firstFocus = rememberInitialFocus(ready = state.loaded)
 
+    // The other device's PIN goes on the PIN pad, like a profile's.
+    (step as? BackupStep.Pin)?.let { pin ->
+        PinEntry(
+            title = "Copy from ${pin.peer.name}",
+            subtitle = "Enter the PIN it shows.",
+            message = if (pin.copying) "Copying…" else pin.problem,
+            isError = !pin.copying && pin.problem != null,
+            enabled = !pin.copying,
+            attempt = pin.attempt,
+            length = PIN_LENGTH,
+            onPin = viewModel::pair,
+            onCancel = viewModel::cancelPin,
+            modifier = modifier,
+        )
+        return
+    }
+
+    val firstFocus = rememberInitialFocus(ready = state.loaded)
     val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> uri?.let(viewModel::saveTo) }
     val opener = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(viewModel::readFrom) }
     val context = LocalContext.current
@@ -245,112 +286,119 @@ fun BackupScreen(
         viewModel.noFilePicker()
     }
 
-    // The steps open their sheets over the page: the PIN, then the question.
+    // The address and the question open over the page.
     val sheets = rememberSettingsSheets()
+    val enterAddress = remember { FocusRequester() }
     SettingsPage(
         sheets = sheets,
         title = "Backup",
         trail = if (viewModel.firstRun) listOf("Add server") else listOf("Settings"),
         about = if (viewModel.firstRun) {
-            "Copy everything from another AnstelleTV: its channels, profiles, themes and settings. Its Web control must be on."
+            "Take over another AnstelleTV's channels, profiles, themes and settings, from the device itself or a saved backup. " +
+                "A device to copy from needs its Web control on."
         } else {
-            "A backup holds the channels, profiles, themes, settings and dashboard history. Restoring one replaces " +
-                "everything here, and servers this device isn't signed in to need signing in again."
+            "A backup holds the channels, profiles, themes, settings and dashboard history, and restoring one replaces " +
+                "everything here. A device to copy from needs its Web control on."
         },
-        aside = if (viewModel.firstRun) null else ({ BackupReadout(state.summary) }),
+        aside = if (viewModel.firstRun) null else ({ BackupReadout(state.summary, state.nowUtcMs) }),
         modifier = modifier,
     ) {
         item(key = "message") { message?.let { (text, problem) -> SettingsNotice(text, isError = problem) } }
-        if (!viewModel.firstRun) {
-            item(key = "save") {
+        // The file verbs side by side (user decision): saving one, and restoring one where this device can open files.
+        val restoresFiles = state.canRestore && canOpenFiles
+        if (!viewModel.firstRun || restoresFiles) {
+            item(key = "files") {
                 SettingsButtons {
-                    OsdButton("Save backup", onClick = ::save, icon = Icons.Filled.FileDownload, primary = true, modifier = Modifier.focusRequester(firstFocus))
+                    if (!viewModel.firstRun) {
+                        OsdButton("Save backup", onClick = ::save, icon = Icons.Filled.FileDownload, primary = true, modifier = Modifier.focusRequester(firstFocus))
+                    }
+                    if (restoresFiles) OsdButton("Restore from file", onClick = ::open, icon = Icons.Filled.FileUpload, danger = true)
                 }
             }
         }
         if (state.canRestore) {
-            section("Copy from a device")
+            section("Nearby devices")
             val peers = state.peers
             items(peers, key = { "peer-${it.address}" }) { peer ->
                 LinkRow(
                     title = peer.name,
                     summary = peer.address.removePrefix("http://"),
-                    icon = Icons.Filled.Tv,
+                    icon = Icons.Filled.Devices,
                     onClick = { viewModel.ask(peer) },
                     modifier = if (viewModel.firstRun && peer == peers.first()) Modifier.focusRequester(firstFocus) else Modifier,
                 )
             }
-            if (peers.isEmpty()) {
-                item(key = "looking") { SettingsNotice("Looking for devices with Web control on…") }
-            }
             item(key = "address") {
-                TextRow(
-                    title = "Other device",
-                    value = "",
-                    summary = "By its address",
-                    label = "Address",
-                    about = "The address its Web control shows, like 192.168.1.20:8765.",
-                    keyboardType = KeyboardType.Uri,
-                    icon = Icons.Filled.Devices,
-                    onSave = viewModel::askAddress,
-                    modifier = if (viewModel.firstRun && peers.isEmpty()) Modifier.focusRequester(firstFocus) else Modifier,
-                )
+                SettingsButtons {
+                    OsdButton(
+                        "Enter address",
+                        onClick = {
+                            sheets.show(
+                                EditSheet(
+                                    title = "Device address",
+                                    about = "The address the other device's Web control shows, like 192.168.1.20:8765.",
+                                    label = "Address",
+                                    value = "",
+                                    keyboardType = KeyboardType.Uri,
+                                    filter = { it.take(64) },
+                                    onSave = viewModel::askAddress,
+                                ),
+                                from = enterAddress,
+                            )
+                        },
+                        icon = Icons.Filled.Link,
+                        modifier = Modifier.focusRequester(enterAddress).let {
+                            if (viewModel.firstRun && peers.isEmpty()) it.focusRequester(firstFocus) else it
+                        },
+                    )
+                }
             }
-            if (canOpenFiles) foot { OsdButton("Restore from file", onClick = ::open, icon = Icons.Filled.Restore, danger = true) }
         }
     }
 
     LaunchedEffect(step) {
-        when (val current = step) {
-            is BackupStep.Pin -> {
-                sheets.show(
-                    EditSheet(
-                        title = "PIN",
-                        about = current.problem ?: "Enter the PIN ${current.peer.name} shows now.",
-                        label = "PIN",
-                        value = "",
-                        keyboardType = KeyboardType.NumberPassword,
-                        filter = { text -> text.filter(Char::isDigit).take(PIN_LENGTH) },
-                        onSave = { pin -> if (pin.length == PIN_LENGTH) null.also { viewModel.pair(pin) } else "The PIN has $PIN_LENGTH digits." },
-                    ),
-                )
-                viewModel.shown()
-            }
-            is BackupStep.Confirm -> {
-                sheets.show(
-                    ConfirmSheet(
-                        title = "Replace everything here?",
-                        about = "${brings(current.backup.summary())} from ${current.from} replace what this device holds. " +
-                            "Servers this device isn't signed in to need signing in again.",
-                        confirm = "Replace",
-                        icon = Icons.Filled.Restore,
-                        onConfirm = { viewModel.restore(current.backup) },
-                    ),
-                )
-                viewModel.shown()
-            }
-            BackupStep.Idle -> Unit
-        }
+        val current = step as? BackupStep.Confirm ?: return@LaunchedEffect
+        sheets.show(
+            ConfirmSheet(
+                title = "Replace everything here?",
+                about = "${brings(current.backup.summary())} from ${current.from} replace what this device holds. " +
+                    "Servers this device isn't signed in to need signing in again.",
+                confirm = "Replace",
+                icon = Icons.Filled.SettingsBackupRestore,
+                onConfirm = { viewModel.restore(current.backup) },
+            ),
+        )
+        viewModel.asked()
     }
 }
 
-/** What a backup of this device holds: profiles, channels and themes, then its servers, groups and history. */
+/**
+ * What a backup of this device holds, the way the other settings readouts read: when one was last
+ * taken as the status line, profiles, channels and custom themes as figures, then its servers,
+ * groups and the dashboards' days.
+ */
 @Composable
-internal fun BackupReadout(summary: BackupSummary) {
+internal fun BackupReadout(summary: BackupSummary, nowUtcMs: Long) {
+    val saved = summary.savedUtcMs
     ReadoutFrame {
+        StatusLine(onAir = saved != null, label = if (saved != null) "Saved" else "Not saved yet", text = saved?.let { ago(it, nowUtcMs) }.orEmpty())
         ReadoutFigures {
-            ReadoutFigure(summary.profiles, if (summary.profiles == 1) "profile" else "profiles", lead = true)
-            ReadoutFigure(summary.channels, if (summary.channels == 1) "channel" else "channels")
+            ReadoutFigure(summary.channels, if (summary.channels == 1) "channel" else "channels", lead = true)
+            ReadoutFigure(summary.profiles, if (summary.profiles == 1) "profile" else "profiles")
             ReadoutFigure(summary.themes, if (summary.themes == 1) "custom theme" else "custom themes")
         }
         ReadoutRule()
         ReadoutFacts {
             ReadoutFact(Icons.Filled.Dns, "${summary.servers}", if (summary.servers == 1) "server" else "servers")
             ReadoutFact(Icons.Filled.Folder, "${summary.groups}", if (summary.groups == 1) "group" else "groups")
-            ReadoutFact(Icons.Filled.History, "${summary.historyDays}", if (summary.historyDays == 1) "day of history" else "days of history")
+            ReadoutFact(Icons.Filled.InsertChart, "${summary.historyDays}", if (summary.historyDays == 1) "day of history" else "days of history")
         }
     }
 }
+
+/** The home's line under Backup: when one was last taken. */
+internal fun backupSummary(summary: BackupSummary, nowUtcMs: Long): String =
+    summary.savedUtcMs?.let { "Saved ${ago(it, nowUtcMs)}" } ?: "Not saved yet"
 
 /** Whether a real file picker answers [action]: Google TV only has a stub that says no app can. */
 private fun Context.hasFilePicker(action: String): Boolean {
@@ -360,7 +408,7 @@ private fun Context.hasFilePicker(action: String): Boolean {
 }
 
 /** "1 profile", "12 profiles". */
-internal fun counted(count: Int, noun: String) = if (count == 1) "1 $noun" else "%,d ${noun}s".format(count)
+private fun counted(count: Int, noun: String) = if (count == 1) "1 $noun" else "%,d ${noun}s".format(count)
 
 /** What a backup brings, leaving out what it has none of: "1 profile, 94 channels and 2 custom themes". */
 private fun brings(summary: BackupSummary): String {

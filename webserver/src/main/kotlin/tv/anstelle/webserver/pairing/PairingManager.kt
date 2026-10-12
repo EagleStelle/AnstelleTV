@@ -12,13 +12,17 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** A pairing attempt in progress. The PIN is shown on the TV, never sent to the browser. */
+/**
+ * A pairing attempt in progress. The PIN is shown on the TV, never sent to the browser.
+ * [isDevice] is another AnstelleTV pairing to copy the backup.
+ */
 data class PairingRequest(
     val id: String,
     val pin: String,
     val clientName: String,
     val address: String?,
     val expiresAtUtcMs: Long,
+    val isDevice: Boolean = false,
 )
 
 sealed interface PairStartResult {
@@ -61,7 +65,7 @@ class PairingManager @Inject constructor(
     /** The request whose PIN the TV should show, or null. */
     val activeRequest: StateFlow<PairingRequest?> = _activeRequest.asStateFlow()
 
-    suspend fun start(clientName: String, address: String?): PairStartResult = mutex.withLock {
+    suspend fun start(clientName: String, address: String?, isDevice: Boolean = false): PairStartResult = mutex.withLock {
         val now = time.nowUtcMs()
         while (recentStarts.isNotEmpty() && now - recentStarts.first() > START_WINDOW_MS) recentStarts.removeFirst()
         if (recentStarts.size >= MAX_STARTS) return@withLock PairStartResult.RateLimited
@@ -73,6 +77,7 @@ class PairingManager @Inject constructor(
             clientName = clientName.take(MAX_NAME_LENGTH).ifBlank { "Browser" },
             address = address,
             expiresAtUtcMs = now + PIN_TTL_MS,
+            isDevice = isDevice,
         )
         attempts = 0
         _activeRequest.value = request

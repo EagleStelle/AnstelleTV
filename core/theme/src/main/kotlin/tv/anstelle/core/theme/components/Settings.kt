@@ -10,9 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,7 +34,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -63,6 +59,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -70,6 +67,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -89,12 +87,14 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import tv.anstelle.core.theme.DangerColor
@@ -134,7 +134,8 @@ val settingsEdge: Dp
 
 /**
  * Content sits on the surface step (the settings panel, a dialog), so whatever fills at rest
- * (a secondary button) steps up once more to read apart from it.
+ * (a secondary button) steps up once more to read apart from it. A phone's settings list
+ * provides it too, so Settings' buttons wear one fill on TV and phone alike (user decision).
  */
 val LocalOnPanel = staticCompositionLocalOf { false }
 
@@ -211,6 +212,24 @@ class EditSheet(
     val keyboardType: KeyboardType,
     val filter: (String) -> String,
     val onSave: (String) -> String?,
+) : SettingsSheet
+
+/** One field of a [FormSheet]. */
+@Immutable
+class FormField(
+    val label: String,
+    val value: String,
+    val keyboardType: KeyboardType = KeyboardType.Text,
+    val filter: (String) -> String = { it.take(64) },
+)
+
+/** Several values typed in together; [onSave] gets them trimmed, in order, and returns a problem to show, or null once saved. */
+@Immutable
+class FormSheet(
+    override val title: String,
+    override val about: String?,
+    val fields: List<FormField>,
+    val onSave: (List<String>) -> String?,
 ) : SettingsSheet
 
 /**
@@ -298,37 +317,52 @@ private fun PhonePage(
     val theme = LocalAnstelleTheme.current
     val back = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     val behavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Column(Modifier.fillMaxSize().background(theme.background).nestedScroll(behavior.nestedScrollConnection)) {
-        LargeTopAppBar(
-            title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            navigationIcon = {
-                if (showBack) {
+    val colors = TopAppBarDefaults.topAppBarColors(
+        containerColor = theme.background,
+        scrolledContainerColor = theme.background,
+        navigationIconContentColor = theme.text,
+        titleContentColor = theme.text,
+        actionIconContentColor = theme.text,
+    )
+    // Only the collapsing bar takes part in the list's scroll; with no bar to collapse it would swallow it.
+    val scrolling = if (showBack) Modifier.nestedScroll(behavior.nestedScrollConnection) else Modifier
+    Column(Modifier.fillMaxSize().background(theme.background).then(scrolling)) {
+        if (showBack) {
+            LargeTopAppBar(
+                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
                     IconButton(onClick = { back?.onBackPressed() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                },
+                colors = colors,
+                // The shell already keeps the screen clear of the system bars.
+                windowInsets = WindowInsets(0),
+                // The large title sits straight under the back arrow, not a row's height below it.
+                expandedHeight = PHONE_TITLE_EXPANDED,
+                scrollBehavior = behavior,
+            )
+        } else {
+            // With nothing to go back to there is no arrow row to sit under: the large title is the bar.
+            TopAppBar(
+                title = { Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                colors = colors,
+                windowInsets = WindowInsets(0),
+            )
+        }
+        // Buttons here take the TV panel's fill, so a settings page's buttons match across devices.
+        CompositionLocalProvider(LocalOnPanel provides true) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(bottom = 24.dp),
+            ) {
+                if (aside != null) {
+                    item(key = "aside") {
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = aside)
+                    }
                 }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = theme.background,
-                scrolledContainerColor = theme.background,
-                navigationIconContentColor = theme.text,
-                titleContentColor = theme.text,
-                actionIconContentColor = theme.text,
-            ),
-            // The shell already keeps the screen clear of the system bars.
-            windowInsets = WindowInsets(0),
-            scrollBehavior = behavior,
-        )
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(bottom = 24.dp),
-        ) {
-            if (aside != null) {
-                item(key = "aside") {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = aside)
-                }
+                content()
+                if (about != null) item(key = "about") { AboutFooter(about) }
             }
-            content()
-            if (about != null) item(key = "about") { AboutFooter(about) }
         }
     }
 }
@@ -510,7 +544,7 @@ private fun SheetDialog(sheet: SettingsSheet, onClose: () -> Unit) {
                             TextButton(onClick = onClose) { Text("Cancel", color = theme.text) }
                             OsdButton(sheet.confirm, onClick = { onClose(); sheet.onConfirm() }, icon = sheet.icon, danger = true)
                         }
-                        is EditSheet -> Unit // Its buttons sit with the field.
+                        is EditSheet, is FormSheet -> Unit // Its buttons sit with the fields.
                         // A switch saves as it flips, so there is nothing to cancel.
                         is ChoiceSheet -> TextButton(onClick = onClose) { Text(if (sheet.switch != null) "Done" else "Cancel", color = theme.text) }
                         else -> TextButton(onClick = onClose) { Text("Cancel", color = theme.text) }
@@ -558,26 +592,24 @@ private fun SheetBody(sheet: SettingsSheet, onClose: () -> Unit) {
             )
         }
         is ConfirmSheet -> {
-            // On TV the answer is two rows, Cancel first in focus; a phone's dialog has buttons.
+            // On TV the answer is the red button beside Cancel, focus starting on Cancel; a phone's dialog has its own.
             if (guided) {
-                SettingsRowFrame(
-                    title = sheet.confirm,
-                    onClick = {
-                        onClose()
-                        sheet.onConfirm()
-                    },
-                    danger = true,
-                    leading = { focused -> RowIcon(sheet.icon, focused) },
-                )
-                SettingsRowFrame(
-                    title = "Cancel",
-                    onClick = onClose,
-                    modifier = Modifier.focusRequester(first),
-                    leading = { focused -> RowIcon(Icons.Filled.Close, focused) },
-                )
+                SettingsButtons {
+                    OsdButton(
+                        sheet.confirm,
+                        onClick = {
+                            onClose()
+                            sheet.onConfirm()
+                        },
+                        icon = sheet.icon,
+                        danger = true,
+                    )
+                    OsdButton("Cancel", onClick = onClose, modifier = Modifier.focusRequester(first))
+                }
             }
         }
         is EditSheet -> EditBody(sheet, first, onClose)
+        is FormSheet -> FormBody(sheet, first, onClose)
     }
     if (guided) LaunchedEffect(sheet) { first.requestWhenReady() }
 }
@@ -623,18 +655,70 @@ private fun EditBody(sheet: EditSheet, first: FocusRequester, onClose: () -> Uni
             modifier = Modifier.fillMaxWidth().focusRequester(first),
         )
         problem?.let { Notice(it, isError = true) }
-        Row(Modifier.align(if (guided) Alignment.Start else Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (guided) {
+        if (guided) {
+            SettingsButtons {
                 OsdButton("Save", onClick = ::save, icon = Icons.Filled.Check, primary = true)
                 OsdButton("Cancel", onClick = onClose)
-            } else {
-                val theme = LocalAnstelleTheme.current
+            }
+        } else {
+            val theme = LocalAnstelleTheme.current
+            Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = onClose) { Text("Cancel", color = theme.text) }
                 TextButton(onClick = ::save) { Text("Save", color = theme.accent) }
             }
         }
     }
     // A phone's dialog opens with the field ready to type in.
+    if (!guided) {
+        LaunchedEffect(sheet) {
+            first.requestWhenReady()
+            keyboard?.show()
+        }
+    }
+}
+
+/** A [FormSheet]'s fields one under another, then Save and Cancel; the first field is ready to type in. */
+@Composable
+private fun FormBody(sheet: FormSheet, first: FocusRequester, onClose: () -> Unit) {
+    val texts = remember(sheet) { mutableStateListOf(*sheet.fields.map { it.value }.toTypedArray()) }
+    var problem by remember(sheet) { mutableStateOf<String?>(null) }
+    val guided = settingsGuided
+    val keyboard = LocalSoftwareKeyboardController.current
+    fun save() {
+        problem = sheet.onSave(texts.map { it.trim() })
+        if (problem == null) {
+            keyboard?.hide()
+            onClose()
+        }
+    }
+    val inset = LocalRowInset.current
+    Column(Modifier.padding(horizontal = if (guided) 0.dp else inset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        sheet.fields.forEachIndexed { i, field ->
+            val last = i == sheet.fields.lastIndex
+            AnstelleTextField(
+                value = texts[i],
+                onValueChange = { texts[i] = field.filter(it) },
+                label = field.label,
+                keyboardType = field.keyboardType,
+                isLast = last,
+                onDone = ::save,
+                modifier = Modifier.fillMaxWidth().let { if (i == 0) it.focusRequester(first) else it },
+            )
+        }
+        problem?.let { Notice(it, isError = true) }
+        if (guided) {
+            SettingsButtons {
+                OsdButton("Save", onClick = ::save, icon = Icons.Filled.Check, primary = true)
+                OsdButton("Cancel", onClick = onClose)
+            }
+        } else {
+            val theme = LocalAnstelleTheme.current
+            Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onClose) { Text("Cancel", color = theme.text) }
+                TextButton(onClick = ::save) { Text("Save", color = theme.accent) }
+            }
+        }
+    }
     if (!guided) {
         LaunchedEffect(sheet) {
             first.requestWhenReady()
@@ -898,6 +982,30 @@ fun TextRow(
     )
 }
 
+/** Like [TextRow], for several values edited together in one sheet: [fields] in order, [onSave] gets them trimmed. */
+@Composable
+fun FormRow(
+    title: String,
+    fields: List<FormField>,
+    onSave: (List<String>) -> String?,
+    modifier: Modifier = Modifier,
+    summary: String? = null,
+    icon: ImageVector? = null,
+    sheetTitle: String = title,
+    about: String? = null,
+) {
+    val sheets = LocalSettingsSheets.current
+    val requester = remember { FocusRequester() }
+    SettingsRowFrame(
+        title = title,
+        summary = summary,
+        onClick = { sheets.show(FormSheet(sheetTitle, about, fields, onSave), from = requester) },
+        modifier = modifier.focusRequester(requester),
+        leading = iconSlot(icon, null),
+        trailing = { focused -> TrailingIcon(Icons.Filled.Edit, focused) },
+    )
+}
+
 /**
  * An item with a menu of its own (move, rename, remove): the overflow mark at its end, and
  * pressing the row opens the menu, below the row on phones, as the next panel on TV.
@@ -1068,6 +1176,7 @@ fun InfoRow(
     summary: String? = null,
     icon: ImageVector? = null,
     warn: Boolean = false,
+    leading: (@Composable () -> Unit)? = null,
 ) {
     val theme = LocalAnstelleTheme.current
     CompositionLocalProvider(LocalContentColor provides theme.text) {
@@ -1077,12 +1186,32 @@ fun InfoRow(
                 summary = summary,
                 focused = false,
                 leading = when {
+                    leading != null -> { _ -> leading() }
                     warn -> { _ -> Icon(Icons.Filled.ErrorOutline, contentDescription = "Needs attention", tint = theme.accent, modifier = Modifier.size(24.dp)) }
                     icon != null -> { _ -> RowIcon(icon, false) }
                     else -> null
                 },
                 trailing = null,
             )
+        }
+    }
+}
+
+/**
+ * A destructive key at the end of a row (remove this item), the danger red on its icon and as its
+ * focus fill. It acts at once: the item is one entry of a list, easy to add again.
+ */
+@Composable
+fun RemoveKey(description: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    FocusSurface(
+        onClick = onClick,
+        color = Color.Transparent,
+        focusColor = DangerColor,
+        focusContentColor = OnDangerColor,
+        modifier = modifier.size(56.dp),
+    ) { focused ->
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Delete, contentDescription = description, tint = if (focused) OnDangerColor else DangerColor, modifier = Modifier.size(24.dp))
         }
     }
 }
@@ -1122,22 +1251,52 @@ fun SettingsSearch(query: String, onQueryChange: (String) -> Unit, label: String
     )
 }
 
-/** A settings page's verbs: buttons in a row that wraps, lined up with the rows. */
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * A settings page's verbs, lined up with the rows. Buttons share their line evenly, on TV and
+ * phone alike (user decision): one alone spans the list, two split it half and half. When a
+ * label wouldn't fit its share, the buttons stack instead, each across the list.
+ */
 @Composable
-fun SettingsButtons(modifier: Modifier = Modifier, content: @Composable FlowRowScope.() -> Unit) {
-    FlowRow(
-        modifier
+fun SettingsButtons(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Layout(
+        content = content,
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = settingsEdge, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        content = content,
-    )
+    ) { buttons, constraints ->
+        if (buttons.isEmpty() || !constraints.hasBoundedWidth) return@Layout layout(constraints.minWidth, 0) {}
+        val width = constraints.maxWidth
+        val gap = BUTTON_GAP.roundToPx()
+        fun share(count: Int) = ((width - gap * (count - 1)) / count).coerceAtLeast(0)
+        val natural = buttons.map { it.maxIntrinsicWidth(Constraints.Infinity) }
+        // All on one line when every label fits its share; otherwise fewer to a line, down to one each.
+        val perLine = (buttons.size downTo 1).firstOrNull { n -> natural.all { it <= share(n) } } ?: 1
+        val lines = buttons.indices.chunked(perLine).map { line ->
+            val each = share(line.size)
+            val height = line.maxOf { buttons[it].maxIntrinsicHeight(each) }
+            line.mapIndexed { i, b ->
+                // The last takes what rounding left, so the line ends flush with the rows.
+                val w = if (i == line.lastIndex) (width - (each + gap) * (line.size - 1)).coerceAtLeast(0) else each
+                buttons[b].measure(Constraints.fixed(w, height))
+            }
+        }
+        val height = lines.sumOf { line -> line.maxOf { it.height } } + gap * (lines.size - 1)
+        layout(width, height) {
+            var y = 0
+            for (line in lines) {
+                var x = 0
+                for (button in line) {
+                    button.placeRelative(x, y)
+                    x += button.width + gap
+                }
+                y += line.maxOf { it.height } + gap
+            }
+        }
+    }
 }
 
 /** The page's destructive verbs, apart at its foot under no heading. */
-fun LazyListScope.foot(content: @Composable FlowRowScope.() -> Unit) = item(key = "foot") {
+fun LazyListScope.foot(content: @Composable () -> Unit) = item(key = "foot") {
     SettingsButtons(Modifier.padding(top = 24.dp), content = content)
 }
 
@@ -1169,3 +1328,9 @@ fun DangerButton(
 /** Share of the guided page's width the guidance takes; the panel takes the rest. */
 private const val GUIDANCE_WEIGHT = 0.42f
 private const val PANEL_WEIGHT = 0.58f
+
+/** A phone sub-page's bar while expanded: the back arrow's row, then the large title's. */
+private val PHONE_TITLE_EXPANDED = 120.dp
+
+/** Between buttons sharing a line, and between stacked lines of them. */
+private val BUTTON_GAP = 8.dp

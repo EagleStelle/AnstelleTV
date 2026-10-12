@@ -1,14 +1,10 @@
 package tv.anstelle.feature.settings.channels
 
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CreateNewFolder
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderSpecial
-import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -30,16 +26,16 @@ import kotlinx.coroutines.launch
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.GroupRules
 import tv.anstelle.core.model.ChannelGroup
-import tv.anstelle.core.theme.components.ConfirmSheet
-import tv.anstelle.core.theme.components.EditSheet
-import tv.anstelle.core.theme.components.LocalSettingsSheets
-import tv.anstelle.core.theme.components.MenuAction
-import tv.anstelle.core.theme.components.MenuRow
+import tv.anstelle.core.theme.components.FormField
+import tv.anstelle.core.theme.components.FormRow
 import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.ReorderRow
 import tv.anstelle.core.theme.components.SettingsButtons
 import tv.anstelle.core.theme.components.SettingsNotice
 import tv.anstelle.core.theme.components.SettingsPage
 import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.rememberReorderList
+import tv.anstelle.core.theme.components.reorderItems
 import javax.inject.Inject
 
 @Immutable
@@ -91,8 +87,8 @@ class ChannelGroupsViewModel @Inject constructor(
 
 /**
  * The groups in Live TV's order, each numbering its channels from its start: New group, then
- * each group's menu renames, renumbers, moves or deletes it. The library's groups only move and
- * renumber, and a group someone made is deleted once it is empty.
+ * the groups, each moved by its handle while its menu renames, renumbers or deletes it. The
+ * library's groups only move and renumber, and a group someone made is deleted once it is empty.
  */
 @Composable
 fun ChannelGroupsScreen(
@@ -103,12 +99,18 @@ fun ChannelGroupsScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val firstFocus = rememberInitialFocus(ready = state.loaded)
     val groups = state.groups.map { it.group }
+    val listState = rememberLazyListState()
+    val order = rememberReorderList(state.groups, listState, key = { "group-${it.group.id}" }) { item, from, to ->
+        viewModel.move(item.group.id, to - from)
+    }
 
     SettingsPage(
         title = "Groups",
         trail = listOf("Settings", "Channels"),
         about = "Each group is a tab in Live TV, in this order, and numbers its channels A to Z from its start. " +
+            "Move a group by its handle to change the order. " +
             "Library groups hold the channels made from your library. A group you made can be deleted once it is empty.",
+        listState = listState,
         modifier = modifier,
     ) {
         item(key = "message") { message?.let { SettingsNotice(it, isError = true) } }
@@ -125,47 +127,40 @@ fun ChannelGroupsScreen(
             }
         }
         if (state.loaded && state.groups.isEmpty()) item(key = "empty") { SettingsNotice("No groups yet.") }
-        state.groups.forEachIndexed { index, (group, channelCount) ->
-            item(key = "group-${group.id}") {
-                val sheets = LocalSettingsSheets.current
-                val channels = if (channelCount == 1) "1 channel" else "$channelCount channels"
-                MenuRow(
+        reorderItems(order) { index, item ->
+            val (group, channelCount) = item
+            val channels = if (channelCount == 1) "1 channel" else "$channelCount channels"
+            ReorderRow(
+                list = order,
+                item = item,
+                title = group.name,
+                modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
+            ) { rowModifier ->
+                // A pencil, straight to the fields: a group someone made has its Name above its Start, a library group only the Start.
+                val startField = FormField("Start", group.numberStart.toString(), KeyboardType.Number) { text -> text.filter(Char::isDigit).take(4) }
+                val custom = !group.fromLibrary
+                FormRow(
                     title = group.name,
+                    fields = if (custom) listOf(FormField("Name", group.name) { it.take(40) }, startField) else listOf(startField),
                     summary = listOfNotNull("Library".takeIf { group.fromLibrary }, "starts at ${group.numberStart}", channels)
                         .joinToString(", ").replaceFirstChar { it.uppercase() },
                     icon = if (group.fromLibrary) Icons.Filled.FolderSpecial else Icons.Filled.Folder,
-                    actions = buildList {
-                        if (!group.fromLibrary) {
-                            add(
-                                MenuAction("Rename", Icons.Filled.DriveFileRenameOutline) {
-                                    sheets.show(
-                                        EditSheet("Rename ${group.name}", null, "Name", group.name, KeyboardType.Text, { it.take(40) }) { name ->
-                                            GroupRules.nameProblem(name, groups, group.id) ?: null.also { viewModel.rename(group.id, name) }
-                                        },
-                                    )
-                                },
-                            )
-                        }
-                        add(
-                            MenuAction("Change start", Icons.Filled.Numbers) {
-                                sheets.show(
-                                    startSheet(group.name, group.numberStart) { start ->
-                                        GroupRules.startProblem(start, groups, group.id) ?: null.also { viewModel.setStart(group.id, start) }
-                                    },
-                                )
-                            },
-                        )
-                        if (index > 0) add(MenuAction("Move up", Icons.Filled.ArrowUpward) { viewModel.move(group.id, -1) })
-                        if (index < state.groups.lastIndex) add(MenuAction("Move down", Icons.Filled.ArrowDownward) { viewModel.move(group.id, 1) })
-                        if (!group.fromLibrary && channelCount == 0) {
-                            add(
-                                MenuAction("Delete", Icons.Filled.Delete, danger = true) {
-                                    sheets.show(ConfirmSheet("Delete ${group.name}?", null, "Delete", Icons.Filled.Delete) { viewModel.delete(group.id) })
-                                },
-                            )
+                    sheetTitle = "Edit ${group.name}",
+                    about = "Its channels are numbered from the start.",
+                    modifier = rowModifier,
+                    onSave = { values ->
+                        val name = if (custom) values[0] else group.name
+                        val start = values.last().toIntOrNull()
+                        when {
+                            start == null -> "A start is a number from ${GroupRules.MIN_START} to ${GroupRules.MAX_START}."
+                            else -> (if (custom) GroupRules.nameProblem(name, groups, group.id) else null)
+                                ?: GroupRules.startProblem(start, groups, group.id)
+                                ?: null.also {
+                                    if (custom && name != group.name) viewModel.rename(group.id, name)
+                                    if (start != group.numberStart) viewModel.setStart(group.id, start)
+                                }
                         }
                     },
-                    modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
                 )
             }
         }

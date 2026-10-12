@@ -1,12 +1,13 @@
 package tv.anstelle.feature.settings.playback
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.runtime.Composable
@@ -36,13 +37,16 @@ import tv.anstelle.core.model.SubtitleMode
 import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.components.ChoiceRow
-import tv.anstelle.core.theme.components.MenuAction
-import tv.anstelle.core.theme.components.MenuRow
+import tv.anstelle.core.theme.components.InfoRow
 import tv.anstelle.core.theme.components.OsdButton
+import tv.anstelle.core.theme.components.RemoveKey
+import tv.anstelle.core.theme.components.ReorderList
+import tv.anstelle.core.theme.components.ReorderRow
 import tv.anstelle.core.theme.components.SettingsButtons
-import tv.anstelle.core.theme.components.SettingsNotice
 import tv.anstelle.core.theme.components.SettingsPage
 import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.rememberReorderList
+import tv.anstelle.core.theme.components.reorderItems
 import tv.anstelle.core.theme.components.section
 import tv.anstelle.feature.settings.activeProfileId
 import javax.inject.Inject
@@ -93,8 +97,8 @@ internal fun TrackPrefs.with(list: LanguageList, change: (List<String>) -> List<
 
 /**
  * The watching profile's playback defaults: the audio languages in order, when subtitles show,
- * and the subtitle languages in order. Every program starts on them. A language's menu moves it
- * or removes it; Add language opens the list of the rest.
+ * and the subtitle languages in order. Every program starts on them. A language moves by its
+ * handle, its menu removes it, and Add language opens the list of the rest.
  */
 @Composable
 fun PlaybackLanguagesScreen(
@@ -105,16 +109,21 @@ fun PlaybackLanguagesScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val prefs = state.prefs
     val firstFocus = rememberInitialFocus(ready = state.loaded)
+    val listState = rememberLazyListState()
+    val audio = rememberLanguageList(LanguageList.AUDIO, prefs.audioLanguages, listState, viewModel)
+    val subtitles = rememberLanguageList(LanguageList.SUBTITLES, prefs.subtitleLanguages, listState, viewModel)
 
     SettingsPage(
         title = "Playback",
         trail = listOf("Settings"),
-        about = "Every program starts on these. One with none of your audio languages plays its default audio track. " +
+        about = "Every program starts on these. Move a language by its handle to change the order. " +
+            "A program with none of your audio languages plays its default audio track. " +
             "Picking a track while watching changes only the program on now.",
+        listState = listState,
         modifier = modifier,
     ) {
         section("Audio")
-        languageRows(LanguageList.AUDIO, prefs.audioLanguages, viewModel, Modifier.focusRequester(firstFocus))
+        languageRows(LanguageList.AUDIO, audio, viewModel, Modifier.focusRequester(firstFocus))
         item(key = "add-audio") {
             SettingsButtons {
                 OsdButton(
@@ -138,10 +147,7 @@ fun PlaybackLanguagesScreen(
                 icon = Icons.Filled.ClosedCaption,
             )
         }
-        if (prefs.subtitleMode != SubtitleMode.OFF && prefs.subtitleLanguages.isEmpty()) {
-            item(key = "no-subtitles") { SettingsNotice("Add a language so subtitles can show.", isError = true) }
-        }
-        languageRows(LanguageList.SUBTITLES, prefs.subtitleLanguages, viewModel)
+        languageRows(LanguageList.SUBTITLES, subtitles, viewModel)
         item(key = "add-subtitles") {
             SettingsButtons {
                 OsdButton("Add subtitle language", onClick = { onAddLanguage(LanguageList.SUBTITLES) }, icon = Icons.Filled.Add)
@@ -150,25 +156,30 @@ fun PlaybackLanguagesScreen(
     }
 }
 
-/** The list in order, numbered; each language's menu moves it up or down or removes it. */
+/** One language list, put in order by dragging; a language set down elsewhere moves there. */
+@Composable
+private fun rememberLanguageList(list: LanguageList, codes: List<String>, listState: LazyListState, viewModel: PlaybackLanguagesViewModel) =
+    rememberReorderList(codes, listState, key = { "${list.name}-$it" }) { code, from, to -> viewModel.move(list, code, to - from) }
+
+/** The list in order, numbered, each language with its handle; its menu removes it. */
 private fun LazyListScope.languageRows(
     list: LanguageList,
-    codes: List<String>,
+    languages: ReorderList<String>,
     viewModel: PlaybackLanguagesViewModel,
     firstModifier: Modifier = Modifier,
 ) {
-    codes.forEachIndexed { index, code ->
-        item(key = "${list.name}-$code") {
-            MenuRow(
-                title = languageName(code),
-                leading = { OrderNumber(index + 1) },
-                actions = buildList {
-                    if (index > 0) add(MenuAction("Move up", Icons.Filled.ArrowUpward) { viewModel.move(list, code, -1) })
-                    if (index < codes.lastIndex) add(MenuAction("Move down", Icons.Filled.ArrowDownward) { viewModel.move(list, code, 1) })
-                    add(MenuAction("Remove", Icons.Filled.Delete, danger = true) { viewModel.remove(list, code) })
-                },
-                modifier = if (index == 0) firstModifier else Modifier,
-            )
+    reorderItems(languages) { index, code ->
+        ReorderRow(
+            list = languages,
+            item = code,
+            title = languageName(code),
+            modifier = if (index == 0) firstModifier else Modifier,
+        ) { rowModifier ->
+            // The language is a fact; its red bin removes it, and takes the page's first focus on the first row.
+            Row(rowModifier, verticalAlignment = Alignment.CenterVertically) {
+                InfoRow(title = languageName(code), leading = { OrderNumber(index + 1) }, modifier = Modifier.weight(1f))
+                RemoveKey("Remove ${languageName(code)}", onClick = { viewModel.remove(list, code) })
+            }
         }
     }
 }

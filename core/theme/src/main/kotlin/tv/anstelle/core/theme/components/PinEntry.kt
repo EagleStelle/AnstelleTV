@@ -113,13 +113,15 @@ fun PinEntry(
                     textAlign = TextAlign.Center,
                 )
             }
-            // The slots, filled in turn: solid when typed, hollow while empty.
+            // The slots, filled in turn: solid when typed, hollow while empty. Six split into two
+            // threes, the way the pairing PIN shows on the other screen.
             Row(
                 Modifier.padding(vertical = 8.dp).semantics { contentDescription = "${digits.length} of $length digits entered" },
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 val slot = Modifier.width(if (isTv) 52.dp else 44.dp).height(if (isTv) 64.dp else 56.dp)
                 for (i in 0 until length) {
+                    if (length == 6 && i == 3) Box(Modifier.width(6.dp))
                     if (i < digits.length) {
                         Box(slot.background(theme.accent, ControlShape), contentAlignment = Alignment.Center) {
                             Box(Modifier.size(12.dp).background(theme.onAccent))

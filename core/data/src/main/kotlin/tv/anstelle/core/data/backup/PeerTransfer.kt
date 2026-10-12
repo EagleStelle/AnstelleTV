@@ -40,7 +40,7 @@ class PeerTransfer @Inject constructor(
     /** Asks the device at [address] to show a pairing PIN. Returns the pairing and the device's own name. */
     suspend fun ask(address: String): Pairing = withContext(io) {
         val url = urlOf(address)
-        val body = json.encodeToString(PairStart.serializer(), PairStart(appInfo.deviceName))
+        val body = json.encodeToString(PairStart.serializer(), PairStart(appInfo.deviceName, device = true))
         call(url, Request.Builder().url(url.resolve("/api/pair/start")!!).post(body.toRequestBody(JSON_TYPE)).build()) { response ->
             val started = json.decodeFromString(PairStarted.serializer(), response.body.string())
             Pairing(started.requestId, started.deviceName ?: url.host)
@@ -82,7 +82,7 @@ class PeerTransfer @Inject constructor(
 
     private fun urlOf(address: String): HttpUrl = normalize(address)?.toHttpUrlOrNull() ?: throw PeerException("That doesn't look like an address.")
 
-    @Serializable private class PairStart(val clientName: String)
+    @Serializable private class PairStart(val clientName: String, val device: Boolean)
     @Serializable private class PairStarted(val requestId: String, val deviceName: String? = null)
     @Serializable private class PairConfirm(val requestId: String, val pin: String)
     @Serializable private class ErrorBody(val error: String = "", val message: String? = null)

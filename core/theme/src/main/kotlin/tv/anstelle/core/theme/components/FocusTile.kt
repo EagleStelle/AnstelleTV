@@ -260,10 +260,10 @@ fun FocusTile(
 }
 
 /**
- * A button: [primary] is the screen's one main action, rose at rest on touch (turning bone when
- * focused so focus still shows); on TV it rests like the others. The rest sit one surface step
- * above their ground. A [danger] button (delete, remove) is the fixed danger red everywhere. A
- * button is a fill, never an outline.
+ * A button, the same on TV and touch (user decision): [primary] is the screen's one main action,
+ * rose at rest and bone when focused so focus still shows. The rest sit one surface step above
+ * their ground, coal high in Settings on every device. A [danger] button (delete, remove) is the
+ * fixed danger red everywhere. A button is a fill, never an outline.
  */
 @Composable
 fun OsdButton(
@@ -277,41 +277,46 @@ fun OsdButton(
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
-    // On TV the accent only ever means focus, so the primary rests like the rest and focus marks
-    // it; touch, with no focus to lead with, fills the primary at rest. A destructive button is
-    // the danger red in every theme and on every device; focus turns it white with red ink.
-    val restsFilled = primary && !isTv
+    // A destructive button is the danger red in every theme and on every device; focus turns it
+    // white with red ink. The primary is rose at rest and turns bone on focus.
     FocusSurface(
         onClick = onClick,
         enabled = enabled,
         color = when {
             danger -> DangerColor
-            restsFilled -> theme.accent
+            primary -> theme.accent
             LocalOnPanel.current -> theme.surfaceHigh
             else -> theme.surface
         },
         contentColor = when {
             danger -> OnDangerColor
-            restsFilled -> theme.onAccent
+            primary -> theme.onAccent
             else -> theme.text
         },
         focusColor = when {
             danger -> OnDangerColor
-            restsFilled -> theme.text
+            primary -> theme.text
             else -> theme.accent
         },
         focusContentColor = if (danger) DangerColor else theme.onAccent,
         modifier = modifier,
     ) {
+        // Centred, so a button stretched across its line keeps its label in the middle.
         Row(
             Modifier
+                .align(Alignment.Center)
                 .defaultMinSize(minHeight = if (isTv) 52.dp else 48.dp)
                 .padding(horizontal = if (isTv) 24.dp else 20.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (icon != null) androidx.compose.material3.Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-            androidx.compose.material3.Text(text, style = androidx.compose.material3.MaterialTheme.typography.labelLarge, maxLines = 1)
+            androidx.compose.material3.Text(
+                text,
+                style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

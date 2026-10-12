@@ -81,13 +81,13 @@ fun PairingOverlay(viewModel: PairingViewModel = hiltViewModel()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AnstelleMark(Modifier.size(28.dp))
                 androidx.compose.material3.Text(
-                    "Pair a browser",
+                    if (current.isDevice) "Pair a device" else "Pair a browser",
                     style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
                     color = theme.text,
                 )
             }
             androidx.compose.material3.Text(
-                "Enter this PIN in ${current.clientName}.",
+                if (current.isDevice) "Enter this PIN on ${current.clientName} to copy this device's backup." else "Enter this PIN in ${current.clientName}.",
                 style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
                 color = theme.textMuted,
             )

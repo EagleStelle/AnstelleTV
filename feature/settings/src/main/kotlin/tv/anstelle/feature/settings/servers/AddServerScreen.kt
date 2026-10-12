@@ -8,7 +8,7 @@ import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.QrCode2
-import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -261,7 +261,7 @@ private fun AddressStep(state: AddServerUiState, viewModel: AddServerViewModel, 
         item(key = "connect") {
             SettingsButtons {
                 OsdButton(text = if (state.busy) "Connecting…" else "Connect", onClick = viewModel::connect, icon = Icons.Filled.Link, primary = true)
-                if (onRestore != null) OsdButton(text = "Restore backup", onClick = onRestore, icon = Icons.Filled.Restore)
+                if (onRestore != null) OsdButton(text = "Restore backup", onClick = onRestore, icon = Icons.Filled.SettingsBackupRestore)
             }
         }
     }

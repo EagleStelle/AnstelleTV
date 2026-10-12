@@ -205,6 +205,8 @@ data class BackupSummary(
     val servers: Int = 0,
     /** Days the dashboards hold, across every profile. */
     val historyDays: Int = 0,
+    /** When this device's backup was last taken; null for never, and for a backup that came in. */
+    val savedUtcMs: Long? = null,
 )
 
 fun Backup.summary() = BackupSummary(

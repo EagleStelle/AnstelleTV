@@ -304,7 +304,7 @@ fun SettingsScreen(
             item(key = "backup") {
                 LinkRow(
                     title = "Backup",
-                    summary = "${counted(state.backup.profiles, "profile")}, ${counted(state.backup.channels, "channel")}",
+                    summary = backupSummary(state.backup, state.nowUtcMs),
                     icon = Icons.Filled.SettingsBackupRestore,
                     onClick = onOpenBackup,
                     modifier = Modifier.tracks(SettingsArea.BACKUP),
@@ -331,7 +331,7 @@ private fun AreaAside(area: SettingsArea, state: SettingsUiState) {
             SettingsArea.HISTORY -> HistoryReadout(state.liveTvSync, state.onDemandSync, state.dashboard)
             SettingsArea.THEME -> ThemePreview(state.theme ?: DefaultTheme.spec, Modifier.fillMaxWidth())
             SettingsArea.WEB -> WebReadout(state)
-            SettingsArea.BACKUP -> BackupReadout(state.backup)
+            SettingsArea.BACKUP -> BackupReadout(state.backup, state.nowUtcMs)
         }
     }
 }

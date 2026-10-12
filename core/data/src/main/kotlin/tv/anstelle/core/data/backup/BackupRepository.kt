@@ -19,6 +19,8 @@ import tv.anstelle.core.common.ApplicationScope
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ProfileRepository
+import tv.anstelle.core.data.Settings
+import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ScheduleUpdater
 import tv.anstelle.core.data.sync.LibrarySyncer
@@ -57,21 +59,33 @@ class BackupRepository @Inject constructor(
     private val channels: ChannelRepository,
     private val updater: ScheduleUpdater,
     private val appInfo: AppInfo,
+    private val settings: SettingsRepository,
     private val signal: RestoreSignal,
     private val time: TimeSource,
     @ApplicationScope private val scope: CoroutineScope,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
-    /** What a backup of this device would hold. */
+    /** What a backup of this device would hold, and when one was last taken. */
     fun observeSummary(): Flow<BackupSummary> =
-        combine(dao.observeCounts(), dao.observeHistoryDays()) { counts, days ->
-            BackupSummary(counts.profiles, counts.channels, counts.customChannels, counts.channelGroups, counts.themes, counts.servers, days)
+        combine(dao.observeCounts(), dao.observeHistoryDays(), settings.observe(Settings.BackupSaved)) { counts, days, saved ->
+            BackupSummary(
+                profiles = counts.profiles,
+                channels = counts.channels,
+                customChannels = counts.customChannels,
+                groups = counts.channelGroups,
+                themes = counts.themes,
+                servers = counts.servers,
+                historyDays = days,
+                savedUtcMs = saved.takeIf { it > 0 },
+            )
         }
 
-    /** This device's backup, named by [fileName]. */
+    /** This device's backup, named by [fileName]. Every copy taken counts as the last backup. */
     suspend fun export(): BackupFile = withContext(io) {
         val now = time.nowUtcMs()
-        BackupFile(fileName(now), BackupFormat.encode(store.read(now, appInfo.versionName, appInfo.deviceName)))
+        val file = BackupFile(fileName(now), BackupFormat.encode(store.read(now, appInfo.versionName, appInfo.deviceName)))
+        settings.set(Settings.BackupSaved, now)
+        file
     }
 
     /** A backup's file name: the app, this device and the day (`anstelletv-living-room-tv-2026-10-12.json`). */

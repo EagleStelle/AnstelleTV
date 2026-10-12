@@ -88,8 +88,11 @@ object Settings {
     /** The group the last channel someone built went into, which the next one starts with; 0 for none yet. */
     val NewChannelGroup = SettingKey.LongKey("channels.new.group", 0L)
 
+    /** When this device's backup was last taken (saved to a file, by a browser or by another device); 0 for never. */
+    val BackupSaved = SettingKey.LongKey("backup.saved", 0L)
+
     /** This device's own settings: a backup leaves them out and a restore keeps them. */
-    val DeviceOnly = listOf(WebServerEnabled.name, WebServerPort.name, ActiveProfileId.name)
+    val DeviceOnly = listOf(WebServerEnabled.name, WebServerPort.name, ActiveProfileId.name, BackupSaved.name)
 }
 
 @Singleton

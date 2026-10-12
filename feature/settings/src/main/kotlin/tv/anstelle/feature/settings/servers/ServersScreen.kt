@@ -72,7 +72,7 @@ fun ServersScreen(
                     "Add server",
                     onClick = onAddServer,
                     icon = Icons.Filled.Add,
-                    primary = state.servers.isEmpty(),
+                    primary = true,
                     modifier = if (state.servers.isEmpty()) Modifier.focusRequester(firstFocus) else Modifier,
                 )
             }

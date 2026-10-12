@@ -20,8 +20,9 @@ data class HealthDto(
 @Serializable
 data class ErrorDto(val error: String, val message: String)
 
+/** [device] is true when another AnstelleTV pairs to copy the backup, not a browser. */
 @Serializable
-data class PairStartRequest(val clientName: String)
+data class PairStartRequest(val clientName: String, val device: Boolean = false)
 
 @Serializable
 data class PairStartResponse(val requestId: String, val expiresInSeconds: Long, val deviceName: String)
