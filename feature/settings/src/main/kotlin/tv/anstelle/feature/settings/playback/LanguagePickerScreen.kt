@@ -80,7 +80,7 @@ fun LanguagePickerScreen(
     SettingsPage(
         title = if (viewModel.list == LanguageList.AUDIO) "Audio language" else "Subtitle language",
         trail = listOf("Settings", "Playback"),
-        about = "It goes to the end of the list. Move it up afterwards if it should win over the others.",
+        about = "It joins the end of the list.",
         modifier = modifier,
     ) {
         item(key = "filter") {

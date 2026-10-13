@@ -45,7 +45,7 @@ export interface Overview {
 		/** "10 per banner". */
 		summary: string;
 		homeBanner: number;
-		kinds: { key: CatalogKey; label: string; banner: number; firstRow?: string }[];
+		kinds: { key: CatalogKey; label: string; banner: number; firstRows: string[] }[];
 	};
 }
 

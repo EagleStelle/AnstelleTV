@@ -107,9 +107,7 @@ fun ChannelGroupsScreen(
     SettingsPage(
         title = "Groups",
         trail = listOf("Settings", "Live TV"),
-        about = "Each group is a tab in Live TV, in this order, and numbers its channels A to Z from its start. " +
-            "Move a group by its handle to change the order. " +
-            "Library groups hold the channels made from your library. A group you made can be deleted once it is empty.",
+        about = "Each group is a tab in Live TV. Drag a group by its handle to reorder.",
         listState = listState,
         modifier = modifier,
     ) {
@@ -146,7 +144,7 @@ fun ChannelGroupsScreen(
                         .joinToString(", ").replaceFirstChar { it.uppercase() },
                     icon = if (group.fromLibrary) Icons.Filled.FolderSpecial else Icons.Filled.Folder,
                     sheetTitle = "Edit ${group.name}",
-                    about = "Its channels are numbered from the start.",
+                    about = "Numbering starts here.",
                     modifier = rowModifier,
                     onSave = { values ->
                         val name = if (custom) values[0] else group.name

@@ -255,7 +255,7 @@ fun ChannelDetailScreen(
         about = if (channel.fromLibrary) {
             null
         } else {
-            "Movies can air once daily: each at most once in 24 hours, when series or a full day of movies fill the time. Nothing airs twice in a row while anything else can."
+            "Each movie airs at most once a day."
         },
         aside = { OnAir(state.airings, state.logo, channel.name) },
         modifier = modifier,
@@ -345,7 +345,7 @@ fun ChannelDetailScreen(
             TextRow(
                 title = "Name",
                 value = channel.name,
-                about = "Shown in Live TV and On Demand. Its number follows the name A to Z.",
+                about = "Its number follows the name, A to Z.",
                 onSave = { name ->
                     if (name.isBlank()) {
                         "Give the channel a name."

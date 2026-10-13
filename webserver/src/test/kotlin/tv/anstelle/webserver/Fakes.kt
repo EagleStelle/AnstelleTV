@@ -297,7 +297,7 @@ class FakeDevice(private val store: InMemoryClientStore) : DeviceApi {
     override suspend fun overview() = OverviewDto(
         servers = ServersOverviewDto(1, "Home", needAttention = 0, syncing = 0, lastSyncUtcMs = null, movies = 12, series = 3, episodes = 40),
         channels = ChannelStatsDto(total = 2, custom = 1, library = 1, visible = 2, favorites = 1, hidden = 0, groups = 1),
-        onDemand = OnDemandOverviewDto("10 per banner", 10, listOf(KindOverviewDto("movies", "Movies", 10, "Continue watching"))),
+        onDemand = OnDemandOverviewDto("10 per banner", 10, listOf(KindOverviewDto("movies", "Movies", 10, listOf("Continue watching", "Recently added", "Next up")))),
     )
     override suspend fun web(you: Long) = WebDto(true, listOf("http://192.168.1.20:8765"), emptyList())
     override suspend fun hasClient(clientId: Long) = clientId in store.clients

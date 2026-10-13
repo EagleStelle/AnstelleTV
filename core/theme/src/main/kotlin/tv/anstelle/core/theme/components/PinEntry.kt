@@ -7,11 +7,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -113,15 +115,15 @@ fun PinEntry(
                     textAlign = TextAlign.Center,
                 )
             }
-            // The slots, filled in turn: solid when typed, hollow while empty. Six split into two
-            // threes, the way the pairing PIN shows on the other screen.
+            // The slots, filled in turn: solid when typed, hollow while empty. Same blocks, gaps and
+            // width as the pairing PIN's CodeBlocks on the other screen; the keypad shares that width.
+            val padWidth = Modifier.fillMaxWidth().widthIn(max = if (isTv) 366.dp else 320.dp)
             Row(
-                Modifier.padding(vertical = 8.dp).semantics { contentDescription = "${digits.length} of $length digits entered" },
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                padWidth.padding(vertical = 8.dp).semantics { contentDescription = "${digits.length} of $length digits entered" },
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                val slot = Modifier.width(if (isTv) 52.dp else 44.dp).height(if (isTv) 64.dp else 56.dp)
+                val slot = Modifier.weight(1f).aspectRatio(56f / 72f)
                 for (i in 0 until length) {
-                    if (length == 6 && i == 3) Box(Modifier.width(6.dp))
                     if (i < digits.length) {
                         Box(slot.background(theme.accent, ControlShape), contentAlignment = Alignment.Center) {
                             Box(Modifier.size(12.dp).background(theme.onAccent))
@@ -135,15 +137,15 @@ fun PinEntry(
                 if (message != null) Notice(message, isError = isError)
             }
             val rows = listOf(listOf('1', '2', '3'), listOf('4', '5', '6'), listOf('7', '8', '9'))
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(padWidth, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 for (row in rows) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         for (digit in row) {
                             PadKey(label = digit.toString(), onClick = { type(digit) }, modifier = if (digit == '1') Modifier.focusRequester(first) else Modifier)
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     PadKey(icon = Icons.Filled.Close, description = "Cancel", onClick = onCancel)
                     PadKey(label = "0", onClick = { type('0') })
                     PadKey(icon = Icons.AutoMirrored.Filled.Backspace, description = "Delete", onClick = ::erase)
@@ -154,7 +156,7 @@ fun PinEntry(
 }
 
 @Composable
-private fun PadKey(
+private fun RowScope.PadKey(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     label: String? = null,
@@ -162,7 +164,7 @@ private fun PadKey(
     description: String? = null,
 ) {
     val isTv = LocalIsTv.current
-    FocusSurface(onClick = onClick, modifier = modifier.width(if (isTv) 88.dp else 80.dp).height(if (isTv) 56.dp else 52.dp)) {
+    FocusSurface(onClick = onClick, modifier = modifier.weight(1f).height(if (isTv) 56.dp else 52.dp)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (label != null) {
                 androidx.compose.material3.Text(label, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall)

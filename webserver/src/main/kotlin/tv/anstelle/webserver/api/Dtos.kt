@@ -90,7 +90,7 @@ data class OnDemandOverviewDto(val summary: String, val homeBanner: Int, val kin
 
 /** A catalog tab: its banner's size and the row it opens with, by name. [key] is `movies` or `series`. */
 @Serializable
-data class KindOverviewDto(val key: String, val label: String, val banner: Int, val firstRow: String?)
+data class KindOverviewDto(val key: String, val label: String, val banner: Int, val firstRows: List<String>)
 
 // Web control
 

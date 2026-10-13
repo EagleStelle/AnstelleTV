@@ -88,9 +88,7 @@ fun WebControlScreen(
     SettingsPage(
         title = "Web control",
         trail = listOf("Settings"),
-        about = "A browser on your network opens the address below and pairs once, with a PIN this screen shows " +
-            "while the owner's or an admin's profile is on. It can then manage channels, servers, themes and backups, " +
-            "as long as that profile is the owner or an admin.",
+        about = "Open an address below in a browser on your network and enter the PIN shown here.",
         modifier = modifier,
     ) {
         item(key = "switch") {

@@ -271,13 +271,16 @@ internal fun GuideGrid(
     }
 }
 
+/** One size for every time in the header: the half-hour labels and the corner's day and clock. */
+private val TIME_TEXT_SIZE = 12.sp
+
 /** Times along the top: a label every half hour, drawn from the visible hours without recomposing. */
 @Composable
 private fun TimeHeader(grid: GuideGridState, metrics: GridMetrics, now: State<Long>) {
     val theme = LocalAnstelleTheme.current
     val measurer = rememberTextMeasurer(cacheSize = 16)
-    val labelSize = if (metrics.touch) 14.sp else 12.sp
-    val style = TextStyle(color = theme.textMuted, fontSize = labelSize, fontWeight = FontWeight.SemiBold, fontFamily = theme.displayFont, fontFeatureSettings = "tnum")
+    val labelSize = TIME_TEXT_SIZE
+    val style = TextStyle(color = theme.textMuted, fontSize = labelSize, lineHeight = labelSize * 1.15f, fontWeight = FontWeight.SemiBold, fontFamily = theme.displayFont, fontFeatureSettings = "tnum")
     val labels = remember { HashMap<Long, String>() }
     val format = remember { DateFormat.getTimeInstance(DateFormat.SHORT) }
     Row(Modifier.fillMaxWidth().height(metrics.headerHeight), verticalAlignment = Alignment.CenterVertically) {
@@ -292,7 +295,9 @@ private fun TimeHeader(grid: GuideGridState, metrics: GridMetrics, now: State<Lo
                 drawRect(theme.line, topLeft = Offset(x, size.height * 0.55f), size = Size(tick, size.height * 0.45f))
                 val label = labels.getOrPut(mark) { format.format(Date(mark)) }
                 // One line, clipped at the edge, so a label near the right end doesn't wrap.
-                drawText(measurer, label, topLeft = Offset(x + 6.dp.toPx(), size.height * 0.15f), style = style, softWrap = false, maxLines = 1)
+                val text = measurer.measure(label, style = style, softWrap = false, maxLines = 1)
+                // Centered on the header's midline, where the corner's clock sits.
+                drawText(text, topLeft = Offset(x + 6.dp.toPx(), (size.height - text.size.height) / 2f))
                 mark += GuideGridState.HALF_HOUR_MS
             }
             // Now: the line's head, a short bar ending in a square, above the line drawn over the rows.
@@ -326,7 +331,7 @@ private fun ClockLabel(grid: GuideGridState, now: State<Long>, metrics: GridMetr
     }
     val time by remember { derivedStateOf { format.format(Date(minute * MINUTE_MS)) } }
     val day by remember(grid) { derivedStateOf { dayLabel(grid.windowStart, now.value).uppercase() } }
-    val size = if (metrics.touch) 11.sp else 12.sp
+    val size = TIME_TEXT_SIZE
     // Today is the clock itself; only another day gets a label.
     val dayText: @Composable () -> Unit = {
         if (day.isNotEmpty()) androidx.compose.material3.Text(day, color = theme.text, fontSize = size, lineHeight = size * 1.15f, fontWeight = FontWeight.SemiBold, fontFamily = theme.displayFont, letterSpacing = 0.06.em, maxLines = 1)

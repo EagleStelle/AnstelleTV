@@ -54,7 +54,7 @@
 		{ label: 'Home', href: '/' },
 		{ label: 'Live TV', href: '/channels' }
 	]}
-	note={library ? 'Made from the library. Each can be a favorite or hidden.' : 'Channels someone built.'}
+	note={library ? 'Made from the library.' : 'Channels someone built.'}
 >
 	{#if error}<Notice text={error} error />{/if}
 	<Search bind:value={query} label="Find a channel" />

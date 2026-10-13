@@ -139,7 +139,7 @@ fun ServerDetailScreen(
     SettingsPage(
         title = server.name,
         trail = listOf("Settings", "Servers"),
-        about = "Sync now fetches what changed; Full sync reads every item again. A library turned off is dropped at the next sync.",
+        about = "Full sync reads every item again.",
         aside = { ServerReadout(server, state.progress, state.counts, state.nowUtcMs) },
         modifier = modifier,
     ) {

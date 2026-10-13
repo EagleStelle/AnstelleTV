@@ -198,7 +198,7 @@ private fun EditorMenu(spec: ThemeSpec, inUse: Boolean, viewModel: ThemeEditorVi
     SettingsPage(
         title = spec.name,
         trail = listOf("Settings", "Themes"),
-        about = "Edits save as you go. If this theme is in use, every screen shows them right away.",
+        about = "Edits save as you go.",
         aside = { ThemePreview(spec, Modifier.fillMaxWidth()) },
     ) {
         val problems = ThemeContrast.problems(spec.colors)

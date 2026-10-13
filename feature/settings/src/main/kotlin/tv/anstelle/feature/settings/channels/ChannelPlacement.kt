@@ -106,7 +106,7 @@ internal fun GroupChoiceRow(
         choices = own.map { it.id } + NEW_GROUP,
         label = { id -> if (id == NEW_GROUP) "New group" else own.firstOrNull { it.id == id }?.name ?: "Pick one" },
         detail = { id -> own.firstOrNull { it.id == id }?.let { "Numbers from ${it.numberStart}" } },
-        about = "Its tab in Live TV. Channels in a group are numbered A to Z from its start.",
+        about = "Its tab in Live TV.",
         onSelect = { id ->
             if (id == NEW_GROUP) newGroup() else if (id != null) onSelect(id)
         },
@@ -144,7 +144,7 @@ internal fun rememberNewGroup(groups: List<ChannelGroup>, nextStart: Int, onCrea
 /** Asks where [name]'s numbers start; [onSave] checks the start and saves it, returning a problem or null. */
 internal fun startSheet(name: String, start: Int, onSave: (Int) -> String?) = EditSheet(
     title = "$name start",
-    about = "Its channels are numbered from here.",
+    about = "Numbering starts here.",
     label = "Start",
     value = start.toString(),
     keyboardType = KeyboardType.Number,

@@ -20,6 +20,6 @@
 <Row {title} {summary} {icon} {leading} {href} {...rest}>
 	{#snippet end()}
 		{#if value}<span class="text-label-l font-semibold tracking-label">{value}</span>{/if}
-		<ChevronRight class="size-6" />
+		<ChevronRight class="size-5" />
 	{/snippet}
 </Row>

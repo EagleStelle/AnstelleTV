@@ -55,7 +55,7 @@ import javax.inject.Inject
 
 @Immutable
 data class OnDemandSettingsUiState(
-    /** How many random channels Home's banner cycles through. */
+    /** How many random channels the Channels banner cycles through. */
     val homeBanner: Int = Settings.OnDemandBanner.default,
     /** How many random titles each kind's banner cycles through. */
     val banners: Map<CatalogKind, Int> = emptyMap(),
@@ -142,18 +142,16 @@ fun OnDemandSettingsScreen(
     SettingsPage(
         title = "On Demand",
         trail = listOf("Settings"),
-        about = "Shared by every profile. Each tab's banner shows this many random picks. " +
-            "Movies and Series each keep their rows in an order of their own.",
+        about = "Banners show random picks. Rows keep the order you set.",
         modifier = modifier,
     ) {
         section("Banners")
         item(key = "banner-home") {
             ChoiceRow(
-                title = "Home",
+                title = "Channels",
                 value = state.homeBanner,
                 choices = Settings.OnDemandBannerSizes,
                 label = { "$it channels" },
-                about = "How many random channels show at the top of Home.",
                 onSelect = viewModel::setHomeBanner,
                 icon = Icons.Filled.ViewCarousel,
                 modifier = Modifier.focusRequester(firstFocus),
@@ -166,7 +164,6 @@ fun OnDemandSettingsScreen(
                     value = state.banners[kind] ?: Settings.catalogBanner(kind).default,
                     choices = Settings.OnDemandBannerSizes,
                     label = { kind.count(it) },
-                    about = "How many random ${kind.label.lowercase()} show at the top of ${kind.label}.",
                     onSelect = { viewModel.setBanner(kind, it) },
                     icon = kind.icon,
                 )
@@ -207,8 +204,7 @@ fun OnDemandRowsScreen(
     SettingsPage(
         title = kind.label,
         trail = listOf("Settings", "On Demand"),
-        about = "${kind.label} shows its rows in this order; move a row by its handle. " +
-            "A channel's row holds everything it airs, shuffled on every visit.",
+        about = "Drag a row by its handle to move it.",
         listState = listState,
         modifier = modifier,
     ) {

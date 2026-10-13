@@ -138,11 +138,8 @@ fun PlaybackLanguagesScreen(
     SettingsPage(
         title = "Playback",
         trail = listOf("Settings"),
-        about = "Every program starts on these. Move a language by its handle to change the order. " +
-            "A program with none of your audio languages plays its default audio track. " +
-            "Picking a track while watching changes only the program on now. " +
-            "Skipping works in On Demand, for the intros, outros and other parts your Jellyfin server marks " +
-            "(with a plugin such as Intro Skipper). Channels play straight through, like TV.",
+        about = "Programs start on the first language they have. Drag one by its handle to reorder. " +
+            "Skipping works in On Demand only.",
         listState = listState,
         modifier = modifier,
     ) {

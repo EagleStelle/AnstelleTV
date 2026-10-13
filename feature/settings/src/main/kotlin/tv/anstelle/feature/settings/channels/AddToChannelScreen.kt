@@ -135,7 +135,7 @@ fun AddToChannelScreen(
     SettingsPage(
         title = "Add to channel",
         showBack = true,
-        about = "Checked channels always play ${pick.title}, starting after the next program. New channel makes one just for it.",
+        about = "Checked channels will play ${pick.title} next.",
         aside = {
             androidx.compose.material3.Text(
                 pick.title,

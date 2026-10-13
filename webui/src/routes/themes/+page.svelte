@@ -140,7 +140,7 @@
 <Page
 	title="Themes"
 	trail={[{ label: 'Home', href: '/' }]}
-	note="Picking a theme puts it on {session.session?.profile.name ?? 'your profile'}: this browser and the TV wear it at once. Make your own from a copy of any theme or from a file; built-in themes never change."
+	note="Picking a theme sets it for {session.session?.profile.name ?? 'your profile'} on the TV and here. Built-in themes can be copied, not changed."
 >
 	{#snippet actions()}
 		<Button label="New theme" icon={Add} onclick={() => act(async () => goto(`/themes/${(await api.newTheme()).id}`))} />

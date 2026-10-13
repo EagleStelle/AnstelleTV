@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import Button from '#lib/components/Button.svelte';
 	import Mark from '#lib/components/Mark.svelte';
+	import SessionBar from '#lib/components/SessionBar.svelte';
 	import { live } from '#lib/live.svelte.ts';
 	import { session } from '#lib/session.svelte.ts';
 	import { theme } from '#lib/theme.svelte.ts';
@@ -94,11 +95,17 @@
 							</a>
 						{/each}
 					</div>
+					<div class="my-2 hidden w-56 shrink-0 items-center min-[840px]:flex"><SessionBar /></div>
 				</nav>
 			</header>
 			<main>
 			{#if session.status === 'paired'}
 				{@render children()}
+				<!-- On phones the top bar has no room for it, so it stays fixed along the bottom edge. -->
+				<div class="h-[calc(4.5rem+env(safe-area-inset-bottom))] min-[840px]:hidden" aria-hidden="true"></div>
+				<div class="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] min-[840px]:hidden">
+					<div class="mx-auto w-full max-w-6xl px-4 py-3"><SessionBar labeled /></div>
+				</div>
 			{:else if session.status === 'offline'}
 				<div class="mx-auto flex max-w-120 flex-col gap-4 px-4 py-12 min-[840px]:px-6">
 					<Mark size={48} />

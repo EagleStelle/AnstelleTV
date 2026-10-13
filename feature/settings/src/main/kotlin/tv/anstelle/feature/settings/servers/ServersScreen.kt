@@ -62,8 +62,7 @@ fun ServersScreen(
     SettingsPage(
         title = "Servers",
         trail = listOf("Settings"),
-        about = "AnstelleTV builds its channels from the Jellyfin libraries of the servers you connect here. " +
-            "Add one with its address, then sign in with Quick Connect or a password.",
+        about = "Channels are built from your servers' libraries.",
         modifier = modifier,
     ) {
         item(key = "add") {

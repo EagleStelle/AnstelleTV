@@ -36,7 +36,7 @@
 </script>
 
 <!-- A way into each kind of channel, so a long custom list never stands between you and the library's. -->
-<Page title="Live TV" trail={[{ label: 'Home', href: '/' }]} note="Shared by every profile. Groups are the tabs in Live TV and number their channels.">
+<Page title="Live TV" trail={[{ label: 'Home', href: '/' }]} note="Add, edit or hide channels, and sort them into groups. Changes apply to every profile.">
 	{#snippet actions()}<Button label="New channel" icon={Add} primary href="/channels/new" />{/snippet}
 	{#if error}<Notice text={error} error />{/if}
 	<Section title="Configuration" />

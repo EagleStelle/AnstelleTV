@@ -1,16 +1,11 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { api, problem, type Backup, type Overview, type Web } from '#lib/api.ts';
 	import BackupReadout from '#lib/components/BackupReadout.svelte';
-	import Button from '#lib/components/Button.svelte';
-	import Buttons from '#lib/components/Buttons.svelte';
 	import ChannelsReadout from '#lib/components/ChannelsReadout.svelte';
 	import LinkRow from '#lib/components/LinkRow.svelte';
 	import Notice from '#lib/components/Notice.svelte';
 	import OnDemandReadout from '#lib/components/OnDemandReadout.svelte';
 	import Page from '#lib/components/Page.svelte';
-	import Row from '#lib/components/Row.svelte';
-	import Section from '#lib/components/Section.svelte';
 	import ServersReadout from '#lib/components/ServersReadout.svelte';
 	import ThemePreview from '#lib/components/ThemePreview.svelte';
 	import WebReadout from '#lib/components/WebReadout.svelte';
@@ -20,10 +15,8 @@
 	import { theme } from '#lib/theme.svelte.ts';
 	import Dns from '~icons/material-symbols/dns';
 	import LiveTv from '~icons/material-symbols/live-tv';
-	import Logout from '~icons/material-symbols/logout';
 	import Movie from '~icons/material-symbols/movie';
 	import Palette from '~icons/material-symbols/palette';
-	import Person from '~icons/material-symbols/person';
 	import Restore from '~icons/material-symbols/settings-backup-restore';
 	import Wifi from '~icons/material-symbols/wifi';
 	import { onMount } from 'svelte';
@@ -56,10 +49,6 @@
 		return servers.name ?? counted(servers.count, 'server');
 	}
 
-	async function unpair() {
-		await session.logout();
-		await goto('/pair');
-	}
 </script>
 
 <!--
@@ -69,7 +58,6 @@
 -->
 <Page
 	title={session.session?.deviceName ?? 'AnstelleTV'}
-	note="Manage this TV's servers, channels, On Demand, themes and backups. Changes show on the TV at once, and changes made on the TV show here."
 	wide
 >
 	{#if error}<Notice text={error} error />{/if}
@@ -82,11 +70,12 @@
 			{ title: 'Web control', summary: web.urls[0] ? `On at ${web.urls[0]}` : 'On', icon: Wifi, href: '/web' },
 			{ title: 'Backup', summary: backup.savedUtcMs ? `Saved ${ago(backup.savedUtcMs)}` : 'Not saved yet', icon: Restore, href: '/backup' }
 		]}
-		<div class="grid items-start gap-y-0.5 min-[840px]:grid-cols-2 min-[840px]:gap-x-8 min-[840px]:gap-y-10 min-[840px]:pt-4">
+		<div class="grid gap-y-0.5 min-[840px]:grid-cols-2 min-[840px]:gap-x-8 min-[840px]:gap-y-6 min-[840px]:pt-2">
 			{#each areas as area (area.href)}
-				<div class="flex min-w-0 flex-col gap-2">
+				<div class="flex min-w-0 flex-col gap-1">
 					<LinkRow title={area.title} summary={area.summary} icon={area.icon} href={area.href} />
-					<div class="mx-4 hidden min-[840px]:block">
+					<!-- Readouts sharing a row stretch to the tallest, so the row reads as one band. -->
+					<div class="mx-4 hidden min-[840px]:flex min-[840px]:flex-1 min-[840px]:*:flex-1">
 						{#if area.href === '/servers'}
 							<ServersReadout servers={overview.servers} />
 						{:else if area.href === '/channels'}
@@ -103,13 +92,6 @@
 					</div>
 				</div>
 			{/each}
-		</div>
-	{/if}
-	{#if session.session}
-		<div class="min-[840px]:max-w-1/2">
-			<Section title="This browser" />
-			<Row title={session.session.clientName} summary="Paired as {session.session.profile.name}, {session.session.profile.role}" icon={Person} />
-			<Buttons><Button label="Unpair this browser" icon={Logout} onclick={unpair} /></Buttons>
 		</div>
 	{/if}
 </Page>

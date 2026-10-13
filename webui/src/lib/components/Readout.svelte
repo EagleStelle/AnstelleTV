@@ -11,8 +11,8 @@
 
 <div
 	class={[
-		'flex flex-col rounded-panel border border-line p-4.5 min-[840px]:p-6',
-		roomy ? 'gap-4 min-[840px]:gap-5' : 'gap-3.5 min-[840px]:gap-4.5'
+		'flex h-full flex-col rounded-panel border border-line p-4 min-[840px]:p-5',
+		roomy ? 'gap-3.5 min-[840px]:gap-4' : 'gap-3 min-[840px]:gap-3.5'
 	]}
 >
 	{@render children()}

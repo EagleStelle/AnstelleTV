@@ -414,9 +414,9 @@ private fun MainPage(state: LineupUiState, placement: Placement, viewModel: Chan
         title = if (state.isNew) "New channel" else "Lineup",
         trail = trail,
         about = if (state.isNew) {
-            "Name it, pick its group, then add rules. A series or movie plays when it matches every rule in a set."
+            "Name it, pick a group, then add rules."
         } else {
-            "A series or movie plays when it matches every rule in a set. Changes start after the next program."
+            "A title plays when it matches every rule in a set."
         },
         aside = { ReachReadout(state.reach) },
         modifier = modifier,

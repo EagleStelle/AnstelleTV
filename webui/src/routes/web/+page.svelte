@@ -47,7 +47,7 @@
 <Page
 	title="Web control"
 	trail={[{ label: 'Home', href: '/' }]}
-	note="A browser on your network opens one of these addresses and pairs once, with a PIN the TV shows while the owner's or an admin's profile is on. Each pairing lasts while that profile is the owner or an admin. Web control is turned on and off on the TV."
+	note="Open an address below in a browser and enter the PIN the TV shows. Turn Web control on or off on the TV."
 >
 	{#if error}<Notice text={error} error />{/if}
 	{#if web}

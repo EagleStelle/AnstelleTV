@@ -25,8 +25,8 @@
 
 	const live = $derived(!!(href || onclick) && !disabled);
 	const classes = $derived([
-		'group/row flex w-full items-center gap-4 rounded-control px-4 py-2.5 text-left text-text transition-colors',
-		summary ? 'min-h-18' : 'min-h-14',
+		'group/row flex w-full items-center gap-3 rounded-control px-4 py-2 text-left text-text transition-colors',
+		summary ? 'min-h-14' : 'min-h-11',
 		live &&
 			(danger
 				? 'hover:bg-danger hover:text-on-danger focus-visible:bg-danger focus-visible:text-on-danger'
@@ -45,12 +45,12 @@
 {#snippet body()}
 	{#if leading || Icon}
 		<span class={['flex min-w-6 shrink-0 items-center justify-center', danger ? 'text-danger' : 'text-text-muted', quiet]}>
-			{#if leading}{@render leading()}{:else if Icon}<Icon class="size-6" />{/if}
+			{#if leading}{@render leading()}{:else if Icon}<Icon class="size-5" />{/if}
 		</span>
 	{/if}
 	<span class="flex min-w-0 flex-1 flex-col">
-		<span class="font-medium wrap-anywhere">{title}</span>
-		{#if summary}<span class={['text-body-m wrap-anywhere text-text-muted', quiet]}>{summary}</span>{/if}
+		<span class="text-title-s font-medium wrap-anywhere">{title}</span>
+		{#if summary}<span class={['text-body-s wrap-anywhere text-text-muted', quiet]}>{summary}</span>{/if}
 	</span>
 	{#if end}<span class={['flex shrink-0 items-center gap-2 text-text-muted', quiet]}>{@render end()}</span>{/if}
 {/snippet}

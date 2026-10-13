@@ -326,6 +326,16 @@ fun OnDemandPlayerScreen(
             else -> runCatching { focus.requestFocus() }
         }
     }
+    // The Skip key standing alone over the picture leaves after a few seconds, and comes back for
+    // the next segment or when the banner goes away again. The one in the banner stays.
+    var aloneShown by remember { mutableStateOf(false) }
+    LaunchedEffect(skip, overlayShown) {
+        aloneShown = skip != null && !overlayShown
+        if (aloneShown) {
+            delay(ALONE_SKIP_MS)
+            aloneShown = false
+        }
+    }
     // A Back press the banner took on key-down; its key-up hides the banner.
     var backHeld by remember { mutableStateOf(false) }
     // An OK press that skips, decided on key-down and done on key-up.
@@ -343,11 +353,11 @@ fun OnDemandPlayerScreen(
                 // Any key pressed with the banner's keys in use holds the banner up a while longer.
                 if (panel != null && event.key != Key.Back && event.type == KeyEventType.KeyDown) overlay++
                 if (event.key in ConfirmKeys && event.type == KeyEventType.KeyDown) okHeld = false
-                // OK skips while the Skip key stands alone or has focus, whatever else holds focus or
+                // OK skips while the Skip key stands alone in view or has focus, whatever else holds focus or
                 // the banner does before the key comes up: one decision, from what plays right now.
                 if (event.key in OkKeys) {
                     if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
-                        skipHeld = viewModel.state.value.skip != null && (!bannerUp() || skipFocused)
+                        skipHeld = viewModel.state.value.skip != null && (if (bannerUp()) skipFocused else aloneShown)
                     }
                     if (!skipHeld) return@onPreviewKeyEvent false
                     if (event.type == KeyEventType.KeyUp) {
@@ -566,8 +576,9 @@ fun OnDemandPlayerScreen(
             }
         }
         // With the banner hidden, the Skip key stands alone at the bottom end, its label on the side
-        // margin, preselected. Focus stays on the picture, whose OK skips while it shows; a tap skips too.
-        if (skip != null && !overlayShown) {
+        // margin, preselected, and gone after a few seconds. Focus stays on the picture, whose OK skips while
+        // it shows; a tap skips too.
+        if (skip != null && !overlayShown && aloneShown) {
             SkipKey(
                 skip,
                 onClick = viewModel::skip,
@@ -873,6 +884,7 @@ private fun Message(text: String) {
 private const val BACK_MS = 10_000L
 private const val AHEAD_MS = 30_000L
 private const val OVERLAY_MS = 3_000L
+private const val ALONE_SKIP_MS = 5_000L
 private const val POSITION_MS = 500L
 
 private val OkKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter)

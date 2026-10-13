@@ -112,7 +112,7 @@ fun WatchHistoryScreen(
         SettingsPage(
             title = "Watch history",
             trail = listOf("Settings"),
-            about = "Live TV and On Demand tell your Jellyfin server what you've watched. The dashboard shows what you watch most, and stays on this device.",
+            about = "Sent to your Jellyfin server. The dashboard stays on this device.",
         ) {
             section("Jellyfin")
             for (place in SyncPlace.entries) {

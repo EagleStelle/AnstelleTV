@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Subtitles
-import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
@@ -51,6 +50,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ProfileRepository
@@ -65,6 +65,7 @@ import tv.anstelle.core.data.backup.BackupSummary
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelStats
 import tv.anstelle.core.data.ondemand.CatalogKind
+import tv.anstelle.core.data.ondemand.CatalogRepository
 import tv.anstelle.core.data.ondemand.OnDemandSummary
 import tv.anstelle.core.data.playback.TrackChoices
 import tv.anstelle.core.data.stats.DashboardHistory
@@ -128,6 +129,7 @@ class SettingsViewModel @Inject constructor(
     pairedClients: PairedClientDao,
     servers: ServerRepository,
     channels: ChannelRepository,
+    catalog: CatalogRepository,
     profiles: ProfileRepository,
     tracks: TrackChoices,
     themes: ThemeRepository,
@@ -144,13 +146,14 @@ class SettingsViewModel @Inject constructor(
         ) { live, onDemand, dashboard -> Triple(codeOf<WatchSync>(live), codeOf<WatchSync>(onDemand), dashboard) }
     }
 
+    // The rows are the tab's own, in its order, so a channel's row that leads shows as it does there.
     private val onDemand = combine(
         settings.observe(Settings.OnDemandBanner),
         combine(CatalogKind.entries.map { kind -> settings.observe(Settings.catalogBanner(kind)).map { kind to it } }) { it.toMap() },
         combine(CatalogKind.entries.map { kind -> settings.observe(Settings.catalogShelves(kind)).map { kind to it } }) { it.toMap() },
         channels.observeChannels(),
-    ) { home, banners, orders, list ->
-        OnDemandSummary.of(home, banners, orders, list.associate { it.channel.id to it.channel.name })
+    ) { home, banners, _, _ -> home to banners }.mapLatest { (home, banners) ->
+        OnDemandSummary.of(home, banners, CatalogKind.entries.associateWith { catalog.shelves(it) })
     }
 
     private val serverCounts = servers.observeServers().flatMapLatest { list ->
@@ -419,23 +422,25 @@ private fun ChannelsReadout(stats: ChannelStats) {
 }
 
 /**
- * Each tab's banner size as figures, then the row each catalog tab opens with, behind its
- * kind's icon: short enough to sit whole under the title.
+ * Each tab's banner size as figures, then each catalog tab's first rows as the tab shows them
+ * (a channel's row among them), numbered under the tab's name, tightly stacked so it sits whole
+ * under the title.
  */
 @Composable
 private fun OnDemandReadout(summary: OnDemandSummary) {
     ReadoutFrame {
         ReadoutHeading(Icons.Filled.ViewCarousel, "Banners")
         ReadoutFigures {
-            ReadoutFigure(summary.homeBanner, "Home")
+            ReadoutFigure(summary.homeBanner, "Channels")
             for (kind in CatalogKind.entries) ReadoutFigure(summary.banner(kind), kind.label)
         }
         ReadoutRule()
-        ReadoutHeading(Icons.Filled.ViewAgenda, "First rows")
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (kind in CatalogKind.entries) {
-                val first = summary.firstRow[kind]
-                ReadoutFact(kind.icon, first ?: "None yet", quiet = first == null)
+        for (kind in CatalogKind.entries) {
+            val rows = summary.firstRows[kind].orEmpty()
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                ReadoutHeading(kind.icon, kind.label)
+                if (rows.isEmpty()) ReadoutFact(null, "None yet", quiet = true)
+                rows.forEachIndexed { i, row -> ReadoutRank(i + 1, row, compact = true) }
             }
         }
     }

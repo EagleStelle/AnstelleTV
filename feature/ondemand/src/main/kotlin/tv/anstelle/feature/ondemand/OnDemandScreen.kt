@@ -358,13 +358,15 @@ private fun TabRow(tabs: List<OnDemandTab>, open: String, onSelect: (String) -> 
     val isTv = LocalIsTv.current
     val requesters = remember(tabs) { (tabs.map { it.key } + SEARCH).associateWith { FocusRequester() } }
     val searching = open == SEARCH
-    // The row runs a tab's padding past the side margin, so labels start on it; the field ends on it.
+    // On TV the row runs a tab's padding past the side margin, so labels start on it and the field ends on it.
+    // A phone keeps the tabs and the field inside the margin, so the first tab starts as far in as the field ends.
     val tabPad = if (isTv) 14.dp else 12.dp
+    val endPad = if (isTv) tabPad else 0.dp
     BoxWithConstraints(
         Modifier
             .fillMaxWidth()
             .padding(top = if (isTv) screenEdge else 4.dp)
-            .padding(horizontal = screenSide - tabPad),
+            .padding(horizontal = if (isTv) screenSide - tabPad else screenSide),
     ) {
         // Too narrow to open beside the tabs: the field takes the row while Search is open.
         if (searching && maxWidth < WIDE_ROW) {
@@ -378,7 +380,7 @@ private fun TabRow(tabs: List<OnDemandTab>, open: String, onSelect: (String) -> 
                 onStarted = search.onStarted,
                 onBack = search.onLeave,
                 // A tab's height, so the row keeps its height.
-                modifier = Modifier.fillMaxWidth().padding(end = tabPad),
+                modifier = Modifier.fillMaxWidth().padding(end = endPad),
             )
             return@BoxWithConstraints
         }
@@ -418,7 +420,7 @@ private fun TabRow(tabs: List<OnDemandTab>, open: String, onSelect: (String) -> 
                 onOpen = search.onOpen,
                 startTyping = search.typeNow,
                 onStarted = search.onStarted,
-                modifier = Modifier.padding(start = 16.dp, end = tabPad).width(width),
+                modifier = Modifier.padding(start = 16.dp, end = endPad).width(width),
             )
         }
     }

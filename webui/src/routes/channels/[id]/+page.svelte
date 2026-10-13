@@ -129,7 +129,7 @@
 		{trail}
 		note={channel.fromLibrary
 			? undefined
-			: 'Movies can air once daily: each at most once in 24 hours, when series or a full day of movies fill the time. Nothing airs twice in a row while anything else can.'}
+			: 'Each movie airs at most once a day.'}
 	>
 		<!-- What airs now, next and later, as the banner's status lines side by side, after the channel's logo. -->
 		{#snippet overview()}
@@ -162,7 +162,7 @@
 				label={(g) => g?.name ?? channel.groupName}
 				hint={(g) => (g ? `Numbers from ${g.start}` : undefined)}
 				same={(a, b) => a?.id === b?.id}
-				about="Its number follows the group: its place A to Z there."
+				about="Its number follows the name, A to Z."
 				onselect={(g) => change({ groupId: g.id })}
 				icon={Folder}
 			/>

@@ -187,7 +187,7 @@ fun GuideScreen(
             channelLogoHeight = (rowHeight - if (isTv) 16 else 20).coerceIn(22, if (isTv) 36 else 28).dp,
             // A phone truncates a long name on one line; TV may break it over two.
             channelNameLines = if (isTv && rowHeight >= 50) 2 else 1,
-            headerHeight = if (isTv) 26.dp else 32.dp,
+            headerHeight = 26.dp,
             dpPerMinute = if (isTv) 5f else 4f,
             showDetailLine = rowHeight >= 50,
             touch = !isTv,

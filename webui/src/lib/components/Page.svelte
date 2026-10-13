@@ -29,9 +29,9 @@
 	let { title, trail = [], note, actions, overview, aside, wide = false, children }: Props = $props();
 </script>
 
-<div class="mx-auto w-full max-w-6xl px-4 pb-16 min-[840px]:px-6 min-[840px]:pb-24">
+<div class="mx-auto w-full max-w-6xl px-4 pb-10 min-[840px]:px-6 min-[840px]:pb-14">
 	<div class={[!aside && !wide && 'max-w-3xl']}>
-		<header class="flex flex-col gap-3 border-b border-line pt-6 pb-5 min-[840px]:pt-12 min-[840px]:pb-7">
+		<header class="flex flex-col gap-2 border-b border-line pt-5 pb-4 min-[840px]:pt-8 min-[840px]:pb-5">
 			{#if trail.length > 0}
 				<nav class="flex flex-wrap items-center gap-1 text-body-m text-text-muted" aria-label="Breadcrumb">
 					{#each trail as crumb, i (crumb.href)}
@@ -44,7 +44,7 @@
 				</nav>
 			{/if}
 			<div class="flex flex-col gap-4 min-[600px]:flex-row min-[600px]:items-end min-[600px]:justify-between min-[600px]:gap-8">
-				<h1 class="min-w-0 font-display text-headline-l font-semibold whitespace-pre-wrap tabular-nums wrap-anywhere min-[840px]:text-display-m">{title}</h1>
+				<h1 class="min-w-0 font-display text-headline-s font-semibold whitespace-pre-wrap tabular-nums wrap-anywhere min-[840px]:text-headline-l">{title}</h1>
 				{#if actions}
 					<div class="flex shrink-0 flex-wrap gap-2 max-[599px]:*:flex-1 min-[600px]:pb-0.5">{@render actions()}</div>
 				{/if}
@@ -55,8 +55,8 @@
 				</p>
 			{/if}
 		</header>
-		{#if overview}<div class="pt-6 min-[840px]:pt-8">{@render overview()}</div>{/if}
-		<div class={['grid items-start pt-3 min-[840px]:pt-4', aside && 'gap-6 min-[1024px]:grid-cols-[minmax(0,1fr)_360px] min-[1024px]:gap-12']}>
+		{#if overview}<div class="pt-4 min-[840px]:pt-6">{@render overview()}</div>{/if}
+		<div class={['grid items-start pt-2 min-[840px]:pt-3', aside && 'gap-6 min-[1024px]:grid-cols-[minmax(0,1fr)_360px] min-[1024px]:gap-12']}>
 			<section class="-mx-4 flex min-w-0 flex-col gap-0.5" aria-label={title}>
 				{@render children()}
 			</section>

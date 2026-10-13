@@ -167,7 +167,7 @@
 {#if gone}
 	<Page title="Theme" {trail}><Notice text="This theme is gone." /></Page>
 {:else if design && spec && design.isBuiltIn}
-	<Page title={spec.name} {trail} note="Built-in themes never change. Copy one to make it your own.">
+	<Page title={spec.name} {trail} note="Copy a built-in theme to edit it.">
 		{#snippet actions()}<Button label="Copy theme" icon={ContentCopy} primary onclick={copy} />{/snippet}
 		{#snippet aside()}<ThemePreview spec={spec!} />{/snippet}
 		{#if error}<Notice text={error} error />{/if}
@@ -208,7 +208,7 @@
 		{/each}
 	</Page>
 {:else if design && spec}
-	<Page title={spec.name} {trail} note="Edits save as you go. Profiles wearing this theme show them on the TV right away.">
+	<Page title={spec.name} {trail} note="Edits save as you go.">
 		{#snippet aside()}<ThemePreview spec={spec!} />{/snippet}
 		{#if error}<Notice text={error} error />{/if}
 		{#each problems as pair (pair.foreground + pair.background)}

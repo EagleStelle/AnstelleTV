@@ -80,7 +80,7 @@
 <Page
 	title="Backup"
 	trail={[{ label: 'Home', href: '/' }]}
-	note="A backup holds the channels, profiles, themes, settings and dashboard history, and restoring one replaces everything on the TV. Sign-ins never travel: servers the TV isn't signed in to need signing in again."
+	note="Save or restore your channels, profiles, themes and settings. Restoring replaces everything."
 >
 	<!-- The file verbs side by side: saving one, and restoring one for the owner. -->
 	{#snippet actions()}

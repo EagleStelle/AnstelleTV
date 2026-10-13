@@ -9,7 +9,7 @@
 </script>
 
 <div class="flex flex-col">
-	<span class={['tabular font-semibold', lead ? 'text-display-s' : 'text-headline-s min-[840px]:text-headline-m', value === 0 ? 'text-text-muted' : 'text-text']}>
+	<span class={['tabular font-semibold', lead ? 'text-headline-m' : 'text-title-l min-[840px]:text-headline-s', value === 0 ? 'text-text-muted' : 'text-text']}>
 		{typeof value === 'number' ? number(value) : value}
 	</span>
 	<span class="field-label text-label-s whitespace-nowrap text-text-muted">{name}</span>

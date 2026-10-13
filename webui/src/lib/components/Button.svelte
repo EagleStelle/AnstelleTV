@@ -24,7 +24,7 @@
 	let { label, icon: Icon, primary = false, danger = false, href, download = false, onclick, disabled = false, type = 'button', form, autofocus = false }: Props = $props();
 
 	const classes = $derived([
-		'inline-flex min-h-12 items-center justify-center gap-2 rounded-control px-5 text-label-l font-semibold tracking-label whitespace-nowrap transition-colors',
+		'inline-flex min-h-10 items-center justify-center gap-2 rounded-control px-4 text-label-l font-semibold tracking-label whitespace-nowrap transition-colors',
 		danger
 			? 'bg-danger text-on-danger hover:bg-on-danger hover:text-danger focus-visible:bg-on-danger focus-visible:text-danger'
 			: primary
@@ -36,11 +36,11 @@
 
 {#if href}
 	<a class={classes} {href} download={download || undefined}>
-		{#if Icon}<Icon class="size-5" />{/if}<span>{label}</span>
+		{#if Icon}<Icon class="size-4.5" />{/if}<span>{label}</span>
 	</a>
 {:else}
 	<!-- svelte-ignore a11y_autofocus -->
 	<button class={classes} {type} {form} {onclick} {disabled} {autofocus}>
-		{#if Icon}<Icon class="size-5" />{/if}<span>{label}</span>
+		{#if Icon}<Icon class="size-4.5" />{/if}<span>{label}</span>
 	</button>
 {/if}

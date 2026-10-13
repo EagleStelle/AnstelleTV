@@ -45,7 +45,7 @@
 		{ label: 'Live TV', href: '/channels' },
 		{ label: name || 'Channel', href: `/channels/${id}` }
 	]}
-	note="A series or movie plays when it matches every rule in a set. Changes start after the next program."
+	note="A title plays when it matches every rule in a set."
 >
 	{#snippet aside()}<ReachReadout {reach} />{/snippet}
 	{#if error}<Notice text={error} error />{/if}

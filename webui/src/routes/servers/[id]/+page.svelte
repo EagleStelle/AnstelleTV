@@ -83,7 +83,7 @@
 	<Page
 		title={server.name}
 		trail={[{ label: 'Home', href: '/' }, { label: 'Servers', href: '/servers' }]}
-		note="Sync now fetches what changed; Full sync reads every item again. A library turned off is dropped at the next sync."
+		note="Full sync reads every item again."
 	>
 		<!--
 			What the server is and how its sync stands, read like a set's system-information panel: the

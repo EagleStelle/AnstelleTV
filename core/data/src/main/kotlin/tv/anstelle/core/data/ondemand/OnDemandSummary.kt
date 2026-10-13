@@ -2,12 +2,12 @@ package tv.anstelle.core.data.ondemand
 
 import tv.anstelle.core.data.Settings
 
-/** On Demand's banners and the row each catalog tab opens with, for the settings home's row and readout. */
+/** On Demand's banners and the rows each catalog tab opens with, for the settings home's row and readout. */
 data class OnDemandSummary(
     val homeBanner: Int = Settings.OnDemandBanner.default,
     val banners: Map<CatalogKind, Int> = emptyMap(),
-    /** Each kind's first row by name. */
-    val firstRow: Map<CatalogKind, String> = emptyMap(),
+    /** Each kind's first rows by name, in the tab's own order. */
+    val firstRows: Map<CatalogKind, List<String>> = emptyMap(),
 ) {
     /** How many picks [kind]'s banner deals. */
     fun banner(kind: CatalogKind): Int = banners[kind] ?: Settings.catalogBanner(kind).default
@@ -20,21 +20,14 @@ data class OnDemandSummary(
         }
 
     companion object {
-        /**
-         * The first row of each kind as stored, by name: a channel row by its channel's name from
-         * [channelNames]. Without a stored order, the fixed rows lead, as on the tab.
-         */
-        fun of(homeBanner: Int, banners: Map<CatalogKind, Int>, orders: Map<CatalogKind, String>, channelNames: Map<Long, String>) = OnDemandSummary(
+        /** How many rows of each tab the readout names. */
+        const val SHOWN_ROWS = 3
+
+        /** The summary from each kind's rows as its tab shows them, channels' among them: [shelves] in order. */
+        fun of(homeBanner: Int, banners: Map<CatalogKind, Int>, shelves: Map<CatalogKind, List<Shelf>>) = OnDemandSummary(
             homeBanner = homeBanner,
             banners = banners,
-            firstRow = CatalogKind.entries.mapNotNull { kind ->
-                val stored = ShelfOrder.decode(orders[kind].orEmpty())
-                val keys = stored.ifEmpty { kind.fixedShelves.map { it.key } }
-                keys.firstNotNullOfOrNull { key ->
-                    ShelfType.entries.firstOrNull { it.key == key && it != ShelfType.CHANNEL }?.label
-                        ?: key.substringAfter("${ShelfType.CHANNEL.key}:", "").toLongOrNull()?.let(channelNames::get)
-                }?.let { kind to it }
-            }.toMap(),
+            firstRows = shelves.mapValues { (_, rows) -> rows.take(SHOWN_ROWS).map { it.label } }.filterValues { it.isNotEmpty() },
         )
     }
 }

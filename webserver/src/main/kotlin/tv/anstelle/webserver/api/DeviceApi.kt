@@ -9,6 +9,7 @@ import tv.anstelle.core.data.WebServerController
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelStats
 import tv.anstelle.core.data.ondemand.CatalogKind
+import tv.anstelle.core.data.ondemand.CatalogRepository
 import tv.anstelle.core.data.ondemand.OnDemandSummary
 import tv.anstelle.core.database.dao.PairedClientDao
 import tv.anstelle.core.model.MediaType
@@ -27,6 +28,7 @@ interface DeviceApi {
 internal class RoomDeviceApi @Inject constructor(
     private val servers: ServerRepository,
     private val channels: ChannelRepository,
+    private val catalog: CatalogRepository,
     private val settings: SettingsRepository,
     private val profiles: ProfileRepository,
     private val webServer: WebServerController,
@@ -41,8 +43,7 @@ internal class RoomDeviceApi @Inject constructor(
         val onDemand = OnDemandSummary.of(
             homeBanner = settings.get(Settings.OnDemandBanner),
             banners = CatalogKind.entries.associateWith { settings.get(Settings.catalogBanner(it)) },
-            orders = CatalogKind.entries.associateWith { settings.get(Settings.catalogShelves(it)) },
-            channelNames = channelList.associate { it.channel.id to it.channel.name },
+            shelves = CatalogKind.entries.associateWith { catalog.shelves(it) },
         )
         return OverviewDto(
             servers = ServersOverviewDto(
@@ -59,7 +60,7 @@ internal class RoomDeviceApi @Inject constructor(
             onDemand = OnDemandOverviewDto(
                 summary = onDemand.summary,
                 homeBanner = onDemand.homeBanner,
-                kinds = CatalogKind.entries.map { KindOverviewDto(it.key, it.label, onDemand.banner(it), onDemand.firstRow[it]) },
+                kinds = CatalogKind.entries.map { KindOverviewDto(it.key, it.label, onDemand.banner(it), onDemand.firstRows[it].orEmpty()) },
             ),
         )
     }

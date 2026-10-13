@@ -83,7 +83,7 @@
 	<Page
 		title={kind.label}
 		{trail}
-		note="{kind.label} shows its rows in this order; move a row by its handle (or its handle and the up and down keys). A channel's row holds everything it airs, shuffled on every visit."
+		note="Drag a row by its handle to move it."
 	>
 		{#if error}<Notice text={error} error />{/if}
 		{#if kind.rows.length === 0}<Notice text="No rows yet." />{/if}

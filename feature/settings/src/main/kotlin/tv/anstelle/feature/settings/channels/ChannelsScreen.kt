@@ -75,7 +75,7 @@ fun ChannelsScreen(
     SettingsPage(
         title = "Live TV",
         trail = listOf("Settings"),
-        about = "Shared by every profile. Groups are the tabs in Live TV and number their channels.",
+        about = "Add, edit or hide channels, and sort them into groups. Changes apply to every profile.",
         modifier = modifier,
     ) {
         item(key = "new") {

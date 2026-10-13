@@ -48,7 +48,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
@@ -85,7 +84,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
@@ -320,7 +318,6 @@ private fun PhonePage(
 ) {
     val theme = LocalAnstelleTheme.current
     val back = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
-    val behavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val colors = TopAppBarDefaults.topAppBarColors(
         containerColor = theme.background,
         scrolledContainerColor = theme.background,
@@ -328,11 +325,10 @@ private fun PhonePage(
         titleContentColor = theme.text,
         actionIconContentColor = theme.text,
     )
-    // Only the collapsing bar takes part in the list's scroll; with no bar to collapse it would swallow it.
-    val scrolling = if (showBack) Modifier.nestedScroll(behavior.nestedScrollConnection) else Modifier
-    Column(Modifier.fillMaxSize().background(theme.background).then(scrolling)) {
+    Column(Modifier.fillMaxSize().background(theme.background)) {
         if (showBack) {
-            LargeTopAppBar(
+            // The title shares the back arrow's row, as Android's own settings pages do.
+            TopAppBar(
                 title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = { back?.onBackPressed() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -340,9 +336,6 @@ private fun PhonePage(
                 colors = colors,
                 // The shell already keeps the screen clear of the system bars.
                 windowInsets = WindowInsets(0),
-                // The large title sits straight under the back arrow, not a row's height below it.
-                expandedHeight = PHONE_TITLE_EXPANDED,
-                scrollBehavior = behavior,
             )
         } else {
             // With nothing to go back to there is no arrow row to sit under: the large title is the bar.
@@ -1335,9 +1328,6 @@ fun DangerButton(
 /** Share of the guided page's width the guidance takes; the panel takes the rest. */
 private const val GUIDANCE_WEIGHT = 0.42f
 private const val PANEL_WEIGHT = 0.58f
-
-/** A phone sub-page's bar while expanded: the back arrow's row, then the large title's. */
-private val PHONE_TITLE_EXPANDED = 120.dp
 
 /** Between buttons sharing a line, and between stacked lines of them. */
 private val BUTTON_GAP = 8.dp

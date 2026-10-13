@@ -49,7 +49,7 @@
 		{ label: 'Home', href: '/' },
 		{ label: 'Live TV', href: '/channels' }
 	]}
-	note="Name it, pick its group, then add rules. A series or movie plays when it matches every rule in a set."
+	note="Name it, pick a group, then add rules."
 >
 	{#snippet aside()}<ReachReadout {reach} />{/snippet}
 	{#if error}<Notice text={error} error />{/if}

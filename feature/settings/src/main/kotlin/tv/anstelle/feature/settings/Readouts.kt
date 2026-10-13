@@ -108,13 +108,16 @@ internal fun ReadoutFigure(value: Int, name: String, lead: Boolean = false) {
     }
 }
 
-/** One fact: the icon names it, so the text stands without a label; [detail] follows it quietly. */
+/**
+ * One fact: the icon names it, so the text stands without a label; [detail] follows it quietly.
+ * With no [icon] the text lines up under the fact above it.
+ */
 @Composable
-internal fun ReadoutFact(icon: ImageVector, text: String, detail: String? = null, quiet: Boolean = false) {
+internal fun ReadoutFact(icon: ImageVector?, text: String, detail: String? = null, quiet: Boolean = false, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
     val typography = androidx.compose.material3.MaterialTheme.typography
-    Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        androidx.compose.material3.Icon(icon, contentDescription = null, tint = theme.textMuted, modifier = Modifier.size(18.dp))
+    Row(modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (icon != null) androidx.compose.material3.Icon(icon, contentDescription = null, tint = theme.textMuted, modifier = Modifier.size(18.dp)) else Spacer(Modifier.size(18.dp))
         androidx.compose.material3.Text(text, style = typography.bodyMedium, color = if (quiet) theme.textMuted else theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (detail != null) {
             androidx.compose.material3.Text(detail, style = typography.bodyMedium, color = theme.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -157,18 +160,24 @@ internal fun ReadoutCheck(on: Boolean, name: String) {
     }
 }
 
-/** An ordered list's entry: its place in tabular digits, then its name. */
+/** An ordered list's entry: its place in tabular digits, then its name; [compact] sets both at body size, for short lists sharing a line. */
 @Composable
-internal fun ReadoutRank(rank: Int, name: String) {
+internal fun ReadoutRank(rank: Int, name: String, compact: Boolean = false, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
     val typography = androidx.compose.material3.MaterialTheme.typography
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
         androidx.compose.material3.Text(
             "$rank",
-            style = typography.titleLarge.merge(TextStyle(fontFamily = theme.displayFont, fontFeatureSettings = "tnum")),
+            style = (if (compact) typography.bodyMedium else typography.titleLarge).merge(TextStyle(fontFamily = theme.displayFont, fontFeatureSettings = "tnum")),
             color = theme.textMuted,
-            modifier = Modifier.widthIn(min = 16.dp),
+            modifier = Modifier.widthIn(min = if (compact) 12.dp else 16.dp),
         )
-        androidx.compose.material3.Text(name, style = typography.titleMedium, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        androidx.compose.material3.Text(
+            name,
+            style = if (compact) typography.bodyMedium else typography.titleMedium,
+            color = theme.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

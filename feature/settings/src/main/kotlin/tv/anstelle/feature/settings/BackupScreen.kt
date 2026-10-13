@@ -301,12 +301,10 @@ fun BackupScreen(
         title = "Backup",
         trail = if (viewModel.firstRun) listOf("Add server") else listOf("Settings"),
         about = if (viewModel.firstRun) {
-            "Take over another AnstelleTV's channels, profiles, themes and settings, from the device itself or a saved backup. " +
-                "A device to copy from needs its Web control on."
+            "Copy channels, profiles, themes and settings from another device or a saved backup."
         } else {
-            "A backup holds the channels, profiles, themes, settings and dashboard history, and restoring one replaces " +
-                "everything here. A device to copy from needs its Web control on." +
-                if (canOpenFiles) "" else " To restore a saved backup, open Backup in a browser paired with Web control."
+            "Save or restore your channels, profiles, themes and settings. Restoring replaces everything." +
+                if (canOpenFiles) "" else " Restore files from a browser."
         },
         aside = if (viewModel.firstRun) null else ({ BackupReadout(state.summary, state.nowUtcMs) }),
         modifier = modifier,

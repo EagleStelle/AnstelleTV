@@ -269,7 +269,7 @@ fun ProfileEditScreen(
         about = listOfNotNull(
             "A PIN is asked when switching to this profile.",
             "Admins manage servers, channels and members.".takeIf { state.canSetAdmin },
-            "Programs rated over the Parental Rating still air on their channels, blacked out.".takeIf { state.canSetParental },
+            "Programs over the rating air blacked out.".takeIf { state.canSetParental },
         ).joinToString(" "),
         modifier = modifier,
     ) {

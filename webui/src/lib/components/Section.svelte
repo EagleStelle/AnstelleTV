@@ -3,4 +3,4 @@
 	let { title }: { title: string } = $props();
 </script>
 
-<h2 class="field-label px-4 pt-6 pb-1 whitespace-pre text-text-muted">{title}</h2>
+<h2 class="field-label px-4 pt-5 pb-1 whitespace-pre text-text-muted">{title}</h2>

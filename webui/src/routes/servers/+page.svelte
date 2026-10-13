@@ -41,7 +41,7 @@
 <Page
 	title="Servers"
 	trail={[{ label: 'Home', href: '/' }]}
-	note="AnstelleTV builds its channels from the Jellyfin libraries of the servers you connect here. Add one with its address, then sign in with Quick Connect or a password."
+	note="Channels are built from your servers' libraries."
 >
 	{#snippet actions()}<Button label="Add server" icon={Add} primary href="/servers/add" />{/snippet}
 	{#if error}<Notice text={error} error />{/if}

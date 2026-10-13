@@ -43,17 +43,16 @@
 <Page
 	title="On Demand"
 	trail={[{ label: 'Home', href: '/' }]}
-	note="Shared by every profile. Each tab's banner shows this many random picks. Movies and Series each keep their rows in an order of their own."
+	note="Banners show random picks. Rows keep the order you set."
 >
 	{#if error}<Notice text={error} error />{/if}
 	{#if onDemand}
 		<Section title="Banners" />
 		<ChoiceRow
-			title="Home"
+			title="Channels"
 			value={onDemand.homeBanner}
 			choices={onDemand.homeChoices.map((c) => c.value)}
 			label={labelOf(onDemand.homeChoices)}
-			about="How many random channels show at the top of Home."
 			onselect={(size) => setBanner('home', size)}
 			icon={ViewCarousel}
 		/>
@@ -63,7 +62,6 @@
 				value={kind.banner}
 				choices={kind.bannerChoices.map((c) => c.value)}
 				label={labelOf(kind.bannerChoices)}
-				about="How many random {kind.label.toLowerCase()} show at the top of {kind.label}."
 				onselect={(size) => setBanner(kind.key, size)}
 				icon={kindIcon(kind.key)}
 			/>

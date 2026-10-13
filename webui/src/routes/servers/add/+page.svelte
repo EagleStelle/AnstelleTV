@@ -121,7 +121,7 @@
 </script>
 
 {#if step === 'address' || !found}
-	<Page title="Add server" {trail} note="Enter the address of your Jellyfin server: an IP address or a web address.">
+	<Page title="Add server" {trail} note="Your Jellyfin server's address.">
 		<form class="flex max-w-lg flex-col gap-3 px-4 py-2" onsubmit={find}>
 			<!-- svelte-ignore a11y_autofocus -->
 			<TextField
@@ -155,7 +155,7 @@
 		</Buttons>
 	</Page>
 {:else}
-	<Page title="Quick Connect" {trail} note="In Jellyfin on another device, open your profile, choose Quick Connect and enter this code.">
+	<Page title="Quick Connect" {trail} note="In Jellyfin, open Quick Connect and enter this code.">
 		<div class="px-4 pt-4"><CodeBlocks {code} /></div>
 		<Notice text={code ? 'Waiting for approval…' : 'Getting a code…'} />
 		<Buttons><Button label="Cancel" icon={Close} onclick={back} /></Buttons>

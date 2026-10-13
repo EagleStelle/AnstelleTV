@@ -130,7 +130,7 @@
 		{ label: 'Home', href: '/' },
 		{ label: 'Live TV', href: '/channels' }
 	]}
-	note="Each group is a tab in Live TV, in this order, and numbers its channels A to Z from its start. Move a group by its handle (or its handle and the up and down keys) to change the order. Library groups hold the channels made from your library. A group you made can be deleted once it is empty."
+	note="Each group is a tab in Live TV. Drag a group by its handle to reorder."
 >
 	{#snippet actions()}<Button label="New group" icon={CreateNewFolder} onclick={() => edit(null)} />{/snippet}
 	{#if error}<Notice text={error} error />{/if}
@@ -167,7 +167,7 @@
 	</ol>
 </Page>
 
-<Dialog bind:open title={editing ? `Edit ${editing.name}` : 'New group'} about="Its channels are numbered from the start.">
+<Dialog bind:open title={editing ? `Edit ${editing.name}` : 'New group'} about="Numbering starts here.">
 	<form class="flex flex-col gap-3" onsubmit={save}>
 		{#if !editing?.fromLibrary}
 			<!-- svelte-ignore a11y_autofocus -->

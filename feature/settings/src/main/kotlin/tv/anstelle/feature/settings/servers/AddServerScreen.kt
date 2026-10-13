@@ -241,7 +241,7 @@ private fun AddressStep(state: AddServerUiState, viewModel: AddServerViewModel, 
             else -> "Add server"
         },
         trail = trail,
-        about = if (state.forProfile) "Reaching the server…" else "Enter the address of your Jellyfin server: an IP address or a web address.",
+        about = if (state.forProfile) "Reaching the server…" else "Your Jellyfin server's address.",
         modifier = modifier,
     ) {
         item(key = "address") {
@@ -277,9 +277,9 @@ private fun SignInStep(state: AddServerUiState, viewModel: AddServerViewModel, t
         trail = trail,
         about = when {
             state.newProfile ->
-                "Sign in as someone on ${candidate.info.name}: the new profile takes that user's name, picture, watched marks and resume points, and sees only what that user may. Set a maturity rating on the profile's page afterwards."
+                "Sign in as a user on ${candidate.info.name}. The profile takes their name, picture and watch progress."
             state.linkProfileName != null ->
-                "Sign in as the Jellyfin user for ${state.linkProfileName} on ${candidate.info.name}. There the profile takes that user's watched marks and resume points, and sees only what that user may."
+                "Sign in as ${state.linkProfileName}'s user on ${candidate.info.name}."
             else -> "${candidate.info.name}: Jellyfin ${candidate.info.version} at ${candidate.info.url}"
         },
         modifier = modifier,
@@ -334,7 +334,7 @@ private fun QuickConnectStep(state: AddServerUiState, viewModel: AddServerViewMo
     SettingsPage(
         title = "Quick Connect",
         trail = trail,
-        about = "In Jellyfin on another device, open your profile, choose Quick Connect and enter this code.",
+        about = "In Jellyfin, open Quick Connect and enter this code.",
         aside = {
             CodeBlocks(state.quickConnectCode)
         },
