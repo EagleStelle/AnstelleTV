@@ -35,8 +35,8 @@ sealed class SettingKey<T>(val name: String, val default: T) {
 }
 
 object Settings {
-    /** Whether the LAN web server runs. */
-    val WebServerEnabled = SettingKey.BoolKey("web.enabled", true)
+    /** Whether the LAN web server runs; off until turned on in Web control. */
+    val WebServerEnabled = SettingKey.BoolKey("web.enabled", false)
     val WebServerPort = SettingKey.IntKey("web.port", 8765)
 
     /** Profile shown after launch; 0 means none chosen yet. */
