@@ -65,6 +65,7 @@ import tv.anstelle.core.model.ProfileRole
 import tv.anstelle.core.theme.components.ConfirmSheet
 import tv.anstelle.core.theme.components.EditSheet
 import tv.anstelle.core.theme.components.LinkRow
+import tv.anstelle.core.theme.components.NoticeSheet
 import tv.anstelle.core.theme.components.OsdButton
 import tv.anstelle.core.theme.components.PinEntry
 import tv.anstelle.core.theme.components.SettingsButtons
@@ -213,6 +214,11 @@ class BackupViewModel @Inject constructor(
     /** Replaces everything with [backup]; the app then starts over on it (see `RestoreSignal`). */
     fun restore(backup: Backup) = act("Restoring…") { backups.restore(backup) }
 
+    /** The problem in [message] is on a sheet now; it no longer shows on the page. */
+    fun problemShown() {
+        if (_message.value?.second == true) _message.value = null
+    }
+
     /** Where a browser saves the backup, for a device without a file picker. */
     fun noFilePicker() {
         val base = webServer.status.value.urls.firstOrNull()
@@ -305,7 +311,8 @@ fun BackupScreen(
         aside = if (viewModel.firstRun) null else ({ BackupReadout(state.summary, state.nowUtcMs) }),
         modifier = modifier,
     ) {
-        item(key = "message") { message?.let { (text, problem) -> SettingsNotice(text, isError = problem) } }
+        // A problem asks for an answer, so it opens over the page (see below); only progress stays in the list.
+        item(key = "message") { message?.takeUnless { it.second }?.let { (text, _) -> SettingsNotice(text, isError = false) } }
         // The file verbs side by side (user decision): saving one, and restoring one where this device can open files.
         val restoresFiles = state.canRestore && canOpenFiles
         if (!viewModel.firstRun || restoresFiles) {
@@ -356,6 +363,13 @@ fun BackupScreen(
                 }
             }
         }
+    }
+
+    LaunchedEffect(message) {
+        val (text, problem) = message ?: return@LaunchedEffect
+        if (!problem) return@LaunchedEffect
+        sheets.show(NoticeSheet(title = "That didn't work", about = text))
+        viewModel.problemShown()
     }
 
     LaunchedEffect(step) {

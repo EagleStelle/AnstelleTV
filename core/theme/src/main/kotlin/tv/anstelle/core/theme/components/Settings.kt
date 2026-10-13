@@ -202,6 +202,10 @@ class ConfirmSheet(
     val onConfirm: () -> Unit,
 ) : SettingsSheet
 
+/** Something the person has to know before going on, closed with one "Okay" across the sheet. */
+@Immutable
+class NoticeSheet(override val title: String, override val about: String?) : SettingsSheet
+
 /** A value typed in; [onSave] returns a problem to show, or null once it is saved. */
 @Immutable
 class EditSheet(
@@ -544,7 +548,7 @@ private fun SheetDialog(sheet: SettingsSheet, onClose: () -> Unit) {
                             TextButton(onClick = onClose) { Text("Cancel", color = theme.text) }
                             OsdButton(sheet.confirm, onClick = { onClose(); sheet.onConfirm() }, icon = sheet.icon, danger = true)
                         }
-                        is EditSheet, is FormSheet -> Unit // Its buttons sit with the fields.
+                        is EditSheet, is FormSheet, is NoticeSheet -> Unit // Its buttons sit with the fields, or fill the sheet.
                         // A switch saves as it flips, so there is nothing to cancel.
                         is ChoiceSheet -> TextButton(onClick = onClose) { Text(if (sheet.switch != null) "Done" else "Cancel", color = theme.text) }
                         else -> TextButton(onClick = onClose) { Text("Cancel", color = theme.text) }
@@ -607,6 +611,9 @@ private fun SheetBody(sheet: SettingsSheet, onClose: () -> Unit) {
                     OsdButton("Cancel", onClick = onClose, modifier = Modifier.focusRequester(first))
                 }
             }
+        }
+        is NoticeSheet -> Box(Modifier.padding(horizontal = if (guided) 0.dp else 8.dp)) {
+            SettingsButtons { OsdButton("Okay", onClick = onClose, primary = true, modifier = Modifier.focusRequester(first)) }
         }
         is EditSheet -> EditBody(sheet, first, onClose)
         is FormSheet -> FormBody(sheet, first, onClose)
