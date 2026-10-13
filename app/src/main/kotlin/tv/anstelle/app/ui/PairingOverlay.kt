@@ -2,6 +2,7 @@ package tv.anstelle.app.ui
 
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import tv.anstelle.core.data.ProfileRepository
 import androidx.compose.foundation.layout.Arrangement
@@ -48,17 +49,21 @@ class PairingViewModel @Inject constructor(
     /** A paired browser manages the whole app, so only the owner and admins see the PIN. */
     val canManage: StateFlow<Boolean> = profiles.observeCanManageApp().stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    /** The profile a browser pairs as: the one watching, whose pairing it becomes. */
+    val profileName: StateFlow<String> = profiles.observeActiveProfile().map { it.name }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
     fun dismiss() = pairing.cancel()
 }
 
 /**
  * Shows the 6-digit PIN on the TV while a browser is pairing. A paired browser manages the
- * whole app, so a member's profile shows nothing.
+ * whole app as the profile watching, so a member's profile shows nothing.
  */
 @Composable
 fun PairingOverlay(viewModel: PairingViewModel = hiltViewModel()) {
     val request by viewModel.request.collectAsStateWithLifecycle()
     val canManage by viewModel.canManage.collectAsStateWithLifecycle()
+    val profileName by viewModel.profileName.collectAsStateWithLifecycle()
     val current = request?.takeIf { canManage } ?: return
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
@@ -84,7 +89,11 @@ fun PairingOverlay(viewModel: PairingViewModel = hiltViewModel()) {
                 )
             }
             androidx.compose.material3.Text(
-                if (current.isDevice) "Enter this PIN on ${current.clientName} to copy this device's backup." else "Enter this PIN in ${current.clientName}.",
+                if (current.isDevice) {
+                    "Enter this PIN on ${current.clientName} to copy this device's backup."
+                } else {
+                    "Enter this PIN in ${current.clientName} to manage AnstelleTV as $profileName."
+                },
                 style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
                 color = theme.textMuted,
             )

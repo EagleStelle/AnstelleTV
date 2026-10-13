@@ -62,6 +62,6 @@ abstract class PackWebUiTask : DefaultTask() {
         const val INDEX_FILE = "asset-index.txt"
         const val GZIP_SUFFIX = ".gzip"
         private const val GZIP_MIN_BYTES = 1024L
-        private val GZIP_EXTENSIONS = setOf("html", "js", "mjs", "css", "svg", "json", "txt", "map", "webmanifest")
+        private val GZIP_EXTENSIONS = setOf("html", "js", "mjs", "css", "svg", "json", "txt", "map", "webmanifest", "ttf")
     }
 }

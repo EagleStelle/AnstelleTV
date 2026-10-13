@@ -146,7 +146,10 @@ interface BackupDao {
     /** Every setting but the device's own ([keep]). */
     @Query("DELETE FROM setting WHERE `key` NOT IN (:keep)") suspend fun clearSettings(keep: List<String>)
 
-    /** Empties every table a backup replaces, children before their parents. Built-in themes and paired browsers stay. */
+    /**
+     * Empties every table a backup replaces, children before their parents. Built-in themes stay;
+     * paired browsers go with the profiles that paired them.
+     */
     @Transaction
     suspend fun clear(keepSettings: List<String>) {
         clearSlots()

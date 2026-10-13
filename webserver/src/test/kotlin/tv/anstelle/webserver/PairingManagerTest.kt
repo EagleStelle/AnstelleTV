@@ -74,6 +74,30 @@ class PairingManagerTest {
     }
 
     @Test
+    fun onlyTheOwnerOrAnAdminApproves() = runTest {
+        server.gate.active = FakeGate.MEMBER
+        assertEquals(PairStartResult.NotAllowed, pairing.start("Laptop", null))
+        assertNull(pairing.activeRequest.value)
+
+        server.gate.active = FakeGate.ADMIN
+        val request = startPairing()
+        // The TV moved to a member's profile while the PIN was on screen.
+        server.gate.active = FakeGate.MEMBER
+        assertEquals(PairResult.NotAllowed, pairing.confirm(request.id, request.pin, null, null))
+    }
+
+    @Test
+    fun aPairingCountsWhileItsProfileManages() = runTest {
+        server.gate.active = FakeGate.ADMIN
+        val request = startPairing()
+        val paired = assertIs<PairResult.Paired>(pairing.confirm(request.id, request.pin, null, null))
+        assertEquals(FakeGate.ADMIN, paired.client.profileId)
+        assertEquals("Sam", assertNotNull(pairing.authenticate(paired.token, null)).manager.name)
+        server.gate.managers.value -= FakeGate.ADMIN
+        assertNull(pairing.authenticate(paired.token, null))
+    }
+
+    @Test
     fun unknownOrRevokedTokensAreRejected() = runTest {
         assertNull(pairing.authenticate("not-a-token", null))
         assertNull(pairing.authenticate(null, null))

@@ -1,5 +1,7 @@
-// Live updates from the TV. The server pushes the names of database tables that changed;
-// pages subscribe to the tables they show and refetch. Reconnects with backoff.
+// Live updates from the TV. The server pushes the names of database tables that changed (and
+// `sync` while a server syncs); pages subscribe to the tables they show and refetch. Reconnects
+// with backoff, telling [onClosed] each time so the page can check this browser is still paired:
+// the TV lets a socket go when it is unpaired or its profile is no longer the owner or an admin.
 
 type Listener = (tables: string[]) => void;
 
@@ -16,6 +18,9 @@ class LiveUpdates {
 	private retryMs = 1000;
 	private timer: ReturnType<typeof setTimeout> | null = null;
 	private stopped = true;
+
+	/** Called whenever the socket closes; [refused] when the TV let this pairing go. */
+	onClosed: ((refused: boolean) => void) | null = null;
 
 	start(): void {
 		if (!this.stopped) return;
@@ -54,10 +59,17 @@ class LiveUpdates {
 				if (message.tables.some((table) => tables.has(table))) listener(message.tables);
 			}
 		};
-		socket.onclose = () => {
+		socket.onclose = (event) => {
 			this.connected = false;
 			this.socket = null;
 			if (this.stopped) return;
+			// 1008: the TV let this pairing go.
+			const refused = event.code === 1008;
+			this.onClosed?.(refused);
+			if (refused) {
+				this.stop();
+				return;
+			}
 			this.timer = setTimeout(() => this.connect(), this.retryMs);
 			this.retryMs = Math.min(this.retryMs * 2, 15000);
 		};

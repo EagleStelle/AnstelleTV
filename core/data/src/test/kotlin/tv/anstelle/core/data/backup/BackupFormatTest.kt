@@ -82,4 +82,15 @@ class BackupFormatTest {
         val summary = backup.summary()
         assertEquals(BackupSummary(profiles = 2, channels = 1, customChannels = 1, groups = 1, themes = 0, servers = 1, historyDays = 1), summary)
     }
+
+    @Test
+    fun `the restore question says what comes in`() {
+        assertEquals("2 profiles, 1 channel and 1 day of history", backup.summary().brings())
+        assertEquals("1 profile", BackupSummary(profiles = 1).brings())
+        assertEquals(
+            "2 profiles, 1 channel and 1 day of history from the file replace what this device holds. " +
+                "Servers this device isn't signed in to need signing in again.",
+            backup.summary().replaceExplanation("the file"),
+        )
+    }
 }

@@ -1,8 +1,11 @@
 package tv.anstelle.webserver
 
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -14,9 +17,14 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import io.ktor.websocket.CloseReason
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
+import kotlinx.coroutines.withTimeout
 import tv.anstelle.core.data.channels.ChannelLogos
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -174,7 +182,7 @@ class ServerRoutesTest {
     fun libraryChannelLogosCannotBeChanged() = serverTest { server ->
         val auth = "Bearer ${pair(server)}"
         val png = byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte())
-        server.api.libraryChannel = true
+        server.channels.libraryChannel = true
 
         val upload = client.put("/api/channels/1/logo") {
             header(HttpHeaders.Authorization, auth)
@@ -218,6 +226,230 @@ class ServerRoutesTest {
             setBody(ByteArray(64 * 1024 + 1))
         }
         assertEquals(HttpStatusCode.PayloadTooLarge, tooLarge.status)
+    }
+
+    @Test
+    fun aMemberCannotPair() = serverTest { server ->
+        server.gate.active = FakeGate.MEMBER
+        val start = client.post("/api/pair/start") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"clientName":"Test browser"}""")
+        }
+        assertEquals(HttpStatusCode.Forbidden, start.status)
+        assertTrue(start.bodyAsText().contains("no_manager"))
+    }
+
+    @Test
+    fun aPairingSpeaksForTheProfileThatApprovedIt() = serverTest { server ->
+        server.gate.active = FakeGate.ADMIN
+        val auth = "Bearer ${pair(server)}"
+        val session = client.get("/api/session") { header(HttpHeaders.Authorization, auth) }.bodyAsText()
+        assertTrue(session.contains(""""name":"Sam""""))
+        assertTrue(session.contains(""""role":"admin""""))
+        assertEquals(FakeGate.ADMIN, server.store.clients.values.single().profileId)
+    }
+
+    @Test
+    fun aProfileNoLongerAnAdminLosesItsBrowsers() = serverTest { server ->
+        server.gate.active = FakeGate.ADMIN
+        val auth = "Bearer ${pair(server)}"
+        assertEquals(HttpStatusCode.OK, client.get("/api/channels") { header(HttpHeaders.Authorization, auth) }.status)
+        server.gate.managers.value -= FakeGate.ADMIN
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/channels") { header(HttpHeaders.Authorization, auth) }.status)
+    }
+
+    @Test
+    fun onlyTheOwnerRestores() = serverTest { server ->
+        val file = """{"format":"anstelletv-backup","version":1}"""
+        server.gate.active = FakeGate.ADMIN
+        val admin = "Bearer ${pair(server)}"
+        assertTrue(client.get("/api/backup") { header(HttpHeaders.Authorization, admin) }.bodyAsText().contains(""""canRestore":false"""))
+        assertEquals(HttpStatusCode.Forbidden, client.post("/api/backup/restore") { header(HttpHeaders.Authorization, admin); setBody(file) }.status)
+        assertTrue(server.backup.restored.isEmpty())
+
+        server.gate.active = FakeGate.OWNER
+        val owner = "Bearer ${pair(server)}"
+        assertTrue(client.get("/api/backup") { header(HttpHeaders.Authorization, owner) }.bodyAsText().contains(""""canRestore":true"""))
+        val check = client.post("/api/backup/check") { header(HttpHeaders.Authorization, owner); setBody(file) }
+        assertTrue(check.bodyAsText().contains("Replace everything here?"))
+        val notBackup = client.post("/api/backup/check") { header(HttpHeaders.Authorization, owner); setBody("hello") }
+        assertEquals(HttpStatusCode.BadRequest, notBackup.status)
+        assertTrue(notBackup.bodyAsText().contains("not_a_backup"))
+        assertEquals(HttpStatusCode.Accepted, client.post("/api/backup/restore") { header(HttpHeaders.Authorization, owner); setBody(file) }.status)
+        assertEquals(1, server.backup.restored.size)
+    }
+
+    @Test
+    fun libraryChannelsOnlyHideAndFavorite() = serverTest { server ->
+        val auth = "Bearer ${pair(server)}"
+        server.channels.libraryChannel = true
+        val hide = client.patch("/api/channels/1") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"visible":false}""")
+        }
+        assertEquals(HttpStatusCode.NoContent, hide.status)
+        val rename = client.patch("/api/channels/1") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Mine"}""")
+        }
+        assertEquals(HttpStatusCode.Forbidden, rename.status)
+        assertEquals(HttpStatusCode.Forbidden, client.delete("/api/channels/1") { header(HttpHeaders.Authorization, auth) }.status)
+        val missing = client.patch("/api/channels/9") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("{}")
+        }
+        assertEquals(HttpStatusCode.NotFound, missing.status)
+    }
+
+    @Test
+    fun brokenRulesAreBadRequests() = serverTest { server ->
+        val auth = "Bearer ${pair(server)}"
+        val duplicate = client.post("/api/groups") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Sitcoms","start":6000}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, duplicate.status)
+        assertTrue(duplicate.bodyAsText().contains("A group already has that name."))
+        val empty = client.post("/api/channels") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Mine","groupId":1,"lineup":{}}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, empty.status)
+        assertTrue(empty.bodyAsText().contains("Add a rule or a show first."))
+        val banner = client.put("/api/settings/ondemand-banner") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"value":7}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, banner.status)
+    }
+
+    @Test
+    fun lineupPreviewDescribesRules() = serverTest { server ->
+        val auth = "Bearer ${pair(server)}"
+        val preview = client.post("/api/lineup/preview") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"groups":[{"rules":[{"field":"GENRE","op":"ANY_OF","values":["Comedy"]}]}]}""")
+        }
+        assertEquals(HttpStatusCode.OK, preview.status)
+        val body = preview.bodyAsText()
+        assertTrue(body.contains("GENRE Comedy"))
+        assertTrue(body.contains(""""episodes":3"""))
+        val options = client.get("/api/lineup/options?field=GENRE&op=ANY_OF") { header(HttpHeaders.Authorization, auth) }
+        assertTrue(options.bodyAsText().contains("Comedy"))
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/lineup/options?op=ANY_OF") { header(HttpHeaders.Authorization, auth) }.status)
+    }
+
+    @Test
+    fun addingAServerSignsInFromTheBrowser() = serverTest { server ->
+        val auth = "Bearer ${pair(server)}"
+        val found = client.post("/api/servers/find") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"address":"192.168.1.2"}""")
+        }
+        assertTrue(found.bodyAsText().contains(""""signInId":"s1""""))
+        val nowhere = client.post("/api/servers/find") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"address":" "}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, nowhere.status)
+        assertTrue(nowhere.bodyAsText().contains("look like a server address"))
+
+        val wrong = client.post("/api/servers/signin/s1") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"username":"alex","password":"nope"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, wrong.status)
+        assertTrue(wrong.bodyAsText().contains("Wrong username or password."))
+        val right = client.post("/api/servers/signin/s1") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"username":"alex","password":"right"}""")
+        }
+        assertTrue(right.bodyAsText().contains(""""id":1"""))
+
+        val code = client.post("/api/servers/signin/s1/quickconnect") { header(HttpHeaders.Authorization, auth) }
+        assertTrue(code.bodyAsText().contains("123456"))
+        assertTrue(client.get("/api/servers/signin/s1") { header(HttpHeaders.Authorization, auth) }.bodyAsText().contains("waiting"))
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/servers/signin/gone") { header(HttpHeaders.Authorization, auth) }.status)
+    }
+
+    @Test
+    fun aBrowserCanUnpairAnother() = serverTest { server ->
+        val first = "Bearer ${pair(server)}"
+        val second = "Bearer ${pair(server)}"
+        val secondId = server.store.clients.keys.max()
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/clients/$secondId") { header(HttpHeaders.Authorization, first) }.status)
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/session") { header(HttpHeaders.Authorization, second) }.status)
+        assertEquals(HttpStatusCode.NotFound, client.delete("/api/clients/$secondId") { header(HttpHeaders.Authorization, first) }.status)
+    }
+
+    @Test
+    fun builtInThemesNeverChange() = serverTest { server ->
+        val auth = "Bearer ${pair(server)}"
+        val save = client.put("/api/themes/1/spec") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"spec":{"name":"Rose"}}""")
+        }
+        assertEquals(HttpStatusCode.Forbidden, save.status)
+        assertTrue(save.bodyAsText().contains("built_in_theme"))
+        assertEquals(HttpStatusCode.Forbidden, client.delete("/api/themes/1") { header(HttpHeaders.Authorization, auth) }.status)
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/themes/2") { header(HttpHeaders.Authorization, auth) }.status)
+        assertEquals(HttpStatusCode.Created, client.post("/api/themes/1/copy") { header(HttpHeaders.Authorization, auth) }.status)
+        assertEquals(HttpStatusCode.Created, client.post("/api/themes/new") { header(HttpHeaders.Authorization, auth) }.status)
+    }
+
+    @Test
+    fun theBrowserWearsAndPicksItsProfilesTheme() = serverTest { server ->
+        server.gate.active = FakeGate.ADMIN
+        val auth = "Bearer ${pair(server)}"
+        assertTrue(client.get("/api/theme") { header(HttpHeaders.Authorization, auth) }.bodyAsText().contains("rose"))
+        val use = client.put("/api/theme") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"themeId":2}""")
+        }
+        assertEquals(HttpStatusCode.NoContent, use.status)
+        // The pick is the paired profile's own, not the owner's.
+        assertEquals(2L, server.themes.worn[FakeGate.ADMIN])
+        assertTrue(client.get("/api/theme") { header(HttpHeaders.Authorization, auth) }.bodyAsText().contains("mine"))
+        assertTrue(client.get("/api/themes") { header(HttpHeaders.Authorization, auth) }.bodyAsText().contains(""""name":"Mine","isBuiltIn":false,"swatches":[],"inUse":true"""))
+        val missing = client.put("/api/theme") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"themeId":9}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, missing.status)
+    }
+
+    @Test
+    fun theWebUiHasNoProfilePages() = serverTest { server ->
+        val auth = "Bearer ${pair(server)}"
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/profiles") { header(HttpHeaders.Authorization, auth) }.status)
+    }
+
+    @Test
+    fun anUnpairedSocketIsLetGo() = serverTest { server ->
+        val token = pair(server)
+        val sockets = createClient { install(WebSockets) }
+        sockets.webSocket("/ws", request = { header(HttpHeaders.Authorization, "Bearer $token") }) {
+            val hello = assertIs<Frame.Text>(incoming.receive())
+            assertTrue(hello.readText().contains("hello"))
+            server.pairing.revoke(server.store.clients.keys.single())
+            server.changes.emit(setOf("paired_client"))
+            val reason = withTimeout(5_000) { closeReason.await() }
+            assertEquals(CloseReason.Codes.VIOLATED_POLICY.code, reason?.code)
+        }
     }
 
     @Test

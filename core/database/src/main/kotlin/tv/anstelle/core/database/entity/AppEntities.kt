@@ -80,14 +80,22 @@ data class RestoredItemEntity(
     val remoteId: String,
 )
 
-/** A browser paired with the web UI. Only the SHA-256 of the token is stored. */
+/**
+ * A browser (or another AnstelleTV) paired with the web UI. Only the SHA-256 of the token is
+ * stored. The pairing belongs to the owner or admin profile that approved it, so deleting that
+ * profile unpairs it.
+ */
 @Entity(
     tableName = "paired_client",
-    indices = [Index(value = ["tokenHash"], unique = true)],
+    foreignKeys = [
+        ForeignKey(entity = ProfileEntity::class, parentColumns = ["id"], childColumns = ["profileId"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index(value = ["tokenHash"], unique = true), Index(value = ["profileId"])],
 )
 data class PairedClientEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val tokenHash: String,
+    val profileId: Long,
     val name: String,
     val userAgent: String?,
     val lastAddress: String?,

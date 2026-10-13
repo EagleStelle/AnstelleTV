@@ -94,7 +94,7 @@ class StaticFiles(private val assets: AssetSource) {
 
         private val NOT_BUILT_HTML = """
             <!doctype html><meta charset="utf-8"><title>AnstelleTV</title>
-            <body style="font-family:sans-serif;background:#0E1116;color:#ECEFF4;padding:2rem">
+            <body style="font-family:sans-serif;background:#130C0F;color:#F9F1F4;padding:2rem">
             <h1>AnstelleTV</h1><p>The web UI is not included in this build.
             Install pnpm (or enable corepack) and rebuild the app.</p></body>
         """.trimIndent()
@@ -112,6 +112,7 @@ class StaticFiles(private val assets: AssetSource) {
             "ico" -> ContentType("image", "x-icon")
             "woff2" -> ContentType("font", "woff2")
             "woff" -> ContentType("font", "woff")
+            "ttf" -> ContentType("font", "ttf")
             "txt" -> ContentType.Text.Plain.withCharset(Charsets.UTF_8)
             else -> ContentType.Application.OctetStream
         }

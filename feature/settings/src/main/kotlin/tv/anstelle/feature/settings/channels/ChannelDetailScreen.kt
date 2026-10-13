@@ -60,8 +60,14 @@ import tv.anstelle.core.data.channels.Airing
 import tv.anstelle.core.data.channels.Catalog
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.LineupMatcher
+import tv.anstelle.core.data.channels.LineupMix
 import tv.anstelle.core.data.channels.MatchResult
-import tv.anstelle.core.data.channels.OncePerDay
+import tv.anstelle.core.data.channels.PlaybackChoices
+import tv.anstelle.core.data.channels.matchSummary
+import tv.anstelle.core.data.channels.moviePlaybackHint
+import tv.anstelle.core.data.channels.moviePlaybackLabel
+import tv.anstelle.core.data.channels.seriesPlaybackHint
+import tv.anstelle.core.data.channels.seriesPlaybackLabel
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.ChannelGroup
 import tv.anstelle.core.model.Playback
@@ -84,19 +90,9 @@ import tv.anstelle.core.theme.components.foot
 import tv.anstelle.core.theme.components.rememberInitialFocus
 import tv.anstelle.core.theme.components.section
 import java.io.IOException
+import java.text.DateFormat
+import java.util.Date
 import javax.inject.Inject
-
-/** What a lineup airs, as far as its playback goes. */
-@Immutable
-data class LineupMix(val series: Boolean, val movies: Boolean, val fitsOncePerDay: Boolean) {
-    companion object {
-        fun of(result: MatchResult) = LineupMix(
-            series = result.matches.any { it.item.row.seriesRemoteId != null },
-            movies = result.matches.any { it.item.row.seriesRemoteId == null },
-            fitsOncePerDay = OncePerDay.fits(result),
-        )
-    }
-}
 
 @Immutable
 data class ChannelDetailUiState(
@@ -420,3 +416,5 @@ private fun OnAir(airings: List<Airing>, logo: ImageBitmap?, name: String) {
         }
     }
 }
+
+private fun timeLabel(utcMs: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(utcMs))

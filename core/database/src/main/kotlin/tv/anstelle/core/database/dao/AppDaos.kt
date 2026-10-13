@@ -309,6 +309,9 @@ interface PairedClientDao {
 
     @Query("DELETE FROM paired_client WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM paired_client WHERE profileId = :profileId")
+    suspend fun deleteForProfile(profileId: Long)
 }
 
 @Dao

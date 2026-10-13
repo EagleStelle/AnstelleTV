@@ -209,6 +209,22 @@ data class BackupSummary(
     val savedUtcMs: Long? = null,
 )
 
+/** What a backup brings, leaving out what it has none of: "1 profile, 94 channels and 2 custom themes". */
+fun BackupSummary.brings(): String {
+    fun counted(count: Int, noun: String) = if (count == 1) "1 $noun" else "%,d ${noun}s".format(count)
+    val parts = buildList {
+        if (profiles > 0) add(counted(profiles, "profile"))
+        if (channels > 0) add(counted(channels, "channel"))
+        if (themes > 0) add(counted(themes, "custom theme"))
+        if (historyDays > 0) add(if (historyDays == 1) "1 day of history" else "$historyDays days of history")
+    }
+    return if (parts.size < 2) parts.joinToString() else parts.dropLast(1).joinToString(", ") + " and " + parts.last()
+}
+
+/** The restore question's explanation, for a backup that came [from] a file or a device. */
+fun BackupSummary.replaceExplanation(from: String): String =
+    "${brings()} from $from replace what this device holds. Servers this device isn't signed in to need signing in again."
+
 fun Backup.summary() = BackupSummary(
     profiles = profiles.size,
     channels = channels.size,

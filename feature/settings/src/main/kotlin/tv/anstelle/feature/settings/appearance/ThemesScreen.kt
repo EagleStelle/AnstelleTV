@@ -140,8 +140,8 @@ class ThemesViewModel @Inject constructor(
         val base = webServer.status.value.urls.firstOrNull()
         _message.value = when {
             base == null -> "This device can't open files. Turn on Web control in Settings to trade themes from a browser."
-            exporting != null -> "This device can't save files. In a browser paired with Web control, open $base/api/themes/$exporting to save it."
-            else -> "This device can't open files. From a browser paired with Web control, send the file to $base/api/themes."
+            exporting != null -> "This device can't save files. In a browser paired with Web control, open $base/themes and save it there."
+            else -> "This device can't open files. In a browser paired with Web control, open $base/themes and import it there."
         } to false
     }
 

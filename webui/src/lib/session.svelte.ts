@@ -1,12 +1,15 @@
-import { api, ApiError, type Health, type Session } from './api';
+import { api, ApiError, type Health, type Session } from './api.ts';
 
 export type SessionStatus = 'loading' | 'paired' | 'unpaired' | 'offline';
 
-/** Whether this browser is paired with the TV, and what the TV is. */
+/** Whether this browser is paired with the TV, who it speaks for, and what the TV is. */
 class SessionStore {
 	status = $state<SessionStatus>('loading');
 	session = $state<Session | null>(null);
 	health = $state<Health | null>(null);
+
+	/** Only the owner restores a backup. */
+	isOwner = $derived(this.session?.profile.role === 'owner');
 
 	async refresh(): Promise<void> {
 		try {

@@ -15,6 +15,7 @@ import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.WebServerController
 import tv.anstelle.core.data.WebServerStatus
+import tv.anstelle.webserver.pairing.PairingManager
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,6 +24,7 @@ internal class WebServerControllerImpl @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val settings: SettingsRepository,
     @param:ApplicationScope private val scope: CoroutineScope,
+    private val pairing: PairingManager,
 ) : WebServerController {
     private val _status = MutableStateFlow(WebServerStatus.Stopped)
     override val status: StateFlow<WebServerStatus> = _status.asStateFlow()
@@ -39,6 +41,8 @@ internal class WebServerControllerImpl @Inject constructor(
     override fun stop() {
         context.stopService(Intent(context, WebServerService::class.java))
     }
+
+    override suspend fun unpair(clientId: Long) = pairing.revoke(clientId)
 
     /** Called by [WebServerService] whenever the server state changes. */
     fun publish(status: WebServerStatus) {

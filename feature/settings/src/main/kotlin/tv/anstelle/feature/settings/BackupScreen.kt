@@ -59,6 +59,7 @@ import tv.anstelle.core.data.backup.NearbyDevices
 import tv.anstelle.core.data.backup.Peer
 import tv.anstelle.core.data.backup.PeerException
 import tv.anstelle.core.data.backup.PeerTransfer
+import tv.anstelle.core.data.backup.replaceExplanation
 import tv.anstelle.core.data.backup.summary
 import tv.anstelle.core.model.ProfileRole
 import tv.anstelle.core.theme.components.ConfirmSheet
@@ -217,7 +218,7 @@ class BackupViewModel @Inject constructor(
         val base = webServer.status.value.urls.firstOrNull()
         _message.value = when (base) {
             null -> "This device can't save files. Turn on Web control, then save the backup from a browser."
-            else -> "This device can't save files. In a browser paired with Web control, open $base/api/backup/export to save it."
+            else -> "This device can't save files. In a browser paired with Web control, open $base/backup to save it."
         } to false
     }
 
@@ -298,7 +299,8 @@ fun BackupScreen(
                 "A device to copy from needs its Web control on."
         } else {
             "A backup holds the channels, profiles, themes, settings and dashboard history, and restoring one replaces " +
-                "everything here. A device to copy from needs its Web control on."
+                "everything here. A device to copy from needs its Web control on." +
+                if (canOpenFiles) "" else " To restore a saved backup, open Backup in a browser paired with Web control."
         },
         aside = if (viewModel.firstRun) null else ({ BackupReadout(state.summary, state.nowUtcMs) }),
         modifier = modifier,
@@ -361,8 +363,7 @@ fun BackupScreen(
         sheets.show(
             ConfirmSheet(
                 title = "Replace everything here?",
-                about = "${brings(current.backup.summary())} from ${current.from} replace what this device holds. " +
-                    "Servers this device isn't signed in to need signing in again.",
+                about = current.backup.summary().replaceExplanation(current.from),
                 confirm = "Replace",
                 icon = Icons.Filled.SettingsBackupRestore,
                 onConfirm = { viewModel.restore(current.backup) },
@@ -405,20 +406,6 @@ private fun Context.hasFilePicker(action: String): Boolean {
     val intent = Intent(action).addCategory(Intent.CATEGORY_OPENABLE).setType(if (action == Intent.ACTION_CREATE_DOCUMENT) "application/json" else "*/*")
     val found = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) ?: return false
     return !found.activityInfo.packageName.endsWith(".frameworkpackagestubs")
-}
-
-/** "1 profile", "12 profiles". */
-private fun counted(count: Int, noun: String) = if (count == 1) "1 $noun" else "%,d ${noun}s".format(count)
-
-/** What a backup brings, leaving out what it has none of: "1 profile, 94 channels and 2 custom themes". */
-private fun brings(summary: BackupSummary): String {
-    val parts = buildList {
-        if (summary.profiles > 0) add(counted(summary.profiles, "profile"))
-        if (summary.channels > 0) add(counted(summary.channels, "channel"))
-        if (summary.themes > 0) add(counted(summary.themes, "custom theme"))
-        if (summary.historyDays > 0) add(if (summary.historyDays == 1) "1 day of history" else "${summary.historyDays} days of history")
-    }
-    return if (parts.size < 2) parts.joinToString() else parts.dropLast(1).joinToString(", ") + " and " + parts.last()
 }
 
 private const val PIN_LENGTH = 6

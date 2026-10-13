@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import tv.anstelle.core.common.AppLog
+import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.WebServerStatus
@@ -37,7 +38,7 @@ import javax.inject.Inject
 /**
  * Foreground service that keeps the LAN web server alive while the app is in use or in the
  * background. It rebinds when the network changes and shows the pairing PIN in its
- * notification when the TV app is not on screen.
+ * notification while the owner's or an admin's profile is active.
  */
 @AndroidEntryPoint
 class WebServerService : LifecycleService() {
@@ -46,6 +47,7 @@ class WebServerService : LifecycleService() {
     @Inject lateinit var pairing: PairingManager
     @Inject internal lateinit var controller: WebServerControllerImpl
     @Inject lateinit var nearby: NearbyDevices
+    @Inject lateinit var profiles: ProfileRepository
 
     private val networkTick = MutableStateFlow(0)
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -67,9 +69,12 @@ class WebServerService : LifecycleService() {
                 .collect { port -> rebind(port) }
         }
         lifecycleScope.launch {
-            combine(pairing.activeRequest, controller.status) { request, status -> request to status }
+            // Only the owner and admins approve a pairing, so the PIN never shows on a member's profile.
+            combine(pairing.activeRequest, profiles.observeCanManageApp(), controller.status) { request, canManage, status ->
+                request?.pin?.takeIf { canManage } to status
+            }
                 .distinctUntilChanged()
-                .collect { (request, status) -> updateNotification(request?.pin, status) }
+                .collect { (pin, status) -> updateNotification(pin, status) }
         }
     }
 

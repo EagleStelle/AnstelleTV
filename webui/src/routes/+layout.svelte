@@ -2,153 +2,117 @@
 	import '../app.css';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import Brand from '#lib/components/Brand.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import Mark from '#lib/components/Mark.svelte';
 	import { live } from '#lib/live.svelte.ts';
 	import { session } from '#lib/session.svelte.ts';
-	import Logout from '~icons/ic/baseline-logout';
-	import Tune from '~icons/ic/baseline-tune';
-	import LiveTv from '~icons/material-symbols/live-tv-outline';
+	import { theme } from '#lib/theme.svelte.ts';
+	import Backup from '~icons/material-symbols/settings-backup-restore';
+	import Dns from '~icons/material-symbols/dns';
+	import DnsOutline from '~icons/material-symbols/dns-outline';
+	import LiveTv from '~icons/material-symbols/live-tv';
+	import LiveTvOutline from '~icons/material-symbols/live-tv-outline';
+	import Palette from '~icons/material-symbols/palette';
+	import PaletteOutline from '~icons/material-symbols/palette-outline';
+	import Wifi from '~icons/material-symbols/wifi';
 	import { onMount } from 'svelte';
 
 	let { children } = $props();
 
+	/** The areas, the open one with a filled icon and a bright label. */
+	const tabs = [
+		{ href: '/servers', label: 'Servers', icon: DnsOutline, open: Dns },
+		{ href: '/channels', label: 'Channels', icon: LiveTvOutline, open: LiveTv },
+		{ href: '/themes', label: 'Themes', icon: PaletteOutline, open: Palette },
+		{ href: '/web', label: 'Web control', icon: Wifi, open: Wifi },
+		{ href: '/backup', label: 'Backup', icon: Backup, open: Backup }
+	];
+
 	const onPairPage = $derived(page.url.pathname.startsWith('/pair'));
 
 	onMount(() => {
+		// A closed socket may mean this browser was unpaired; the session says.
+		live.onClosed = () => void session.refresh();
 		void session.refresh();
-		return () => live.stop();
+		const profiles = live.subscribe(['profile'], () => void session.refresh());
+		// The paired profile's theme, edited or picked on the TV or here, shows at once.
+		const themes = live.subscribe(['theme', 'profile'], () => void theme.refresh());
+		return () => {
+			profiles();
+			themes();
+			live.stop();
+		};
 	});
 
-	// Unpaired browsers go to the pairing page; paired ones get live updates.
+	// Unpaired browsers go to the pairing page in the default theme; paired ones wear their profile's and get live updates.
 	$effect(() => {
-		if (session.status === 'unpaired' && !onPairPage) void goto('/pair');
-		if (session.status === 'paired') live.start();
+		if (session.status === 'unpaired') {
+			live.stop();
+			theme.reset();
+			if (!onPairPage) void goto('/pair');
+		}
+		if (session.status === 'paired') {
+			live.start();
+			void theme.refresh();
+		}
 	});
-
-	async function logout() {
-		live.stop();
-		await session.logout();
-		await goto('/pair');
-	}
 </script>
 
 {#if onPairPage}
 	{@render children()}
 {:else}
-	<header class="top">
-		<a href="/watch" class="home"><Brand /></a>
-		<nav aria-label="Main">
-			<a href="/watch" class:active={page.url.pathname.startsWith('/watch')}>
-				<LiveTv class="icon" /> Watch
-			</a>
-			<a href="/configure" class:active={page.url.pathname.startsWith('/configure')}>
-				<Tune class="icon" /> Configure
-			</a>
-		</nav>
-		<div class="status">
+	<div class="min-h-screen">
+		<!-- A website's top bar: the mark, then the areas in a row (scrolling sideways when narrow), the open one underlined. -->
+			<header class="sticky top-0 z-10 border-b border-line bg-surface">
+				<nav class="mx-auto flex h-14 w-full max-w-6xl items-stretch gap-2 px-2 min-[840px]:gap-4 min-[840px]:px-4" aria-label="Main">
+					<a
+						href="/"
+						class="my-2 grid shrink-0 place-items-center rounded-control px-2 hover:bg-accent focus-visible:bg-accent"
+						aria-label="Home"
+						aria-current={page.url.pathname === '/' ? 'page' : undefined}
+					>
+						<Mark size={28} />
+					</a>
+					<div class="flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto [scrollbar-width:none]">
+						{#each tabs as tab (tab.href)}
+							{@const open = page.url.pathname.startsWith(tab.href)}
+							{@const Icon = open ? tab.open : tab.icon}
+							<a
+								href={tab.href}
+								aria-current={open ? 'page' : undefined}
+								class={[
+									'group/tab relative my-2 flex shrink-0 items-center gap-2 rounded-control px-3 text-label-l whitespace-nowrap hover:bg-accent hover:text-on-accent focus-visible:bg-accent focus-visible:text-on-accent',
+									open ? 'font-semibold text-text' : 'font-medium text-text-muted'
+								]}
+							>
+								<Icon class="size-5 transition-transform group-active/tab:scale-[0.88]" />
+								<span class="max-[420px]:hidden">{tab.label}</span>
+								{#if open}<span class="absolute inset-x-3 -bottom-2 h-0.5 bg-accent group-hover/tab:hidden group-focus-visible/tab:hidden" aria-hidden="true"></span>{/if}
+							</a>
+						{/each}
+					</div>
+				</nav>
+			</header>
+			<main>
 			{#if session.status === 'paired'}
-				<span class="dot" class:on={live.connected} title={live.connected ? 'Live' : 'Reconnecting'}></span>
-				<span class="muted device">{session.session?.deviceName}</span>
-				<button class="btn icon-btn" onclick={logout} title="Unpair this browser">
-					<Logout class="icon" />
-				</button>
+				{@render children()}
 			{:else if session.status === 'offline'}
-				<span class="muted">TV not reachable</span>
+				<div class="mx-auto flex max-w-120 flex-col gap-4 px-4 py-12 min-[840px]:px-6">
+					<Mark size={48} />
+					<h1 class="font-display text-headline-m font-semibold">Canâ€™t reach the TV</h1>
+					<p class="text-text-muted">Make sure AnstelleTV is on and Web control is turned on in its Settings.</p>
+					<div><Button label="Try again" primary onclick={() => session.refresh()} /></div>
+				</div>
 			{/if}
-		</div>
-	</header>
-	<main>
-		{#if session.status === 'paired'}
-			{@render children()}
-		{:else if session.status === 'offline'}
-			<section class="card">
-				<h2>Can't reach the TV</h2>
-				<p class="muted">Make sure AnstelleTV is open on the TV and web control is turned on.</p>
-				<button class="btn" onclick={() => session.refresh()}>Try again</button>
-			</section>
-		{/if}
-	</main>
+		</main>
+	</div>
 {/if}
 
-<style>
-	.top {
-		position: sticky;
-		top: 0;
-		z-index: 10;
-		display: flex;
-		align-items: center;
-		gap: 1.5rem;
-		padding: 0.75rem 1.5rem;
-		background: color-mix(in srgb, var(--bg) 88%, transparent);
-		backdrop-filter: blur(8px);
-		border-bottom: 1px solid var(--line);
-	}
-
-	nav {
-		display: flex;
-		gap: 0.25rem;
-	}
-
-	nav a {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4rem;
-		padding: 0.45rem 0.8rem;
-		border-radius: var(--radius-sm);
-		color: var(--muted);
-	}
-
-	nav a:hover {
-		color: var(--text);
-	}
-
-	nav a.active {
-		color: var(--text);
-		background: var(--surface-2);
-	}
-
-	.status {
-		margin-left: auto;
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-	}
-
-	.dot {
-		width: 0.55rem;
-		height: 0.55rem;
-		border-radius: 50%;
-		background: var(--muted);
-	}
-
-	.dot.on {
-		background: var(--ok);
-	}
-
-	.icon-btn {
-		padding: 0;
-		width: 2.5rem;
-	}
-
-	main {
-		max-width: 1200px;
-		margin: 0 auto;
-		padding: 1.5rem;
-	}
-
-	@media (max-width: 640px) {
-		.top {
-			flex-wrap: wrap;
-			gap: 0.75rem;
-			padding: 0.75rem 1rem;
-		}
-
-		.device {
-			display: none;
-		}
-
-		main {
-			padding: 1rem;
-		}
-	}
-</style>
+{#if theme.spec?.effects.scanlines}
+	<!-- The theme's picture-tube lines over everything, as on the TV. -->
+	<div
+		class="pointer-events-none fixed inset-0 z-50 bg-[repeating-linear-gradient(to_bottom,transparent_0_2px,#000_2px_3px)]"
+		style:opacity="var(--theme-scanlines)"
+		aria-hidden="true"
+	></div>
+{/if}

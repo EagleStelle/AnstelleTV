@@ -151,9 +151,11 @@ class ThemeRepository @Inject constructor(
         null
     }
 
-    private companion object {
-        const val TAG = "Themes"
-        const val ASSET_DIR = "themes"
-        const val MAX_IMPORT_CHARS = 64 * 1024
+    companion object {
+        /** The built-in theme a profile wears until it picks another. */
+        const val DEFAULT_KEY = "rose"
+        private const val TAG = "Themes"
+        private const val ASSET_DIR = "themes"
+        private const val MAX_IMPORT_CHARS = 64 * 1024
     }
 }

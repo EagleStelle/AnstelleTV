@@ -19,6 +19,7 @@ import tv.anstelle.core.data.channels.ChannelSummary
 import tv.anstelle.core.data.profiles.PinHash
 import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.MediaServerDao
+import tv.anstelle.core.database.dao.PairedClientDao
 import tv.anstelle.core.database.dao.ProfileDao
 import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.database.dao.SettingDao
@@ -72,6 +73,7 @@ class ProfileRepository @Inject constructor(
     private val settingDao: SettingDao,
     private val serverDao: MediaServerDao,
     private val scheduleDao: ScheduleDao,
+    private val pairedClients: PairedClientDao,
     private val settings: SettingsRepository,
     private val tokens: TokenStore,
     private val auth: JellyfinAuth,
@@ -144,12 +146,16 @@ class ProfileRepository @Inject constructor(
     suspend fun setTheme(profileId: Long, themeId: Long?) = edit(profileId) { it.copy(themeId = themeId) }
 
     /** Makes a member an admin or back. An admin has no parental controls. The owner stays the owner. */
-    suspend fun setAdmin(profileId: Long, admin: Boolean) = edit(profileId) { profile ->
-        when {
-            profile.role == ProfileRole.OWNER -> profile
-            admin -> profile.copy(role = ProfileRole.ADMIN, maxRatingScore = null)
-            else -> profile.copy(role = ProfileRole.MEMBER)
+    suspend fun setAdmin(profileId: Long, admin: Boolean) {
+        edit(profileId) { profile ->
+            when {
+                profile.role == ProfileRole.OWNER -> profile
+                admin -> profile.copy(role = ProfileRole.ADMIN, maxRatingScore = null)
+                else -> profile.copy(role = ProfileRole.MEMBER)
+            }
         }
+        // A member manages nothing, so the browsers this profile paired go; made an admin again, it pairs anew.
+        if (!admin) withContext(io) { if (dao.byId(profileId)?.role == ProfileRole.MEMBER) pairedClients.deleteForProfile(profileId) }
     }
 
     /** Hands the owner role to [profileId]; the owner before stays an admin. */

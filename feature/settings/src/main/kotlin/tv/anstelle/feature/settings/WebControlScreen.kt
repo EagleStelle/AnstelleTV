@@ -1,5 +1,6 @@
 package tv.anstelle.feature.settings
 
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Computer
@@ -8,6 +9,7 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -20,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.WebServerController
@@ -27,6 +30,7 @@ import tv.anstelle.core.data.WebServerStatus
 import tv.anstelle.core.database.dao.PairedClientDao
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.core.theme.components.InfoRow
+import tv.anstelle.core.theme.components.RemoveKey
 import tv.anstelle.core.theme.components.SettingsPage
 import tv.anstelle.core.theme.components.SwitchRow
 import tv.anstelle.core.theme.components.rememberInitialFocus
@@ -38,6 +42,8 @@ data class WebControlUiState(
     val enabled: Boolean = true,
     val status: WebServerStatus = WebServerStatus.Stopped,
     val pairedClients: List<PairedClientEntity> = emptyList(),
+    /** Who paired each browser, by profile id. */
+    val profileNames: Map<Long, String> = emptyMap(),
     val loaded: Boolean = false,
 )
 
@@ -46,13 +52,21 @@ class WebControlViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val webServer: WebServerController,
     pairedClients: PairedClientDao,
+    profiles: ProfileRepository,
 ) : ViewModel() {
     val state: StateFlow<WebControlUiState> = combine(
         settings.observe(Settings.WebServerEnabled),
         webServer.status,
         pairedClients.observeAll(),
-    ) { enabled, status, clients -> WebControlUiState(enabled, status, clients, loaded = true) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WebControlUiState())
+        profiles.observeProfiles(),
+    ) { enabled, status, clients, profileList ->
+        WebControlUiState(enabled, status, clients, profileList.associate { it.id to it.name }, loaded = true)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WebControlUiState())
+
+    /** Unpairs the browser at once; it has to pair again to come back. */
+    fun unpair(clientId: Long) {
+        viewModelScope.launch { webServer.unpair(clientId) }
+    }
 
     fun setEnabled(enabled: Boolean) {
         viewModelScope.launch {
@@ -74,8 +88,9 @@ fun WebControlScreen(
     SettingsPage(
         title = "Web control",
         trail = listOf("Settings"),
-        about = "A browser on your network opens the address below and pairs once, with a PIN this screen shows. " +
-            "It can then manage AnstelleTV and watch channels.",
+        about = "A browser on your network opens the address below and pairs once, with a PIN this screen shows " +
+            "while the owner's or an admin's profile is on. It can then manage channels, servers, themes and backups, " +
+            "as long as that profile is the owner or an admin.",
         modifier = modifier,
     ) {
         item(key = "switch") {
@@ -103,11 +118,16 @@ fun WebControlScreen(
             item(key = "none") { InfoRow("None yet", icon = Icons.Filled.Computer) }
         }
         items(state.pairedClients, key = { "client-${it.id}" }) { client ->
-            InfoRow(
-                title = client.name,
-                summary = listOfNotNull(client.lastAddress, client.userAgent?.take(60)).joinToString("  "),
-                icon = Icons.Filled.Computer,
-            )
+            // The browser is a fact; its red bin unpairs it.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                InfoRow(
+                    title = client.name,
+                    summary = listOfNotNull(state.profileNames[client.profileId], client.lastAddress, client.userAgent?.take(60)).joinToString("  "),
+                    icon = Icons.Filled.Computer,
+                    modifier = Modifier.weight(1f),
+                )
+                RemoveKey("Unpair ${client.name}", onClick = { viewModel.unpair(client.id) })
+            }
         }
     }
 }

@@ -1,139 +1,180 @@
+@import 'tailwindcss';
+
+/*
+ * The AnstelleTV look (DESIGN.md) as Tailwind tokens. Colors are roles, never hues: they read
+ * the --theme-* variables, which the paired profile's theme sets at runtime (lib/theme.svelte.ts)
+ * so the browser wears what that profile wears on the TV. The defaults below are Rose, worn
+ * until the theme is known. Danger is the one color outside every theme.
+ */
+
 :root {
-	--bg: #0e1116;
-	--surface: #171b22;
-	--surface-2: #1f2530;
-	--line: #2a3240;
-	--text: #eceff4;
-	--muted: #9aa4b2;
-	--primary: #4fb3ff;
-	--primary-ink: #04121f;
-	--accent: #ffb547;
-	--danger: #ff5a5f;
-	--ok: #4fd18b;
-	--radius: 12px;
-	--radius-sm: 8px;
-	--font: 'Inter', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
-	--mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+	--theme-background: #130c0f;
+	--theme-surface: #20161a;
+	--theme-surface-high: #291e23;
+	--theme-line: #34272c;
+	--theme-text: #f9f1f4;
+	--theme-text-muted: #bfabb3;
+	--theme-accent: #f978b6;
+	--theme-on-accent: #130c0f;
+	--theme-accent-container: #4f1a35;
+	--theme-on-accent-container: #ffcee2;
+	--theme-font-body: 'Barlow', system-ui, sans-serif;
+	--theme-font-display: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+	--theme-scale: 1;
+	--theme-scanlines: 0;
 	color-scheme: dark;
 }
 
-*,
-*::before,
-*::after {
-	box-sizing: border-box;
+@theme {
+	--color-*: initial;
+	--color-danger: #d32f2f;
+	--color-on-danger: #ffffff;
+	--color-black: #000000;
+	--color-transparent: transparent;
+
+	--radius-control: 2px;
+	--radius-panel: 4px;
+
+	--tracking-field: 0.06em;
+	--tracking-label: 0.01em;
+
+	/* Motion is a short hard snap. */
+	--default-transition-duration: 160ms;
 }
 
-html,
-body {
-	margin: 0;
-	min-height: 100%;
-	background: var(--bg);
-	color: var(--text);
-	font: 15px/1.5 var(--font);
-	-webkit-font-smoothing: antialiased;
+@theme inline {
+	--color-background: var(--theme-background);
+	--color-surface: var(--theme-surface);
+	--color-surface-high: var(--theme-surface-high);
+	--color-line: var(--theme-line);
+	--color-text: var(--theme-text);
+	--color-text-muted: var(--theme-text-muted);
+	--color-accent: var(--theme-accent);
+	--color-on-accent: var(--theme-on-accent);
+	--color-accent-container: var(--theme-accent-container);
+	--color-on-accent-container: var(--theme-on-accent-container);
+
+	--font-body: var(--theme-font-body);
+	--font-display: var(--theme-font-display);
+
+	/* The type scale, times the theme's text size. */
+	--text-display-m: calc(48px * var(--theme-scale));
+	--text-display-m--line-height: calc(52px * var(--theme-scale));
+	--text-display-s: calc(36px * var(--theme-scale));
+	--text-display-s--line-height: calc(40px * var(--theme-scale));
+	--text-headline-l: calc(34px * var(--theme-scale));
+	--text-headline-l--line-height: calc(38px * var(--theme-scale));
+	--text-headline-m: calc(30px * var(--theme-scale));
+	--text-headline-m--line-height: calc(34px * var(--theme-scale));
+	--text-headline-s: calc(24px * var(--theme-scale));
+	--text-headline-s--line-height: calc(28px * var(--theme-scale));
+	--text-title-l: calc(20px * var(--theme-scale));
+	--text-title-l--line-height: calc(26px * var(--theme-scale));
+	--text-title-m: calc(16px * var(--theme-scale));
+	--text-title-m--line-height: calc(22px * var(--theme-scale));
+	--text-title-s: calc(14px * var(--theme-scale));
+	--text-title-s--line-height: calc(20px * var(--theme-scale));
+	--text-body-l: calc(16px * var(--theme-scale));
+	--text-body-l--line-height: calc(24px * var(--theme-scale));
+	--text-body-m: calc(14px * var(--theme-scale));
+	--text-body-m--line-height: calc(20px * var(--theme-scale));
+	--text-body-s: calc(12px * var(--theme-scale));
+	--text-body-s--line-height: calc(16px * var(--theme-scale));
+	--text-label-l: calc(14px * var(--theme-scale));
+	--text-label-l--line-height: calc(18px * var(--theme-scale));
+	--text-label-m: calc(13px * var(--theme-scale));
+	--text-label-m--line-height: calc(16px * var(--theme-scale));
+	--text-label-s: calc(11px * var(--theme-scale));
+	--text-label-s--line-height: calc(14px * var(--theme-scale));
 }
 
-a {
-	color: var(--primary);
-	text-decoration: none;
+@font-face {
+	font-family: 'Barlow';
+	font-weight: 400;
+	font-display: swap;
+	src: url('../../core/theme/src/main/res/font/barlow_regular.ttf') format('truetype');
 }
 
-h1,
-h2,
-h3 {
-	margin: 0;
-	line-height: 1.2;
-	font-weight: 650;
-	letter-spacing: -0.01em;
+@font-face {
+	font-family: 'Barlow';
+	font-weight: 500;
+	font-display: swap;
+	src: url('../../core/theme/src/main/res/font/barlow_medium.ttf') format('truetype');
 }
 
-h1 {
-	font-size: 1.6rem;
-}
-
-h2 {
-	font-size: 1.15rem;
-}
-
-p {
-	margin: 0;
-}
-
-.muted {
-	color: var(--muted);
-}
-
-button,
-input,
-select {
-	font: inherit;
-	color: inherit;
-}
-
-.btn {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	gap: 0.5rem;
-	min-height: 2.5rem;
-	padding: 0 1.1rem;
-	border: 1px solid var(--line);
-	border-radius: var(--radius-sm);
-	background: var(--surface-2);
-	cursor: pointer;
-	transition:
-		background 0.15s,
-		border-color 0.15s;
-}
-
-.btn:hover {
-	border-color: var(--muted);
-}
-
-.btn:focus-visible,
-input:focus-visible,
-a:focus-visible {
-	outline: 2px solid var(--primary);
-	outline-offset: 2px;
-}
-
-.btn.primary {
-	background: var(--primary);
-	border-color: var(--primary);
-	color: var(--primary-ink);
+@font-face {
+	font-family: 'Barlow';
 	font-weight: 600;
+	font-display: swap;
+	src: url('../../core/theme/src/main/res/font/barlow_semibold.ttf') format('truetype');
 }
 
-.btn:disabled {
-	opacity: 0.55;
-	cursor: default;
+@font-face {
+	font-family: 'Barlow Condensed';
+	font-weight: 600;
+	font-display: swap;
+	src: url('../../core/theme/src/main/res/font/barlow_condensed_semibold.ttf') format('truetype');
 }
 
-input[type='text'],
-input[type='number'] {
-	width: 100%;
-	min-height: 2.5rem;
-	padding: 0 0.8rem;
-	border: 1px solid var(--line);
-	border-radius: var(--radius-sm);
-	background: var(--bg);
+@font-face {
+	font-family: 'Barlow Condensed';
+	font-weight: 700;
+	font-display: swap;
+	src: url('../../core/theme/src/main/res/font/barlow_condensed_bold.ttf') format('truetype');
 }
 
-.card {
-	background: var(--surface);
-	border: 1px solid var(--line);
-	border-radius: var(--radius);
-	padding: 1.25rem;
+@layer base {
+	html,
+	body {
+		min-height: 100%;
+		background-color: var(--color-background);
+		color: var(--color-text);
+		font-family: var(--font-body);
+		font-size: var(--text-body-l);
+		line-height: var(--text-body-l--line-height);
+		-webkit-font-smoothing: antialiased;
+	}
+
+	/* Focus is a fill: controls draw it themselves, so the browser's ring is off. */
+	:focus {
+		outline: none;
+	}
+
+	::selection {
+		background-color: var(--color-accent-container);
+		color: var(--color-on-accent-container);
+	}
+
+	button {
+		cursor: pointer;
+	}
+
+	button:disabled {
+		cursor: default;
+	}
 }
 
-.stack {
-	display: flex;
-	flex-direction: column;
-	gap: 1rem;
+/* An OSD field label: the condensed cut, tracked, uppercase, tabular. */
+@utility field-label {
+	font-family: var(--font-display);
+	font-size: var(--text-label-m);
+	line-height: var(--text-label-m--line-height);
+	font-weight: 600;
+	letter-spacing: var(--tracking-field);
+	text-transform: uppercase;
+	font-variant-numeric: tabular-nums;
 }
 
-.icon {
-	width: 1.25em;
-	height: 1.25em;
-	flex: none;
+/* Numbers that change in place: the condensed cut with tabular figures. */
+@utility tabular {
+	font-family: var(--font-display);
+	font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		transition-duration: 0ms !important;
+	}
 }

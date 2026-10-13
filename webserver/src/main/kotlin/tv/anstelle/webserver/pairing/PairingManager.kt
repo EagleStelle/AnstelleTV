@@ -28,6 +28,9 @@ data class PairingRequest(
 sealed interface PairStartResult {
     data class Started(val request: PairingRequest) : PairStartResult
     data object RateLimited : PairStartResult
+
+    /** The profile active on the TV is a member, who can't approve a pairing. */
+    data object NotAllowed : PairStartResult
 }
 
 sealed interface PairResult {
@@ -36,14 +39,19 @@ sealed interface PairResult {
     data object Expired : PairResult
     data object TooManyAttempts : PairResult
     data object NoRequest : PairResult
+
+    /** The TV moved to a member's profile before the PIN came back. */
+    data object NotAllowed : PairResult
 }
 
 /**
  * Pairs browsers with the TV.
  *
- * 1. A browser asks to pair; the TV shows a 6-digit PIN for [PIN_TTL_MS].
+ * 1. A browser asks to pair; the TV shows a 6-digit PIN for [PIN_TTL_MS], only while the owner's
+ *    or an admin's profile is active ([PairingGate.approver]).
  * 2. The browser sends the PIN back. After [MAX_ATTEMPTS] wrong PINs the request dies.
- * 3. On success the browser gets a random 256-bit token; only its SHA-256 is stored.
+ * 3. On success the browser gets a random 256-bit token; only its SHA-256 is stored, with the
+ *    profile that approved it. The token counts only while that profile is the owner or an admin.
  *
  * New requests are limited to [MAX_STARTS] per [START_WINDOW_MS] so a LAN client cannot
  * cycle PINs quickly. Each new request replaces the PIN on screen, so the person at the
@@ -53,6 +61,7 @@ sealed interface PairResult {
 class PairingManager @Inject constructor(
     private val store: PairedClientStore,
     private val time: TimeSource,
+    private val gate: PairingGate,
 ) {
     private val mutex = Mutex()
     private val _activeRequest = MutableStateFlow<PairingRequest?>(null)
@@ -66,6 +75,7 @@ class PairingManager @Inject constructor(
     val activeRequest: StateFlow<PairingRequest?> = _activeRequest.asStateFlow()
 
     suspend fun start(clientName: String, address: String?, isDevice: Boolean = false): PairStartResult = mutex.withLock {
+        if (gate.approver() == null) return@withLock PairStartResult.NotAllowed
         val now = time.nowUtcMs()
         while (recentStarts.isNotEmpty() && now - recentStarts.first() > START_WINDOW_MS) recentStarts.removeFirst()
         if (recentStarts.size >= MAX_STARTS) return@withLock PairStartResult.RateLimited
@@ -106,9 +116,15 @@ class PairingManager @Inject constructor(
                 return@withLock PairResult.WrongPin
             }
 
+            val approver = gate.approver()
+            if (approver == null) {
+                _activeRequest.value = null
+                return@withLock PairResult.NotAllowed
+            }
             val token = Tokens.newToken()
             val entity = PairedClientEntity(
                 tokenHash = Tokens.hash(token),
+                profileId = approver,
                 name = request.clientName,
                 userAgent = userAgent?.take(MAX_AGENT_LENGTH),
                 lastAddress = address,
@@ -126,24 +142,33 @@ class PairingManager @Inject constructor(
         _activeRequest.value = null
     }
 
-    /** Returns the paired client for [token], or null when the token is unknown. */
-    suspend fun authenticate(token: String?, address: String?): PairedClientEntity? {
+    /**
+     * Returns who [token] speaks for, or null when the token is unknown or its profile is no
+     * longer the owner or an admin.
+     */
+    suspend fun authenticate(token: String?, address: String?): Access? {
         if (token.isNullOrEmpty() || token.length > MAX_TOKEN_LENGTH) return null
         val hash = Tokens.hash(token)
         val now = time.nowUtcMs()
         val cached = authCache[hash]
-        if (cached != null) {
+        val client = if (cached != null) {
             if (now - cached.lastTouchUtcMs > TOUCH_INTERVAL_MS) {
                 authCache[hash] = cached.copy(lastTouchUtcMs = now)
                 store.touch(cached.client.id, now, address)
             }
-            return cached.client
+            cached.client
+        } else {
+            val stored = store.byTokenHash(hash) ?: return null
+            authCache[hash] = CachedClient(stored, now)
+            store.touch(stored.id, now, address)
+            stored
         }
-        val client = store.byTokenHash(hash) ?: return null
-        authCache[hash] = CachedClient(client, now)
-        store.touch(client.id, now, address)
-        return client
+        val manager = gate.managers()[client.profileId] ?: return null
+        return Access(client, manager)
     }
+
+    /** The owner and admins, each time they change. */
+    fun observeManagers() = gate.observeManagers()
 
     suspend fun revoke(clientId: Long) {
         authCache.entries.removeIf { it.value.client.id == clientId }
@@ -151,6 +176,9 @@ class PairingManager @Inject constructor(
     }
 
     private data class CachedClient(val client: PairedClientEntity, val lastTouchUtcMs: Long)
+
+    /** A paired client and the profile it speaks for. */
+    data class Access(val client: PairedClientEntity, val manager: Manager)
 
     companion object {
         private const val TAG = "Pairing"

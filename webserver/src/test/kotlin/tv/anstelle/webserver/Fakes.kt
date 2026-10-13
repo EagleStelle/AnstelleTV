@@ -1,19 +1,54 @@
 package tv.anstelle.webserver
 
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import tv.anstelle.core.common.AppInfo
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ThemeImportException
+import tv.anstelle.core.data.backup.BackupException
 import tv.anstelle.core.data.backup.BackupFile
 import tv.anstelle.core.data.channels.LibraryChannelLockedException
 import tv.anstelle.core.database.entity.PairedClientEntity
-import tv.anstelle.webserver.api.ApiDataSource
+import tv.anstelle.core.model.ProfileRole
+import tv.anstelle.core.model.ServerConnectException
+import tv.anstelle.core.model.ServerProblem
+import tv.anstelle.webserver.api.BackupApi
+import tv.anstelle.webserver.api.BackupCheckDto
+import tv.anstelle.webserver.api.BackupDto
+import tv.anstelle.webserver.api.BuilderDto
+import tv.anstelle.webserver.api.BuiltInThemeException
+import tv.anstelle.webserver.api.ChannelDetailDto
 import tv.anstelle.webserver.api.ChannelDto
-import tv.anstelle.webserver.api.ProfileDto
+import tv.anstelle.webserver.api.ChannelPatch
+import tv.anstelle.webserver.api.ChannelsApi
+import tv.anstelle.webserver.api.ChannelsDto
+import tv.anstelle.webserver.api.DeviceApi
+import tv.anstelle.webserver.api.FoundServerDto
+import tv.anstelle.webserver.api.GroupDto
+import tv.anstelle.webserver.api.GroupRequest
+import tv.anstelle.webserver.api.GroupsDto
+import tv.anstelle.webserver.api.LineupDto
+import tv.anstelle.webserver.api.LineupPreviewDto
+import tv.anstelle.webserver.api.NewChannelRequest
+import tv.anstelle.webserver.api.OptionDto
+import tv.anstelle.webserver.api.OverviewDto
+import tv.anstelle.webserver.api.ReachDto
+import tv.anstelle.webserver.api.ServerDetailDto
+import tv.anstelle.webserver.api.ServerDto
+import tv.anstelle.webserver.api.ServersApi
+import tv.anstelle.webserver.api.SignInStateDto
+import tv.anstelle.webserver.api.ThemeDesignDto
 import tv.anstelle.webserver.api.ThemeDto
+import tv.anstelle.webserver.api.ThemesApi
+import tv.anstelle.webserver.api.WebDto
+import tv.anstelle.webserver.api.WornThemeDto
 import tv.anstelle.webserver.http.AssetSource
 import tv.anstelle.webserver.http.StaticFiles
+import tv.anstelle.webserver.pairing.Manager
 import tv.anstelle.webserver.pairing.PairedClientStore
+import tv.anstelle.webserver.pairing.PairingGate
 import tv.anstelle.webserver.pairing.PairingManager
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -46,6 +81,22 @@ class InMemoryClientStore : PairedClientStore {
     }
 }
 
+/** Alex is the owner (1) and Sam an admin (2); Kim (3) is a member. Alex is watching. */
+class FakeGate : PairingGate {
+    var active: Long = OWNER
+    val managers = MutableStateFlow(mapOf(OWNER to Manager(OWNER, "Alex", ProfileRole.OWNER), ADMIN to Manager(ADMIN, "Sam", ProfileRole.ADMIN)))
+
+    override suspend fun approver(): Long? = active.takeIf { it in managers.value }
+    override suspend fun managers(): Map<Long, Manager> = managers.value
+    override fun observeManagers() = managers
+
+    companion object {
+        const val OWNER = 1L
+        const val ADMIN = 2L
+        const val MEMBER = 3L
+    }
+}
+
 class FakeAssets(private val files: Map<String, String>) : AssetSource {
     /** Every file is "stored gzipped", like the real build output for text files. */
     override val index: Map<String, Boolean> = files.keys.associateWith { true }
@@ -59,43 +110,163 @@ class FakeAssets(private val files: Map<String, String>) : AssetSource {
     }
 }
 
-class FakeApi : ApiDataSource {
-    /** Logos by channel id; only channel 1 exists. */
+/** Only channel 1 exists; groups refuse a second "Sitcoms". */
+class FakeChannels : ChannelsApi {
     val logos = mutableMapOf<Long, ByteArray>()
     var libraryChannel = false
+    val patches = mutableListOf<ChannelPatch>()
 
-    override suspend fun profiles() = listOf(ProfileDto(1, "Alex", role = "owner", hasPin = false))
-    override suspend fun channels() = listOf(ChannelDto(1, 2, "Sitcoms", null, isHidden = false, isFavorite = true, groupId = 1))
+    private fun channel() = ChannelDto(1, 2, "Sitcoms", null, isHidden = false, isFavorite = true, groupId = 1, groupName = "Mine", fromLibrary = libraryChannel)
 
-    override suspend fun channelLogo(channelId: Long): ByteArray? = logos[channelId]
-
-    override suspend fun setChannelLogo(channelId: Long, bytes: ByteArray): Boolean {
+    private fun custom(channelId: Long): Boolean {
         if (channelId != 1L) return false
         if (libraryChannel) throw LibraryChannelLockedException()
+        return true
+    }
+
+    override suspend fun channels() = ChannelsDto(listOf(channel()), bannerSize = 10, bannerSizes = listOf(5, 10))
+    override suspend fun channel(channelId: Long): ChannelDetailDto? = null
+
+    override suspend fun update(channelId: Long, patch: ChannelPatch): Boolean {
+        if (channelId != 1L) return false
+        if (libraryChannel && (patch.name != null || patch.series != null)) throw LibraryChannelLockedException()
+        patches += patch
+        return true
+    }
+
+    override suspend fun delete(channelId: Long) = custom(channelId)
+
+    override suspend fun create(request: NewChannelRequest): Long {
+        require(request.lineup.groups.isNotEmpty() || request.lineup.includes.isNotEmpty()) { "Add a rule or a show first." }
+        return 7
+    }
+
+    override suspend fun logo(channelId: Long): ByteArray? = logos[channelId]
+
+    override suspend fun setLogo(channelId: Long, bytes: ByteArray): Boolean {
+        if (!custom(channelId)) return false
         // Stands in for image decoding: PNG files start with 0x89 'P' 'N' 'G'.
         if (bytes.size < 4 || bytes[1] != 'P'.code.toByte()) throw IOException("Not an image")
         logos[channelId] = bytes
         return true
     }
 
-    override suspend fun clearChannelLogo(channelId: Long): Boolean {
-        if (channelId != 1L) return false
-        if (libraryChannel) throw LibraryChannelLockedException()
+    override suspend fun clearLogo(channelId: Long): Boolean {
+        if (!custom(channelId)) return false
         logos.remove(channelId)
         return true
     }
 
-    override suspend fun themes() = listOf(ThemeDto(1, "Rose", isBuiltIn = true))
+    override suspend fun lineup(channelId: Long): LineupPreviewDto? = if (custom(channelId)) preview(LineupDto()) else null
+    override suspend fun setLineup(channelId: Long, lineup: LineupDto) = custom(channelId)
 
+    /** Stands in for describing: each rule reads as its field and values. */
+    override suspend fun preview(lineup: LineupDto) = LineupPreviewDto(
+        lineup.copy(groups = lineup.groups.map { group -> group.copy(rules = group.rules.map { it.copy(label = "${it.field} ${it.values.joinToString()}") }) }),
+        ReachDto(episodes = 3, movies = 0, videos = 0, series = 1, hours = 1, episodeShare = 0.1f, movieShare = 0f, videoShare = 0f),
+    )
+
+    override suspend fun builder() = BuilderDto(emptyList(), emptyList())
+    override suspend fun options(field: String, op: String, query: String, from: String?) = listOf(OptionDto("Comedy", "Comedy", 4))
+
+    override suspend fun groups() = GroupsDto(listOf(GroupDto(1, "Sitcoms", 5000, fromLibrary = false, channelCount = 1)), nextStart = 6000)
+
+    override suspend fun createGroup(name: String, start: Int): Long {
+        require(!name.equals("Sitcoms", ignoreCase = true)) { "A group already has that name." }
+        return 2
+    }
+
+    override suspend fun updateGroup(groupId: Long, request: GroupRequest) = groupId == 1L
+    override suspend fun moveGroup(groupId: Long, delta: Int) = Unit
+    override suspend fun deleteGroup(groupId: Long) = require(groupId != 1L) { "Move or delete its channels first." }
+    override suspend fun setBannerSize(size: Int) = require(size in listOf(5, 10)) { "Pick one of 5, 10." }
+}
+
+class FakeServers : ServersApi {
+    var state = SignInStateDto("idle")
+
+    override suspend fun servers() = listOf(ServerDto(1, "Home", "http://192.168.1.2:8096", "10.11", "alex", true, null, null, null))
+    override suspend fun server(serverId: Long): ServerDetailDto? = null
+    override suspend fun sync(serverId: Long, full: Boolean) = serverId == 1L
+    override suspend fun setLibrary(serverId: Long, libraryId: Long, enabled: Boolean) = serverId == 1L && libraryId == 1L
+    override suspend fun remove(serverId: Long) = serverId == 1L
+
+    override suspend fun find(address: String): FoundServerDto {
+        if (address.isBlank()) throw ServerConnectException(ServerProblem.INVALID_URL, "Enter a server address")
+        return FoundServerDto("s1", "Home", "http://$address:8096", "10.11", quickConnect = true)
+    }
+
+    override suspend fun signIn(signInId: String, username: String, password: String): Long? {
+        if (signInId != "s1") return null
+        if (password != "right") throw ServerConnectException(ServerProblem.BAD_CREDENTIALS, "401")
+        return 1
+    }
+
+    override suspend fun quickConnect(signInId: String): String? = if (signInId == "s1") "123456".also { state = SignInStateDto("waiting", code = it) } else null
+    override fun signInState(signInId: String) = state.takeIf { signInId == "s1" }
+    override fun cancelSignIn(signInId: String) = Unit
+}
+
+/** Theme 1 is built in, theme 2 someone's own; each profile wears theme 1 until it picks another. */
+class FakeThemes : ThemesApi {
+    val worn = mutableMapOf<Long, Long>()
+
+    override suspend fun themes(profileId: Long) =
+        listOf(ThemeDto(1, "Rose", isBuiltIn = true), ThemeDto(2, "Mine", isBuiltIn = false)).map { it.copy(inUse = it.id == (worn[profileId] ?: 1L)) }
+
+    override suspend fun worn(profileId: Long) =
+        WornThemeDto(worn[profileId] ?: 1L, buildJsonObject { put("key", if ((worn[profileId] ?: 1L) == 1L) "rose" else "mine") })
+
+    override suspend fun use(profileId: Long, themeId: Long): Boolean {
+        if (themeId !in 1L..2L) return false
+        worn[profileId] = themeId
+        return true
+    }
     override suspend fun themeFile(themeId: Long) = if (themeId == 1L) "rose.json" to """{"key":"rose"}""" else null
 
     /** Stands in for parsing: anything with colors is a theme. */
-    override suspend fun importTheme(json: String): ThemeDto {
+    override suspend fun import(json: String): ThemeDto {
         if ("\"colors\"" !in json) throw ThemeImportException("That file isn't an AnstelleTV theme")
-        return ThemeDto(2, "Imported", isBuiltIn = false)
+        return ThemeDto(3, "Imported", isBuiltIn = false)
     }
 
-    override suspend fun backup() = BackupFile("anstelletv-test-tv-2026-10-12.json", """{"format":"anstelletv-backup","version":1}""")
+    override suspend fun create() = 4L
+    override suspend fun copy(themeId: Long) = if (themeId in 1L..2L) 5L else null
+
+    override suspend fun delete(themeId: Long): Boolean {
+        if (themeId == 1L) throw BuiltInThemeException()
+        return themeId == 2L
+    }
+
+    override suspend fun design(themeId: Long): ThemeDesignDto? = null
+
+    override suspend fun save(themeId: Long, specJson: String): ThemeDesignDto? {
+        if (themeId == 1L) throw BuiltInThemeException()
+        return null
+    }
+}
+
+class FakeBackup : BackupApi {
+    val restored = mutableListOf<String>()
+
+    override suspend fun summary(canRestore: Boolean) = BackupDto(1, 2, 1, 0, 1, 0, null, canRestore)
+    override suspend fun export() = BackupFile("anstelletv-test-tv-2026-10-12.json", """{"format":"anstelletv-backup","version":1}""")
+
+    override suspend fun check(text: String): BackupCheckDto {
+        if ("anstelletv-backup" !in text) throw BackupException("That file isn't an AnstelleTV backup.")
+        return BackupCheckDto("Replace everything here?", "1 profile from the file replace what this device holds.")
+    }
+
+    override suspend fun restore(text: String) {
+        check(text)
+        restored += text
+    }
+}
+
+class FakeDevice(private val store: InMemoryClientStore) : DeviceApi {
+    override suspend fun overview() = OverviewDto(1, "Home", false, 2, 0, 16, store.clients.size, null)
+    override suspend fun web(you: Long) = WebDto(true, listOf("http://192.168.1.20:8765"), emptyList())
+    override suspend fun hasClient(clientId: Long) = clientId in store.clients
 }
 
 class TestServer(
@@ -103,8 +274,12 @@ class TestServer(
     val store: InMemoryClientStore = InMemoryClientStore(),
     val changes: MutableSharedFlow<Set<String>> = MutableSharedFlow(extraBufferCapacity = 8),
 ) {
-    val pairing = PairingManager(store, clock)
-    val api = FakeApi()
+    val gate = FakeGate()
+    val pairing = PairingManager(store, clock, gate)
+    val channels = FakeChannels()
+    val servers = FakeServers()
+    val themes = FakeThemes()
+    val backup = FakeBackup()
     val deps = ServerDependencies(
         appInfo = AppInfo("AnstelleTV", "0.1.0", 1, "Test TV", isTv = true, isDebug = true),
         pairing = pairing,
@@ -116,7 +291,11 @@ class TestServer(
                 ),
             ),
         ),
-        api = api,
+        channels = channels,
+        servers = servers,
+        themes = themes,
+        backup = backup,
+        device = FakeDevice(store),
         databaseChanges = changes,
     )
 }

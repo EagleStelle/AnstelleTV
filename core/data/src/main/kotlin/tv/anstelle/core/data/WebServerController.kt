@@ -25,4 +25,7 @@ interface WebServerController {
     fun startIfEnabled()
 
     fun stop()
+
+    /** Unpairs a browser or device at once, whatever it is doing. */
+    suspend fun unpair(clientId: Long)
 }

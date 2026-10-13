@@ -1,5 +1,6 @@
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
+import tailwindcss from '@tailwindcss/vite';
 import Icons from 'unplugin-icons/vite';
 import { defineConfig } from 'vite';
 
@@ -10,6 +11,7 @@ const device = process.env.ANSTELLE_DEVICE ?? 'http://127.0.0.1:8765';
 
 export default defineConfig({
 	plugins: [
+		tailwindcss(),
 		// SvelteKit 3 takes its configuration here instead of svelte.config.js.
 		sveltekit({
 			// Android's asset packager skips directories that start with "_", so the
@@ -27,6 +29,8 @@ export default defineConfig({
 		Icons({ compiler: 'svelte' })
 	],
 	server: {
+		// The fonts come straight from the app's own copies in core/theme.
+		fs: { allow: ['..'] },
 		proxy: {
 			'/api': { target: device, changeOrigin: false },
 			'/ws': { target: device.replace(/^http/, 'ws'), ws: true }

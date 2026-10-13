@@ -39,12 +39,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import tv.anstelle.core.data.channels.Catalog
 import tv.anstelle.core.data.channels.ChannelRepository
+import tv.anstelle.core.data.channels.BuilderFields
 import tv.anstelle.core.data.channels.Lineup
-import tv.anstelle.core.data.channels.LineupMatcher
+import tv.anstelle.core.data.channels.LineupChoices
+import tv.anstelle.core.data.channels.LineupReach
 import tv.anstelle.core.data.channels.Pick
 import tv.anstelle.core.data.channels.Rule
 import tv.anstelle.core.data.channels.RuleGroup
-import tv.anstelle.core.model.MediaType
+import tv.anstelle.core.data.channels.SinglePickOps
+import tv.anstelle.core.data.channels.ValueOption
+import tv.anstelle.core.data.channels.WeightSteps
+import tv.anstelle.core.data.channels.fieldHint
+import tv.anstelle.core.data.channels.fieldLabel
+import tv.anstelle.core.data.channels.opLabel
+import tv.anstelle.core.data.channels.weightHint
+import tv.anstelle.core.data.channels.weightLabel
 import tv.anstelle.core.model.RuleField
 import tv.anstelle.core.model.RuleOp
 import tv.anstelle.core.theme.components.AnstelleTextField
@@ -94,10 +103,6 @@ sealed interface BuilderPage {
     data class Titles(val include: Boolean, val movies: Boolean, val query: String = "") : BuilderPage
 }
 
-/** A value to pick: what is stored, what is shown, and how many items have it. */
-@Immutable
-data class ValueOption(val value: String, val label: String, val count: Int)
-
 @Immutable
 data class GroupRow(val rules: List<String>, val weight: Float)
 
@@ -139,24 +144,13 @@ class ChannelLineupViewModel @Inject constructor(
     /** A new channel's group. */
     val placement = PlacementPicker(repository, viewModelScope) { fail(it) }
 
-    private var catalog = Catalog(emptyList())
+    private var choices = LineupChoices(Catalog(emptyList()))
     private var lineup = Lineup.EMPTY
     private var summaryJob: Job? = null
 
-    /** The library's airtime, for a lineup's share of it. */
-    private var libraryMs = 0L
-
-    /** Each rating score with the ratings the library gives it ("TV-14, PG-13"). */
-    private var ratingNames: Map<Int, String> = emptyMap()
-
     init {
         viewModelScope.launch {
-            catalog = repository.catalog()
-            libraryMs = catalog.items.sumOf { it.row.durationMs }
-            ratingNames = catalog.items
-                .mapNotNull { item -> item.row.ratingScore?.let { score -> item.row.officialRating?.let { score to it } } }
-                .groupBy({ it.first }, { it.second })
-                .mapValues { (_, names) -> names.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER).take(3).joinToString(", ") }
+            choices = LineupChoices(repository.catalog())
             if (channelId != 0L) {
                 val channel = repository.observeChannel(channelId).first()
                 if (channel?.fromLibrary == true) {
@@ -245,9 +239,6 @@ class ChannelLineupViewModel @Inject constructor(
         lineup = lineup.copy(groups = groups)
         changed()
     }
-
-    /** Names a rating score for a rule's description ("TV-14, PG-13"). */
-    private fun ratingOf(value: String): String? = value.toIntOrNull()?.let(ratingNames::get)
 
     fun setGroupWeight(group: Int, weight: Float) {
         lineup = lineup.copy(groups = lineup.groups.mapIndexed { i, g -> if (i == group) g.copy(weight = weight) else g })
@@ -343,74 +334,31 @@ class ChannelLineupViewModel @Inject constructor(
 
     /** Rebuilds the rows from the lineup and recounts what it matches, off the main thread. */
     private fun changed() {
-        val titleOf = catalog::titleOf
+        val choices = choices
         _state.update { state ->
             state.copy(
-                groups = lineup.groups.map { group -> GroupRow(group.rules.map { describe(it, titleOf, ::ratingOf) }, group.weight) },
-                includes = lineup.includes.map { PickRow(titleOf(it.remoteId) ?: "Not in your library", it.weight) },
-                excludes = lineup.excludes.map { PickRow(titleOf(it.remoteId) ?: "Not in your library", it.weight) },
+                groups = lineup.groups.map { group -> GroupRow(group.rules.map(choices::describe), group.weight) },
+                includes = lineup.includes.map { PickRow(choices.titleOf(it.remoteId) ?: NOT_IN_LIBRARY, it.weight) },
+                excludes = lineup.excludes.map { PickRow(choices.titleOf(it.remoteId) ?: NOT_IN_LIBRARY, it.weight) },
             )
         }
         val snapshot = lineup
         summaryJob?.cancel()
         summaryJob = viewModelScope.launch {
-            val reach = withContext(Dispatchers.Default) { LineupReach.of(LineupMatcher(snapshot).match(catalog), libraryMs) }
+            val reach = withContext(Dispatchers.Default) { choices.reach(snapshot) }
             _state.update { it.copy(reach = reach) }
         }
     }
 
-    /**
-     * The values a page lists, in a fixed order that picking never changes: alphabetical, or
-     * ascending for years and rating scores. Picked values stay listed while the list is filtered;
-     * a range's end lists only values from its start on.
-     */
-    private fun optionsFor(page: BuilderPage): List<ValueOption> {
-        val (all, query, selected) = when (page) {
-            is BuilderPage.Choose -> {
-                val start = page.from?.value?.toIntOrNull()
-                val values = choices(page.field, page.op).filter { start == null || (it.value.toIntOrNull() ?: Int.MIN_VALUE) >= start }
-                Triple(values, page.query, page.selected + listOfNotNull(page.from?.value))
-            }
-            is BuilderPage.Titles -> Triple(if (page.movies) movies() else series(), page.query, emptySet())
-            else -> return emptyList()
-        }
-        val needle = query.trim()
-        return all.filter { needle.isEmpty() || it.value in selected || it.label.contains(needle, ignoreCase = true) }.take(MAX_OPTIONS)
+    /** The values the Choose and Titles pages list (see [LineupChoices.options]). */
+    private fun optionsFor(page: BuilderPage): List<ValueOption> = when (page) {
+        is BuilderPage.Choose -> choices.options(page.field, page.op, page.query, page.selected, page.from?.value)
+        is BuilderPage.Titles -> choices.titles(page.movies, page.query)
+        else -> emptyList()
     }
-
-    private fun choices(field: RuleField, op: RuleOp): List<ValueOption> = when (field) {
-        RuleField.MEDIA_TYPE -> Rule.PlayableTypes.map { type ->
-            ValueOption(type.name, mediaTypeLabel(type.name), catalog.items.count { it.row.type == type })
-        }.filter { it.count > 0 }.alphabetical()
-        RuleField.SERIES -> series()
-        RuleField.ITEM -> movies()
-        RuleField.KIND -> catalog.values(field).map { ValueOption(it.value, kindLabel(it.value), it.count) }.alphabetical()
-        RuleField.YEAR -> catalog.items.mapNotNull { it.row.year }.groupingBy { it }.eachCount().entries
-            .sortedBy { it.key }
-            .map { ValueOption(it.key.toString(), it.key.toString(), it.value) }
-        // A rating compared by score picks a score, named by the ratings that have it.
-        RuleField.OFFICIAL_RATING -> if (op == RuleOp.AT_LEAST || op == RuleOp.AT_MOST || op == RuleOp.BETWEEN) {
-            catalog.items.mapNotNull { it.row.ratingScore }.groupingBy { it }.eachCount().entries
-                .sortedBy { it.key }
-                .map { ValueOption(it.key.toString(), ratingNames[it.key] ?: "Score ${it.key}", it.value) }
-        } else {
-            catalog.values(field).map { ValueOption(it.value, it.value, it.count) }.alphabetical()
-        }
-        else -> catalog.values(field).map { ValueOption(it.value, it.value, it.count) }.alphabetical()
-    }
-
-    private fun series(): List<ValueOption> =
-        catalog.shows.filter { catalog.isSeries(it.remoteId) }.map { ValueOption(it.remoteId, it.title, it.itemCount) }.alphabetical()
-
-    /** Movies by title, with the year when the library has one. */
-    private fun movies(): List<ValueOption> = catalog.items.filter { it.row.type == MediaType.MOVIE }
-        .map { item -> ValueOption(item.row.remoteId, item.row.year?.let { "${item.row.title} ($it)" } ?: item.row.title, 1) }
-        .alphabetical()
-
-    private fun List<ValueOption>.alphabetical() = sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
 
     private companion object {
-        const val MAX_OPTIONS = 200
+        const val NOT_IN_LIBRARY = "Not in your library"
     }
 }
 
