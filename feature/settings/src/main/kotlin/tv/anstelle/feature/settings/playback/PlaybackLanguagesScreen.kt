@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -26,15 +27,21 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import tv.anstelle.core.data.ProfileRepository
+import tv.anstelle.core.data.Settings
+import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.playback.TrackChoices
+import tv.anstelle.core.model.SegmentAction
+import tv.anstelle.core.model.SegmentType
 import tv.anstelle.core.model.SubtitleMode
 import tv.anstelle.core.model.TrackPrefs
+import tv.anstelle.core.model.codeOf
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.components.ChoiceRow
 import tv.anstelle.core.theme.components.InfoRow
@@ -55,18 +62,32 @@ import javax.inject.Inject
 enum class LanguageList { AUDIO, SUBTITLES }
 
 @Immutable
-data class PlaybackLanguagesUiState(val prefs: TrackPrefs = TrackPrefs(), val loaded: Boolean = false)
+data class PlaybackLanguagesUiState(
+    val prefs: TrackPrefs = TrackPrefs(),
+    /** What On Demand does while each kind of segment plays. */
+    val skipping: Map<SegmentType, SegmentAction> = emptyMap(),
+    val loaded: Boolean = false,
+)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class PlaybackLanguagesViewModel @Inject constructor(
     private val profiles: ProfileRepository,
     private val tracks: TrackChoices,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
     val state: StateFlow<PlaybackLanguagesUiState> = profiles.activeProfileId()
-        .flatMapLatest { tracks.observePrefs(it) }
-        .map { PlaybackLanguagesUiState(it, loaded = true) }
+        .flatMapLatest { profileId ->
+            val skipping = combine(
+                SegmentType.entries.map { type -> settings.observe(Settings.segmentAction(profileId, type)).map { type to codeOf<SegmentAction>(it) } },
+            ) { it.toMap() }
+            combine(tracks.observePrefs(profileId), skipping) { prefs, skip -> PlaybackLanguagesUiState(prefs, skip, loaded = true) }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlaybackLanguagesUiState())
+
+    fun setSkip(type: SegmentType, action: SegmentAction) {
+        viewModelScope.launch { settings.set(Settings.segmentAction(profiles.activeProfileId().first(), type), action.code) }
+    }
 
     fun setMode(mode: SubtitleMode) = update { it.copy(subtitleMode = mode) }
 
@@ -98,7 +119,8 @@ internal fun TrackPrefs.with(list: LanguageList, change: (List<String>) -> List<
 /**
  * The watching profile's playback defaults: the audio languages in order, when subtitles show,
  * and the subtitle languages in order. Every program starts on them. A language moves by its
- * handle, its menu removes it, and Add language opens the list of the rest.
+ * handle, its menu removes it, and Add language opens the list of the rest. Then what On Demand
+ * does with each kind of segment Jellyfin marks; channels play like TV, so they skip nothing.
  */
 @Composable
 fun PlaybackLanguagesScreen(
@@ -118,7 +140,9 @@ fun PlaybackLanguagesScreen(
         trail = listOf("Settings"),
         about = "Every program starts on these. Move a language by its handle to change the order. " +
             "A program with none of your audio languages plays its default audio track. " +
-            "Picking a track while watching changes only the program on now.",
+            "Picking a track while watching changes only the program on now. " +
+            "Skipping works in On Demand, for the intros, outros and other parts your Jellyfin server marks " +
+            "(with a plugin such as Intro Skipper). Channels play straight through, like TV.",
         listState = listState,
         modifier = modifier,
     ) {
@@ -151,6 +175,22 @@ fun PlaybackLanguagesScreen(
         item(key = "add-subtitles") {
             SettingsButtons {
                 OsdButton("Add subtitle language", onClick = { onAddLanguage(LanguageList.SUBTITLES) }, icon = Icons.Filled.Add)
+            }
+        }
+
+        section("Skipping")
+        for (type in SegmentType.entries) {
+            item(key = "skip-${type.key}") {
+                ChoiceRow(
+                    title = segmentName(type),
+                    value = state.skipping[type] ?: SegmentAction.ASK_TO_SKIP,
+                    choices = SkipOrder,
+                    label = ::skipName,
+                    detail = { skipHint(type, it) },
+                    about = "What On Demand does with ${segmentName(type).lowercase()}.",
+                    onSelect = { viewModel.setSkip(type, it) },
+                    icon = Icons.Filled.FastForward,
+                )
             }
         }
     }

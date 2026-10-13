@@ -170,3 +170,15 @@ enum class SubtitleMode(override val code: Int) : CodedEnum {
     /** Only when the audio isn't in one of the subtitle languages. */
     WHEN_AUDIO_DIFFERS(2),
 }
+
+/** What the on-demand player does when a kind of [MediaSegment] plays, as Jellyfin's own apps offer. */
+enum class SegmentAction(override val code: Int) : CodedEnum {
+    /** A Skip key shows while it plays. */
+    ASK_TO_SKIP(0),
+
+    /** It is jumped past as it starts. */
+    SKIP(1),
+
+    /** It plays through with nothing offered. */
+    PLAY(2),
+}

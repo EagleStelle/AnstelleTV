@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -27,7 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Audiotrack
-
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -99,6 +101,7 @@ import tv.anstelle.core.data.playback.TRACK_TYPE_TEXT
 import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.model.ProfileAccess
+import tv.anstelle.core.model.SegmentType
 import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.player.SubtitleStyle
 import tv.anstelle.core.theme.ControlShape
@@ -197,6 +200,8 @@ class OnDemandPlayerViewModel @Inject constructor(
         if (playback.state.value.playing) playback.togglePlay()
     }
 
+    fun skip() = playback.skipSegment()
+
     fun audioOptions(): List<TrackOption> = playback.trackOptions(TRACK_TYPE_AUDIO)
 
     fun subtitleOptions(): List<TrackOption> = playback.trackOptions(TRACK_TYPE_TEXT)
@@ -214,15 +219,19 @@ class OnDemandPlayerViewModel @Inject constructor(
 private enum class DemandPanel { CONTROLS, AUDIO, SUBTITLES, EPISODES }
 
 /**
- * Full-screen on-demand playback: OK brings a hidden banner in with pause highlighted and plays
- * or pauses while it shows, left and right jump back 10 s and ahead
- * 30 s, the remote's previous and next keys step through the show's episodes. The banner always
- * carries its keys (audio and subtitles on the left; then previous, 10 s back, pause, 30 s ahead
- * and next, in the remote's own order, pause in the middle); up, down or Menu moves focus into
- * them. Coming and going with it, the top corners hold the way back to the program's channel
- * page ([onOpenOnDemand], top start) and, for an episode, Episodes (top end), which swaps the
- * keys for the show's seasons and a strip of its episodes. Phones tap for the banner and drag
- * its bar to seek.
+ * Full-screen on-demand playback: OK on the picture pauses and brings the banner in with Play
+ * highlighted, left and right jump back 10 s and ahead 30 s, the remote's previous and next keys
+ * step through the show's episodes. The banner always carries its keys (audio and subtitles on
+ * the left; then previous, 10 s back, pause, 30 s ahead and next, in the remote's own order,
+ * pause in the middle); up, down or Menu moves focus into them. Coming and going with it, the
+ * top corners hold the way back to the program's channel page ([onOpenOnDemand], top start)
+ * and, for an episode, Episodes (top end), which swaps the keys for the show's seasons and a
+ * strip of its episodes. Phones tap for the banner and drag its bar to seek.
+ *
+ * While a segment the profile is asked to skip plays (an intro, an outro…), a Skip key shows for
+ * the whole segment: in the banner under the technical line while it is up, and alone at the
+ * bottom end while it is hidden, preselected in rose on touch as on TV. On TV it takes focus as
+ * it comes, so OK skips.
  */
 @Composable
 fun OnDemandPlayerScreen(
@@ -262,6 +271,12 @@ fun OnDemandPlayerScreen(
         }
     }
     LaunchedEffect(overlay) { hiddenByUser = false }
+    // Read when called, so a key handler sees the banner as it is at that moment, not as last composed.
+    fun bannerUp() = !hiddenByUser && (overlayVisible || panel != null || !state.playing)
+    val overlayShown = bannerUp()
+    // A segment to skip: its key stays up for as long as the segment plays.
+    val skip = state.skip
+    val skipShown = skip != null
     // Back hides the banner, whatever has focus in it, and only then leaves the player.
     BackHandler(enabled = panel != null || !hiddenByUser && (overlayVisible || !state.playing)) {
         panel = null
@@ -271,6 +286,7 @@ fun OnDemandPlayerScreen(
     val audioKey = remember { FocusRequester() }
     val subtitlesKey = remember { FocusRequester() }
     val episodesKey = remember { FocusRequester() }
+    val skipKey = remember { FocusRequester() }
     // The key that opened a track list gets focus back when the list closes.
     var returnKey by remember { mutableStateOf<FocusRequester?>(null) }
     LaunchedEffect(panel) {
@@ -287,11 +303,33 @@ fun OnDemandPlayerScreen(
             else -> overlay++
         }
     }
-
     // The picture itself holds focus, not one of the banner's keys.
     var pictureFocused by remember { mutableStateOf(false) }
+    // The picture or one of the player's keys holds focus.
+    var playerFocused by remember { mutableStateOf(false) }
+    // The Skip key in the banner holds focus.
+    var skipFocused by remember { mutableStateOf(false) }
+    // On TV the Skip key in the banner takes focus as it comes, and as the banner comes in on its
+    // own (a seek) while it shows. With the banner hidden, focus stays on the picture: OK skips anyway.
+    LaunchedEffect(skipShown) { if (isTv && skipShown && overlayShown) skipKey.requestWhenShown() }
+    LaunchedEffect(overlayShown) { if (isTv && skipShown && overlayShown && panel == null) skipKey.requestWhenShown() }
+    // A focused key that goes (the Skip key at its segment's end) takes focus with it: put it back.
+    LaunchedEffect(playerFocused, skipShown, overlayShown) {
+        if (playerFocused) return@LaunchedEffect
+        withFrameNanos { }
+        if (playerFocused) return@LaunchedEffect
+        when {
+            panel != null -> (returnKey ?: playKey).requestWhenShown()
+            isTv && skipShown && overlayShown -> skipKey.requestWhenShown()
+            else -> runCatching { focus.requestFocus() }
+        }
+    }
     // A Back press the banner took on key-down; its key-up hides the banner.
     var backHeld by remember { mutableStateOf(false) }
+    // An OK press that skips, decided on key-down and done on key-up.
+    var skipHeld by remember { mutableStateOf(false) }
+    // An OK press whose key-down reached the picture; only its key-up acts there.
+    var okHeld by remember { mutableStateOf(false) }
 
     Box(
         modifier
@@ -302,6 +340,20 @@ fun OnDemandPlayerScreen(
             .onPreviewKeyEvent { event ->
                 // Any key pressed with the banner's keys in use holds the banner up a while longer.
                 if (panel != null && event.key != Key.Back && event.type == KeyEventType.KeyDown) overlay++
+                if (event.key in ConfirmKeys && event.type == KeyEventType.KeyDown) okHeld = false
+                // OK skips while the Skip key stands alone or has focus, whatever else holds focus or
+                // the banner does before the key comes up: one decision, from what plays right now.
+                if (event.key in OkKeys) {
+                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                        skipHeld = viewModel.state.value.skip != null && (!bannerUp() || skipFocused)
+                    }
+                    if (!skipHeld) return@onPreviewKeyEvent false
+                    if (event.type == KeyEventType.KeyUp) {
+                        skipHeld = false
+                        viewModel.skip()
+                    }
+                    return@onPreviewKeyEvent true
+                }
                 if (event.key != Key.Back) return@onPreviewKeyEvent false
                 val shown = panel != null || !hiddenByUser && (overlayVisible || !state.playing)
                 if (event.type == KeyEventType.KeyDown && shown) backHeld = true
@@ -314,23 +366,24 @@ fun OnDemandPlayerScreen(
                 true
             }
             .onKeyEvent { event ->
-                // With the keys up, OK is theirs; if none holds focus, it puts focus back on one.
-                if (panel == DemandPanel.CONTROLS && pictureFocused && event.key in ConfirmKeys) {
-                    if (event.type == KeyEventType.KeyUp) runCatching { (returnKey ?: playKey).requestFocus() }
-                    return@onKeyEvent true
-                }
-                if (panel != null) return@onKeyEvent false
-                if (event.key in ConfirmKeys) {
-                    // On key-up, so a control focused by this press doesn't take its release as a click.
-                    if (event.type == KeyEventType.KeyUp) {
-                        // A hidden banner comes in with pause highlighted; a shown one leaves OK to play or pause.
-                        val shown = !hiddenByUser && (overlayVisible || !state.playing)
-                        val menu = event.key == Key.Menu || event.key == Key.Info
-                        if (menu || !shown) panel = DemandPanel.CONTROLS else viewModel.togglePlay()
+                // OK on the picture pauses and puts focus on Play, bringing the banner in; Menu or Info only bring its keys.
+                val onPicture = panel == null || panel == DemandPanel.CONTROLS && pictureFocused
+                if (onPicture && event.key in ConfirmKeys) {
+                    // On key-up, so a key focused by this press doesn't take its release as a click,
+                    // and only for a press that began here: a release whose press went to a key does nothing.
+                    if (event.type == KeyEventType.KeyDown) okHeld = true
+                    if (event.type == KeyEventType.KeyUp && okHeld) {
+                        okHeld = false
+                        if (event.key != Key.Menu && event.key != Key.Info) {
+                            viewModel.pause()
+                            returnKey = null
+                        }
+                        if (panel == null) panel = DemandPanel.CONTROLS else runCatching { (returnKey ?: playKey).requestFocus() }
                         overlay++
                     }
                     return@onKeyEvent true
                 }
+                if (panel != null) return@onKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
                     Key.DirectionLeft, Key.MediaRewind -> viewModel.seekBy(-BACK_MS)
@@ -344,7 +397,10 @@ fun OnDemandPlayerScreen(
                 overlay++
                 true
             }
-            .onFocusChanged { pictureFocused = it.isFocused }
+            .onFocusChanged {
+                pictureFocused = it.isFocused
+                playerFocused = it.hasFocus
+            }
             .focusable()
             .pointerInput(Unit) {
                 // A tap hides the banner while it shows, and brings it back while it is hidden.
@@ -358,7 +414,6 @@ fun OnDemandPlayerScreen(
                 }
             },
     ) {
-        val overlayShown = !hiddenByUser && (overlayVisible || panel != null || !state.playing)
         Video(viewModel.player, subtitleLift = if (overlayShown) overlayHeight else 0)
         when (state.status) {
             // The same dark screen as a restricted channel's, with no stretch to wait out.
@@ -377,6 +432,19 @@ fun OnDemandPlayerScreen(
                 state = state,
                 viewModel = viewModel,
                 modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { overlayHeight = it.height },
+                skip = skip?.let { type ->
+                    {
+                        // Gone with the banner or its segment, it no longer holds focus.
+                        DisposableEffect(Unit) { onDispose { skipFocused = false } }
+                        SkipKey(
+                            type,
+                            onClick = viewModel::skip,
+                            modifier = Modifier
+                                .onFocusChanged { skipFocused = it.hasFocus }
+                                .focusRequester(skipKey),
+                        )
+                    }
+                },
                 episodes = if (panel != DemandPanel.EPISODES) {
                     null
                 } else {
@@ -483,7 +551,35 @@ fun OnDemandPlayerScreen(
                 }
             }
         }
+        // With the banner hidden, the Skip key stands alone at the bottom end, its label on the side
+        // margin, preselected. Focus stays on the picture, whose OK skips while it shows; a tap skips too.
+        if (skip != null && !overlayShown) {
+            SkipKey(
+                skip,
+                onClick = viewModel::skip,
+                highlighted = true,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = osdSide - KEY_PADDING, bottom = osdEdge),
+            )
+        }
     }
+}
+
+/**
+ * The key that skips the segment playing: SKIP INTRO and the like behind a fast-forward mark. In
+ * the banner it is a key like the rest; standing alone over the picture it is [highlighted].
+ */
+@Composable
+private fun SkipKey(type: SegmentType, onClick: () -> Unit, modifier: Modifier = Modifier, highlighted: Boolean = false) {
+    val label = when (type) {
+        SegmentType.INTRO -> "Skip Intro"
+        SegmentType.OUTRO -> "Skip Outro"
+        SegmentType.RECAP -> "Skip Recap"
+        SegmentType.PREVIEW -> "Skip Preview"
+        SegmentType.COMMERCIAL -> "Skip Commercial"
+    }
+    OsdKey(label, Icons.Filled.FastForward, onClick = onClick, modifier = modifier, highlighted = highlighted)
 }
 
 /**
@@ -640,10 +736,11 @@ private fun Video(player: androidx.media3.common.Player, subtitleLift: Int) {
 }
 
 /**
- * The on-demand banner, straight on the picture over the edge shade: ON DEMAND or PAUSED with
- * the stream's technical line beside it, the title, the time in with the bar and the length,
- * what plays next and the [keys] under a hairline. Phones and tablets set what plays next
- * beside the detail line, and their ladder takes taps and drags.
+ * The on-demand banner, straight on the picture over the edge shade: ON DEMAND, playing or
+ * paused, with the stream's technical line beside it, the title, the time in with the bar and
+ * the length, what plays next and the [keys] under a hairline. Phones and tablets set what plays next
+ * beside the detail line, and their ladder takes taps and drags. The [skip] key sits under the
+ * technical line, in the room the title leaves at the row's end.
  */
 @Composable
 private fun Overlay(
@@ -651,6 +748,8 @@ private fun Overlay(
     viewModel: OnDemandPlayerViewModel,
     modifier: Modifier,
     keys: @Composable RowScope.() -> Unit,
+    /** The Skip key, while a segment the profile is asked to skip plays. */
+    skip: (@Composable () -> Unit)? = null,
     /** The episode strip, in the keys' place while Episodes is open. */
     episodes: (@Composable () -> Unit)? = null,
 ) {
@@ -680,11 +779,7 @@ private fun Overlay(
         ) {
             BannerHeader(state.stream) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    androidx.compose.material3.Text(
-                        if (state.playing) "ON DEMAND" else "PAUSED",
-                        style = typography.labelMedium,
-                        color = theme.accent,
-                    )
+                    androidx.compose.material3.Text("ON DEMAND", style = typography.labelMedium, color = theme.accent)
                     // When it starts and ends on the clock, as the channel's NOW line gives its airing; a pause moves both.
                     if (duration > 0) {
                         val startMs = wallClock - position
@@ -696,16 +791,23 @@ private fun Overlay(
                     }
                 }
             }
-            TitleLogo(
-                logoUrl = state.logoUrl,
-                title = state.title.orEmpty(),
-                height = if (isTv) 56.dp else 28.dp,
-                maxLogoWidth = if (isTv) 360.dp else 220.dp,
-                style = if (isTv) typography.headlineMedium else typography.headlineSmall,
-                modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp),
-            )
-            val detail = lineUnderLogo(state.detail, state.title.orEmpty(), state.isEpisode, state.logoUrl != null)
-            detail?.let { DetailLine(it) }
+            // The Skip key centered on the title and its detail line.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 2.dp)) {
+                    TitleLogo(
+                        logoUrl = state.logoUrl,
+                        title = state.title.orEmpty(),
+                        height = if (isTv) 56.dp else 28.dp,
+                        maxLogoWidth = if (isTv) 360.dp else 220.dp,
+                        style = if (isTv) typography.headlineMedium else typography.headlineSmall,
+                        modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp),
+                    )
+                    val detail = lineUnderLogo(state.detail, state.title.orEmpty(), state.isEpisode, state.logoUrl != null)
+                    detail?.let { DetailLine(it) }
+                }
+                // Its label ends under the technical line's end, its fill running into the margin as the key row's does.
+                skip?.let { Box(Modifier.padding(start = 16.dp).offset(x = KEY_PADDING)) { it() } }
+            }
             ProgressRow(
                 positionMs = position,
                 lengthMs = duration,
@@ -759,4 +861,5 @@ private const val AHEAD_MS = 30_000L
 private const val OVERLAY_MS = 3_000L
 private const val POSITION_MS = 500L
 
-private val ConfirmKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.Menu, Key.Info)
+private val OkKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter)
+private val ConfirmKeys = OkKeys + setOf(Key.Menu, Key.Info)

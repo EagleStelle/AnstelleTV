@@ -1,6 +1,8 @@
 package tv.anstelle.feature.settings.playback
 
 import tv.anstelle.core.model.Languages
+import tv.anstelle.core.model.SegmentAction
+import tv.anstelle.core.model.SegmentType
 import tv.anstelle.core.model.SubtitleMode
 import tv.anstelle.core.model.WatchSync
 
@@ -20,6 +22,30 @@ internal fun modeHint(mode: SubtitleMode): String = when (mode) {
     SubtitleMode.OFF -> "Subtitles don't load on their own. You can still turn them on while watching."
     SubtitleMode.ALWAYS -> "Subtitles in your languages load whatever the audio language."
     SubtitleMode.WHEN_AUDIO_DIFFERS -> "Subtitles in your languages load when the audio is in a foreign language."
+}
+
+/** A kind of segment as its row names it: Intros, Outros… */
+internal fun segmentName(type: SegmentType): String = when (type) {
+    SegmentType.INTRO -> "Intros"
+    SegmentType.OUTRO -> "Outros"
+    SegmentType.RECAP -> "Recaps"
+    SegmentType.PREVIEW -> "Previews"
+    SegmentType.COMMERCIAL -> "Commercials"
+}
+
+/** The [SegmentAction] choices in the order the Playback page lists them: Jellyfin's own, in its order. */
+internal val SkipOrder = listOf(SegmentAction.ASK_TO_SKIP, SegmentAction.SKIP, SegmentAction.PLAY)
+
+internal fun skipName(action: SegmentAction): String = when (action) {
+    SegmentAction.ASK_TO_SKIP -> "Ask to skip"
+    SegmentAction.SKIP -> "Skip"
+    SegmentAction.PLAY -> "Play"
+}
+
+internal fun skipHint(type: SegmentType, action: SegmentAction): String = when (action) {
+    SegmentAction.ASK_TO_SKIP -> "A Skip ${type.key.replaceFirstChar { it.titlecase() }} key shows while one plays."
+    SegmentAction.SKIP -> "Skipped as soon as one starts. Going back into it plays it."
+    SegmentAction.PLAY -> "Plays through, with nothing to press."
 }
 
 /** The [WatchSync] choices in the order the Watch history page lists them. */

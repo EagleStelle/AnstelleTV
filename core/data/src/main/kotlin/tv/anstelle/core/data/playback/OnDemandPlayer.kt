@@ -24,6 +24,8 @@ import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.data.Artwork
 import tv.anstelle.core.data.ProfileRepository
+import tv.anstelle.core.data.Settings
+import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.WatchAccount
 import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.profiles.Restriction
@@ -33,9 +35,16 @@ import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
+import tv.anstelle.core.jellyfin.SegmentSource
 import tv.anstelle.core.jellyfin.auth.TokenStore
+import tv.anstelle.core.model.MediaSegment
 import tv.anstelle.core.model.ProfileAccess
+import tv.anstelle.core.model.SegmentAction
+import tv.anstelle.core.model.SegmentType
+import tv.anstelle.core.model.ServerConnectException
 import tv.anstelle.core.model.TrackPrefs
+import tv.anstelle.core.model.codeOf
+import tv.anstelle.core.model.playingAt
 import tv.anstelle.core.player.CapabilityProbe
 import tv.anstelle.core.player.FontCache
 import tv.anstelle.core.player.JellyfinStreams
@@ -73,6 +82,8 @@ data class OnDemandState(
     /** Why the profile may not watch the item; set with [OnDemandStatus.RESTRICTED]. */
     val restriction: Restriction? = null,
     val message: String? = null,
+    /** The kind of segment playing that the profile is asked to skip ([SegmentAction.ASK_TO_SKIP]), or null. */
+    val skip: SegmentType? = null,
 )
 
 /**
@@ -87,6 +98,10 @@ data class OnDemandState(
  * Each episode starts on the profile's audio and subtitle defaults. An episode with ASS
  * subtitles isn't queued behind the one before it ([ProgramStream.chainsWith]); it starts
  * when that one ends.
+ *
+ * Each item's media segments are read from Jellyfin as it is resolved, without holding up
+ * playback. While one plays, the profile's [SegmentAction] for its kind decides: a Skip key
+ * ([OnDemandState.skip], [skipSegment]), a jump past it the first time it starts, or nothing.
  */
 @OptIn(UnstableApi::class)
 class OnDemandPlayer @Inject constructor(
@@ -101,6 +116,8 @@ class OnDemandPlayer @Inject constructor(
     private val reporter: PlaybackReporter,
     private val tracks: TrackChoices,
     private val fonts: FontCache,
+    private val segmentSource: SegmentSource,
+    private val settings: SettingsRepository,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -122,6 +139,12 @@ class OnDemandPlayer @Inject constructor(
     private class Entry(val item: MediaItemEntity, val server: MediaServerEntity, val account: WatchAccount, val stream: ProgramStream, val logoUrl: String?) {
         val mediaItem: MediaItem = stream.mediaItem("demand@${item.id}")
         val facts: StreamFacts = StreamFacts.of(item, server.name, stream.transcoded)
+
+        /** Its media segments by start; empty until read, and for an item or server with none. */
+        var segments: List<MediaSegment> = emptyList()
+
+        /** The segments already jumped past on their own: seeking back into one plays it. */
+        val skipped = HashSet<MediaSegment>()
     }
 
     /** The player's playlist; the first entry is playing. */
@@ -137,6 +160,7 @@ class OnDemandPlayer @Inject constructor(
     private var deferred: Entry? = null
     private var profileId = 0L
     private var prefs = TrackPrefs()
+    private var segmentActions: Map<SegmentType, SegmentAction> = emptyMap()
     private var session: ReportSession? = null
 
     /**
@@ -146,6 +170,7 @@ class OnDemandPlayer @Inject constructor(
     private var leftAtMs: Long? = null
     private var retried = false
     private var tickJob: Job? = null
+    private var segmentJob: Job? = null
 
     /**
      * Plays [itemId] from [positionMs] as the profile's Jellyfin user, when [access] lets the
@@ -155,6 +180,7 @@ class OnDemandPlayer @Inject constructor(
         profileId = access.profileId
         scope.launch {
             prefs = tracks.prefs(profileId)
+            segmentActions = SegmentType.entries.associateWith { codeOf<SegmentAction>(settings.get(Settings.segmentAction(profileId, it))) }
             val item = itemDao.byId(itemId)
             val restriction = item?.let { Restriction.of(it.id, it.ratingScore, access) }
             if (restriction != null) {
@@ -170,6 +196,7 @@ class OnDemandPlayer @Inject constructor(
             follow(entry.item)
             start(entry, positionMs)
             startTicker()
+            watchSegments()
         }
     }
 
@@ -226,6 +253,23 @@ class OnDemandPlayer @Inject constructor(
         exo?.seekTo(positionMs.coerceAtLeast(0))
     }
 
+    /** Jumps past the segment the profile is asked to skip ([OnDemandState.skip]). */
+    fun skipSegment() {
+        val player = exo ?: return
+        val segment = queue.firstOrNull()?.segments?.playingAt(player.currentPosition) ?: return
+        skipPast(player, segment)
+    }
+
+    /**
+     * Seeks to [segment]'s end. One that runs to the item's end ends it there, so the next
+     * episode follows and the view counts as watched through, as in Jellyfin's apps.
+     */
+    private fun skipPast(player: Player, segment: MediaSegment) {
+        val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+        player.seekTo(segment.endMs.coerceAtMost(duration))
+        _state.update { it.copy(skip = null) }
+    }
+
     /** Goes back to the episode before this one, from its start, when there is one. */
     fun skipToPrevious() {
         val current = queue.firstOrNull()?.item ?: return
@@ -275,6 +319,7 @@ class OnDemandPlayer @Inject constructor(
     fun release() {
         endSession(atEnd = false)
         tickJob?.cancel()
+        segmentJob?.cancel()
         pooled?.let {
             it.player.removeListener(listener)
             it.release()
@@ -303,7 +348,20 @@ class OnDemandPlayer @Inject constructor(
             transcode = decision is StreamDecision.Transcode, tracks = item.tracks, prefs = prefs,
         )
         val series = item.seriesRemoteId?.let { itemDao.byRemoteId(item.serverId, it) }
-        return Entry(item, server, account, stream, Artwork.of(server.baseUrl, item, series).logoUrl)
+        return Entry(item, server, account, stream, Artwork.of(server.baseUrl, item, series).logoUrl).also(::loadSegments)
+    }
+
+    /** Reads [entry]'s segments in the background; until they arrive, nothing is offered to skip. */
+    private fun loadSegments(entry: Entry) {
+        scope.launch {
+            entry.segments = try {
+                withContext(io) { segmentSource.segments(entry.server.baseUrl, entry.account.accessToken, entry.item.remoteId, entry.account.device) }
+            } catch (e: ServerConnectException) {
+                // A server before 10.10 has no media segments at all.
+                AppLog.i(TAG, "No media segments for item ${entry.item.id}: ${e.message}")
+                emptyList()
+            }
+        }
     }
 
     /**
@@ -338,6 +396,7 @@ class OnDemandPlayer @Inject constructor(
                 next = (queue.getOrNull(1) ?: deferred)?.item?.let(::nextLabel),
                 previous = episodeBefore(item)?.let(::nextLabel),
                 message = null,
+                skip = null,
             )
         }
     }
@@ -351,6 +410,30 @@ class OnDemandPlayer @Inject constructor(
                 delay(PROGRESS_MS)
                 val player = exo ?: break
                 session?.let { reporter.progress(it, player.currentPosition, paused = !player.isPlaying) }
+            }
+        }
+    }
+
+    /**
+     * Follows the segment playing a few times a second: offers to skip it, or jumps past it the
+     * first time it starts while playing when the profile skips that kind on its own.
+     */
+    private fun watchSegments() {
+        segmentJob?.cancel()
+        segmentJob = scope.launch {
+            while (isActive) {
+                delay(SEGMENT_MS)
+                val player = exo ?: break
+                val active = player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING
+                val entry = queue.firstOrNull()
+                val segment = if (active) entry?.segments?.playingAt(player.currentPosition) else null
+                val action = segment?.let { segmentActions[it.type] }
+                if (segment != null && action == SegmentAction.SKIP && player.playWhenReady && entry?.skipped?.add(segment) == true) {
+                    skipPast(player, segment)
+                    continue
+                }
+                val skip = segment?.type?.takeIf { action == SegmentAction.ASK_TO_SKIP }
+                if (skip != _state.value.skip) _state.update { it.copy(skip = skip) }
             }
         }
     }
@@ -471,5 +554,6 @@ class OnDemandPlayer @Inject constructor(
     private companion object {
         const val TAG = "OnDemand"
         const val PROGRESS_MS = 10_000L
+        const val SEGMENT_MS = 250L
     }
 }

@@ -296,6 +296,8 @@ private fun Modifier.bleed(horizontal: Dp) = layout { measurable, constraints ->
  * shows the icon and the value alone, "♪ JAPANESE", so a row of them fits the program's column;
  * the label stays for screen readers. Flat on the banner; focus fills it with the accent. A key
  * that can't act now keeps its place, dimmed, and focus passes over it, so the row never shifts.
+ * A [highlighted] key wears focus's rose fill with ink even without focus, on touch as on TV:
+ * the Skip key standing alone over the picture, preselected for OK.
  */
 @Composable
 internal fun OsdKey(
@@ -305,6 +307,7 @@ internal fun OsdKey(
     modifier: Modifier = Modifier,
     value: String? = null,
     enabled: Boolean = true,
+    highlighted: Boolean = false,
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
@@ -313,8 +316,8 @@ internal fun OsdKey(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.semantics { contentDescription = listOfNotNull(label, value).joinToString(", ") },
-        color = Color.Transparent,
-        contentColor = theme.bannerText,
+        color = if (highlighted) theme.accent else Color.Transparent,
+        contentColor = if (highlighted) theme.onAccent else theme.bannerText,
     ) { focused ->
         Row(
             Modifier.height(if (isTv) 40.dp else 48.dp).padding(horizontal = KEY_PADDING),
@@ -322,7 +325,7 @@ internal fun OsdKey(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             val ink = when {
-                focused -> theme.onAccent
+                focused || highlighted -> theme.onAccent
                 enabled -> theme.bannerText
                 else -> theme.textMuted.copy(alpha = DISABLED_ALPHA)
             }

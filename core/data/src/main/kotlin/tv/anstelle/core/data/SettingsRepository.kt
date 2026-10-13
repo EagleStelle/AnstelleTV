@@ -64,6 +64,10 @@ object Settings {
     /** A [tv.anstelle.core.model.SubtitleMode] code: when the profile's subtitles show. */
     fun subtitleMode(profileId: Long) = SettingKey.IntKey("playback.subtitles.mode.$profileId", tv.anstelle.core.model.SubtitleMode.OFF.code)
 
+    /** A [tv.anstelle.core.model.SegmentAction] code: what On demand does while a [type] segment plays. */
+    fun segmentAction(profileId: Long, type: tv.anstelle.core.model.SegmentType) =
+        SettingKey.IntKey("playback.skip.${type.key}.$profileId", tv.anstelle.core.model.SegmentAction.ASK_TO_SKIP.code)
+
     /** Whether the profile keeps what it watches for its dashboard; off hides the Dashboard tab. */
     fun dashboard(profileId: Long) = SettingKey.BoolKey("dashboard.$profileId", true)
 
