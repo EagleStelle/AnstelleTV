@@ -272,6 +272,8 @@ class ChannelPlayer @Inject constructor(
         val target = positionMs.coerceIn(0, (length - SEEK_END_MARGIN_MS).coerceAtLeast(0))
         player.seekTo(player.currentMediaItemIndex, target)
         retime(program, time.nowUtcMs() - target - program.slot.startUtcMs)
+        // Jellyfin hears of the new spot at once, not at the next 10 s tick.
+        session?.let { reporter.progress(it, target, paused = !player.playWhenReady) }
     }
 
     fun seekBy(deltaMs: Long) = seekTo(positionMs + deltaMs)
@@ -558,6 +560,7 @@ class ChannelPlayer @Inject constructor(
         if (!load(pooled, programs, program.slot) { pool.active === pooled && _player.value === pooled.player }) return
         queue.clear()
         queue.addAll(programs)
+        session?.let { reporter.restream(it, program.stream.playSessionId, program.stream.transcoded) }
         pooled.player.playWhenReady = true
         _state.update { it.copy(status = TuneStatus.PLAYING, stream = program.facts, message = null) }
     }
@@ -711,13 +714,15 @@ class ChannelPlayer @Inject constructor(
         }
 
         override fun onRenderedFirstFrame() {
-            val tuned = trace ?: return
+            val tuned = trace
             trace = null
-            val ms = tuned.end()
             val program = queue.firstOrNull() ?: return
-            AppLog.i(TAG, "Tune: first frame on ${current?.number} after $ms ms (${if (program.stream.transcoded) "HLS" else "direct play"})")
+            if (tuned != null) {
+                AppLog.i(TAG, "Tune: first frame on ${current?.number} after ${tuned.end()} ms (${if (program.stream.transcoded) "HLS" else "direct play"})")
+            }
+            // Also the first frame after an HLS fallback that came before any session.
             if (session == null) startSession(program, _player.value?.currentPosition ?: 0)
-            refreshStandby()
+            if (tuned != null) refreshStandby()
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -725,7 +730,7 @@ class ChannelPlayer @Inject constructor(
             AppLog.w(TAG, "Playback failed on ${current?.number}: ${error.errorCodeName}", error)
             if (!program.stream.transcoded && error.errorCode in FormatErrors && retriedSlot != program.slot.startUtcMs) {
                 retriedSlot = program.slot.startUtcMs
-                endSession(atEnd = false)
+                // The session goes on over HLS, keeping what already played on screen.
                 scope.launch { retryAsHls(program) }
             } else {
                 failAndRetry("This program can't be played right now (${error.errorCodeName}). Trying again…")

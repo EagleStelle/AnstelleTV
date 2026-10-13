@@ -93,6 +93,7 @@ import tv.anstelle.core.data.playback.ChannelPlayer
 import tv.anstelle.core.data.playback.OnDemandPlayer
 import tv.anstelle.core.data.playback.OnDemandState
 import tv.anstelle.core.data.playback.OnDemandStatus
+import tv.anstelle.core.data.playback.PlaybackReporter
 import tv.anstelle.core.data.playback.TRACK_TYPE_AUDIO
 import tv.anstelle.core.data.playback.TRACK_TYPE_TEXT
 import tv.anstelle.core.data.playback.TrackOption
@@ -124,6 +125,7 @@ class OnDemandPlayerViewModel @Inject constructor(
     savedState: SavedStateHandle,
     profiles: ProfileRepository,
     channels: ChannelPlayer,
+    reporter: PlaybackReporter,
     private val playback: OnDemandPlayer,
     private val onDemand: OnDemandRepository,
 ) : ViewModel() {
@@ -151,6 +153,16 @@ class OnDemandPlayerViewModel @Inject constructor(
             val profileAccess = profiles.access(profile.id)
             access = profileAccess
             playback.play(itemId, startMs, profileAccess)
+        }
+        // An episode that ends or is left here is saved after the strip read it: read what was watched again.
+        viewModelScope.launch {
+            reporter.reported.collect { id ->
+                val shown = _episodes.value ?: return@collect
+                if (shown.episodes.any { it.id == id }) {
+                    val playing = state.value.itemId.takeIf { it != 0L } ?: return@collect
+                    _episodes.value = shown.copy(watch = onDemand.watchMarks(playing, shown.episodes, profileId))
+                }
+            }
         }
     }
 
@@ -548,9 +560,9 @@ private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode:
 /**
  * One episode in the strip, a channel tile's way: its still in a small inset, what was watched
  * at its foot ([WatchStrip]), its number and title, then PLAYING behind the on-air square or
- * its length. One watched through reads as aired, as on a channel's page: the still under the
- * past shade and the title quiet, except the one playing. Focus fills the whole card rose, so
- * the still sits in a rose frame.
+ * its length (the time left once started). One watched through reads as aired, as on a
+ * channel's page: the still under the past shade and the title quiet, except the one playing.
+ * Focus fills the whole card rose, so the still sits in a rose frame.
  */
 @Composable
 private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long, watched: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -583,10 +595,9 @@ private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long,
                         androidx.compose.material3.Text("PLAYING", style = typography.labelMedium, color = ink)
                     }
                 } else {
-                    val facts = listOfNotNull(episode.facts, WatchChoices.watchedFact(resumeMs)).joinToString("  ")
-                    if (facts.isNotEmpty()) {
+                    (WatchChoices.timeLeft(episode.durationMs, resumeMs) ?: episode.facts)?.let {
                         androidx.compose.material3.Text(
-                            facts,
+                            it,
                             style = typography.bodySmall,
                             color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
                             maxLines = 1,

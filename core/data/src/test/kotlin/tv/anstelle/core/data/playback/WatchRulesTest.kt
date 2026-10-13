@@ -21,6 +21,17 @@ class WatchRulesTest {
     }
 
     @Test
+    fun `surfing past a channel isn't watching it`() {
+        val surfed = WatchCoverage(episode).apply { play(5 * minute, 5 * minute + 10 * second) }
+        assertFalse(WatchRules.channelWatching(surfed.coveredMs))
+        // Seeking about doesn't add up to watching.
+        val skipped = WatchCoverage(episode).apply { listOf(0L, 10L, 20L, 30L, 40L).forEach { sample(it * second) } }
+        assertFalse(WatchRules.channelWatching(skipped.coveredMs))
+        val stayed = WatchCoverage(episode).apply { play(5 * minute, 5 * minute + 30 * second) }
+        assertTrue(WatchRules.channelWatching(stayed.coveredMs))
+    }
+
+    @Test
     fun `a program watched from the start counts`() {
         val coverage = WatchCoverage(episode).apply { play(0, episode) }
         assertTrue(WatchRules.watchedThrough(coverage.coveredMs, episode))
@@ -84,8 +95,8 @@ class WatchRulesTest {
     }
 
     @Test
-    fun `on demand with both leaves Jellyfin's marks alone`() {
-        assertEquals(AfterStop.NOTHING, WatchRules.afterStop(WatchSync.BOTH, watched = true, onDemand = true))
+    fun `on demand with both marks a finished view and otherwise leaves Jellyfin's marks alone`() {
+        assertEquals(AfterStop.MARK_WATCHED, WatchRules.afterStop(WatchSync.BOTH, watched = true, onDemand = true))
         assertEquals(AfterStop.NOTHING, WatchRules.afterStop(WatchSync.BOTH, watched = false, onDemand = true))
         assertEquals(AfterStop.MARK_WATCHED, WatchRules.afterStop(WatchSync.STATUS, watched = true, onDemand = true))
         assertEquals(AfterStop.RESTORE_PLAYED, WatchRules.afterStop(WatchSync.PROGRESS, watched = true, onDemand = true))

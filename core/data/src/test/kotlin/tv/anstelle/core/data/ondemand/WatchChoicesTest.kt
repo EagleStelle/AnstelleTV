@@ -62,9 +62,13 @@ class WatchChoicesTest {
     }
 
     @Test
-    fun `an episode list says how much was watched`() {
-        assertEquals("12 min watched", WatchChoices.watchedFact(12 * 60_000L))
-        assertEquals(null, WatchChoices.watchedFact(0))
+    fun `an episode list says how much is left`() {
+        val minutes24 = 24 * 60_000L
+        assertEquals("12 min left", WatchChoices.timeLeft(minutes24, 12 * 60_000L))
+        // A started minute counts as whole, as the time left on a channel does.
+        assertEquals("1 min left", WatchChoices.timeLeft(minutes24, minutes24 - 30_000L))
+        assertEquals(null, WatchChoices.timeLeft(minutes24, 0))
+        assertEquals(null, WatchChoices.timeLeft(0, 12 * 60_000L))
     }
 
     @Test

@@ -95,8 +95,12 @@ object WatchChoices {
         "Pick a channel to always air it.",
     )
 
-    /** An episode list's word on where it was left, "12 min watched", or null; its still says when it was watched through. */
-    fun watchedFact(resumeMs: Long): String? = resumeMs.takeIf { it > 0 }?.let { "${span(it)} watched" }
+    /**
+     * An episode list's word on where it was left on demand, "12 min left", in place of its
+     * length; null when it has no resume point. Its still says when it was watched through.
+     */
+    fun timeLeft(durationMs: Long, resumeMs: Long): String? =
+        resumeMs.takeIf { it > 0 && durationMs > 0 }?.let { "${span(durationMs - it, roundUp = true)} left" }
 
     /** "18 min", "1 h 4 min"; [roundUp] counts a started minute as whole, for time left. */
     fun span(ms: Long, roundUp: Boolean = false): String {

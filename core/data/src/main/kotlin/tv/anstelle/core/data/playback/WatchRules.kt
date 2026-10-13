@@ -33,9 +33,11 @@ object WatchRules {
 
     fun afterStop(sync: WatchSync, watched: Boolean, onDemand: Boolean): AfterStop = when {
         sync == WatchSync.OFF -> AfterStop.NOTHING
-        // Like Jellyfin's own apps: its marks stand.
-        onDemand && sync == WatchSync.BOTH -> AfterStop.NOTHING
+        // Jellyfin marks a stop past its own limit (90% unless the server changed it); a
+        // watched view it left unmarked, from a lost stop or a stricter limit, is marked here.
         sync.marksWatched && watched -> AfterStop.MARK_WATCHED
+        // Like Jellyfin's own apps: otherwise its marks stand.
+        onDemand && sync == WatchSync.BOTH -> AfterStop.NOTHING
         sync.savesProgress -> AfterStop.RESTORE_PLAYED
         else -> AfterStop.NOTHING
     }
@@ -43,6 +45,15 @@ object WatchRules {
     /** Whether the played mark before playback is needed when it stops. */
     fun needsPlayedBefore(sync: WatchSync, onDemand: Boolean): Boolean =
         sync.savesProgress && !(onDemand && sync == WatchSync.BOTH)
+
+    /**
+     * Whether a channel has played long enough on screen ([coveredMs], see [WatchCoverage]) to
+     * count as watching its program, so Jellyfin hears of it: surfing past one doesn't.
+     */
+    fun channelWatching(coveredMs: Long): Boolean = coveredMs >= CHANNEL_WATCHING_MS
+
+    /** How long a channel's program plays before it counts as watched at all. */
+    const val CHANNEL_WATCHING_MS = 30_000L
 }
 
 /**

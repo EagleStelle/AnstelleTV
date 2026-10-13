@@ -3,6 +3,9 @@ package tv.anstelle.core.data.playback
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.ApplicationScope
@@ -29,13 +32,15 @@ import javax.inject.Singleton
 /** One item's playback, from its first frame to the moment it stops. */
 class ReportSession internal constructor(
     internal val item: MediaItemEntity,
-    internal val playstateItem: PlaystateItem,
+    playstateItem: PlaystateItem,
     internal val server: MediaServerEntity,
     internal val account: WatchAccount,
     /** The channel it aired on, or null when it was played on demand. */
     internal val channelId: Long?,
     internal val profileId: Long,
 ) {
+    /** The stream as Jellyfin knows it; it changes when direct play falls back to HLS. */
+    @Volatile internal var playstateItem: PlaystateItem = playstateItem
     internal val onDemand get() = channelId == null
     internal val coverage = WatchCoverage(item.durationMs)
 
@@ -46,18 +51,30 @@ class ReportSession internal constructor(
 
     /** The item's played mark before playback, when [WatchRules.needsPlayedBefore] says so. */
     internal var playedBefore: Boolean? = null
+
+    /** Jellyfin may hear of it (see [PlaybackReporter]); main thread. */
+    internal var announced = false
+
+    /** Jellyfin was sent its start, so progress and stop reports follow. */
+    internal var startReported = false
     internal var stopped = false
 }
 
 /**
- * Tells Jellyfin about playback after the first frame, in the background, so tuning never
- * waits for the server, as the user the profile plays as ([ProfileRepository.watchAccount]);
- * nothing goes to a user that keeps no history for the profile. Live TV and On demand each
- * have their own [WatchSync] setting: only
- * a setting that saves progress reports playback (start, progress every 10 s, stop);
- * watched marks are set or put back after it stops. Calls run one at a time in order, and a
- * failed one is logged and dropped. Every view is also handed to the profile's dashboard
- * ([DashboardHistory]) when it stops.
+ * Tells Jellyfin about playback in the background, so tuning never waits for the server, as
+ * the user the profile plays as ([ProfileRepository.watchAccount]); nothing goes to a user that
+ * keeps no history for the profile. Live TV and On demand each have their own [WatchSync]
+ * setting, read before anything goes to Jellyfin: Off sends nothing, Watched only sends only
+ * the watched mark once a view counts, and only a setting that saves progress reports playback
+ * (start, progress every 10 s and at each pause and seek, stop).
+ *
+ * On demand Jellyfin hears from the first frame, as from its own apps: the viewer picked the
+ * item. A channel only once [WatchRules.channelWatching] (surfing past one sends nothing),
+ * or when it stops having been watched through. Jellyfin clears an item's played mark at a
+ * start report; where the setting keeps marks apart from progress it is put back at once and
+ * again after the stop. Calls run one at a time in order, and a failed one is logged and
+ * dropped. Every view is also handed to the profile's dashboard ([DashboardHistory]) when it
+ * stops, and announced on [reported] once Jellyfin has it.
  */
 @Singleton
 class PlaybackReporter @Inject constructor(
@@ -68,6 +85,14 @@ class PlaybackReporter @Inject constructor(
     private val time: TimeSource,
 ) {
     private val calls = Channel<suspend () -> Unit>(Channel.UNLIMITED)
+
+    private val _reported = MutableSharedFlow<Long>(extraBufferCapacity = 16)
+
+    /**
+     * The local id of an item whose playback has stopped and been told to Jellyfin, once those
+     * calls are done, so lists showing what was watched can read it again.
+     */
+    val reported: SharedFlow<Long> = _reported.asSharedFlow()
 
     init {
         scope.launch {
@@ -84,8 +109,9 @@ class PlaybackReporter @Inject constructor(
     }
 
     /**
-     * [account] is who the item plays as (see [ProfileRepository.watchAccount]); [playing] says
-     * whether the player is already playing, after which [playingChanged] follows its edges.
+     * [account] is who the item plays as (see [ProfileRepository.watchAccount]); [positionMs]
+     * is where it starts, for on demand's start report; [playing] says whether the player is
+     * already playing, after which [playingChanged] follows its edges.
      */
     fun start(
         item: MediaItemEntity,
@@ -107,17 +133,43 @@ class PlaybackReporter @Inject constructor(
             profileId = profileId,
         )
         session.clock.set(playing, time.nowUtcMs())
+        if (session.onDemand) announce(session, positionMs, startReport = true)
+        return session
+    }
+
+    /**
+     * Lets Jellyfin hear of [session], as far as the account and the place's watch history
+     * setting allow: the setting is read here, before anything is sent. [startReport] sends the
+     * start (when the setting saves progress); without it, only marks follow at the stop.
+     */
+    private fun announce(session: ReportSession, positionMs: Long, startReport: Boolean) {
+        session.announced = true
         calls.trySend {
-            if (!account.keepsHistory) return@trySend
-            val sync = codeOf<WatchSync>(settings.get(if (session.onDemand) Settings.onDemandSync(profileId) else Settings.liveTvSync(profileId)))
+            val item = session.item
+            val account = session.account
+            if (!account.keepsHistory) {
+                AppLog.i(TAG, "Not reporting ${describe(item)}: profile ${session.profileId} has no Jellyfin user of its own on ${session.server.name}")
+                return@trySend
+            }
+            val key = if (session.onDemand) Settings.onDemandSync(session.profileId) else Settings.liveTvSync(session.profileId)
+            val sync = codeOf<WatchSync>(settings.get(key))
             session.sync = sync
-            if (sync == WatchSync.OFF) return@trySend
+            if (sync == WatchSync.OFF) {
+                AppLog.i(TAG, "Not reporting ${describe(item)}: ${if (session.onDemand) "On Demand" else "Live TV"} watch history is off")
+                return@trySend
+            }
+            val server = session.server
             val playstate = playstates.create(server.baseUrl, account.accessToken, account.userId, account.device).also { session.playstate = it }
             // Read before the start report, which can change it.
             if (WatchRules.needsPlayedBefore(sync, session.onDemand)) session.playedBefore = playstate.isPlayed(item.remoteId)
-            if (sync.savesProgress) playstate.started(session.playstateItem, positionMs)
+            if (sync.savesProgress && startReport) {
+                playstate.started(session.playstateItem, positionMs)
+                session.startReported = true
+                // Jellyfin clears the mark at a start: put it back now, so a stop that never
+                // arrives (the app killed) can't leave it cleared.
+                if (session.playedBefore == true) playstate.setPlayed(item.remoteId, true)
+            }
         }
-        return session
     }
 
     /** The player started or stopped playing (a pause, buffering). Main thread. */
@@ -125,15 +177,25 @@ class PlaybackReporter @Inject constructor(
         if (!session.stopped) session.clock.set(playing, time.nowUtcMs())
     }
 
-    /** The player is playing at [positionMs]; called about once a second. Main thread. */
+    /**
+     * The player is playing at [positionMs]; called about once a second. A channel's view
+     * reaches Jellyfin once it has played long enough to count as watching. Main thread.
+     */
     fun playing(session: ReportSession, positionMs: Long) {
-        if (!session.stopped) session.coverage.sample(positionMs)
+        if (session.stopped) return
+        session.coverage.sample(positionMs)
+        if (!session.announced && WatchRules.channelWatching(session.coverage.coveredMs)) announce(session, positionMs, startReport = true)
+    }
+
+    /** The same view goes on from another stream: direct play fell back to HLS. Main thread. */
+    fun restream(session: ReportSession, playSessionId: String, transcoded: Boolean) {
+        session.playstateItem = session.playstateItem.copy(playSessionId = playSessionId, transcoded = transcoded)
     }
 
     fun progress(session: ReportSession, positionMs: Long, paused: Boolean) {
-        if (session.stopped) return
+        if (session.stopped || !session.announced) return
         calls.trySend {
-            if (session.sync.savesProgress) session.playstate?.progress(session.playstateItem, positionMs, paused)
+            if (session.sync.savesProgress && session.startReported) session.playstate?.progress(session.playstateItem, positionMs, paused)
         }
     }
 
@@ -161,24 +223,38 @@ class PlaybackReporter @Inject constructor(
             completed = watched,
         )
         calls.trySend { history.record(view) }
+        if (!session.announced) {
+            // A channel left before it counted as watching sends Jellyfin nothing. One watched
+            // through all the same (a program shorter than that) gets only its mark.
+            if (!watched) return
+            announce(session, positionMs, startReport = false)
+        }
         calls.trySend {
             val playstate = session.playstate ?: return@trySend
             val sync = session.sync
-            if (sync.savesProgress) playstate.stopped(session.playstateItem, positionMs)
-            when (WatchRules.afterStop(sync, watched, session.onDemand)) {
-                AfterStop.NOTHING -> Unit
-                AfterStop.MARK_WATCHED -> if (!sync.savesProgress || !playstate.isPlayed(item.remoteId)) {
-                    playstate.markWatched(item.remoteId, stoppedUtcMs)
-                    val how = if (session.onDemand) "stopped at ${positionMs / 1000} s" else "${coveredMs / 1000} s played"
-                    AppLog.i(TAG, "Marked ${describe(item)} watched: $how of ${item.durationMs / 1000} s")
+            try {
+                if (sync.savesProgress && session.startReported) {
+                    playstate.stopped(session.playstateItem, positionMs)
+                    AppLog.i(TAG, "Saved ${describe(item)} at ${positionMs / 1000} s of ${item.durationMs / 1000} s")
                 }
-                AfterStop.RESTORE_PLAYED -> {
-                    val before = session.playedBefore ?: return@trySend
-                    if (playstate.isPlayed(item.remoteId) != before) {
-                        playstate.setPlayed(item.remoteId, before)
-                        AppLog.i(TAG, "Put back ${describe(item)} as ${if (before) "played" else "unplayed"}")
+                when (WatchRules.afterStop(sync, watched, session.onDemand)) {
+                    AfterStop.NOTHING -> Unit
+                    // After a reported stop, Jellyfin may have marked it already.
+                    AfterStop.MARK_WATCHED -> if (!session.startReported || !playstate.isPlayed(item.remoteId)) {
+                        playstate.markWatched(item.remoteId, stoppedUtcMs)
+                        val how = if (session.onDemand) "stopped at ${positionMs / 1000} s" else "${coveredMs / 1000} s played"
+                        AppLog.i(TAG, "Marked ${describe(item)} watched: $how of ${item.durationMs / 1000} s")
+                    }
+                    AfterStop.RESTORE_PLAYED -> {
+                        val before = session.playedBefore
+                        if (before != null && playstate.isPlayed(item.remoteId) != before) {
+                            playstate.setPlayed(item.remoteId, before)
+                            AppLog.i(TAG, "Put back ${describe(item)} as ${if (before) "played" else "unplayed"}")
+                        }
                     }
                 }
+            } finally {
+                _reported.tryEmit(item.id)
             }
         }
     }

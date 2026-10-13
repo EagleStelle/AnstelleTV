@@ -138,6 +138,12 @@ class OnDemandPlayer @Inject constructor(
     private var profileId = 0L
     private var prefs = TrackPrefs()
     private var session: ReportSession? = null
+
+    /**
+     * Where the episode the player just moved on from was left, read as it moves on: by the
+     * time its session ends, the player's own position is the next episode's.
+     */
+    private var leftAtMs: Long? = null
     private var retried = false
     private var tickJob: Job? = null
 
@@ -180,6 +186,7 @@ class OnDemandPlayer @Inject constructor(
     /** Plays [entry] on its own from [positionMs], then queues what follows it. */
     private suspend fun start(entry: Entry, positionMs: Long) {
         deferred = null
+        leftAtMs = null
         queue.clear()
         queue.add(entry)
         val pooled = pooledPlayer()
@@ -362,10 +369,11 @@ class OnDemandPlayer @Inject constructor(
         )
     }
 
-    private fun endSession(atEnd: Boolean, entry: Entry? = queue.firstOrNull()) {
+    /** [positionMs] is where it was left, when the player has already moved past it. */
+    private fun endSession(atEnd: Boolean, entry: Entry? = queue.firstOrNull(), positionMs: Long? = null) {
         val ended = session ?: return
         session = null
-        val position = if (atEnd) entry?.item?.durationMs ?: 0 else exo?.currentPosition ?: 0
+        val position = if (atEnd) entry?.item?.durationMs ?: 0 else positionMs ?: exo?.currentPosition ?: 0
         reporter.stop(ended, position)
     }
 
@@ -375,6 +383,7 @@ class OnDemandPlayer @Inject constructor(
         val entry = resolve(failed.item, forceTranscode = true) ?: return fail("This can't be played.")
         queue[0] = entry
         if (queue.size > 1 && !entry.stream.chainsWith(queue[1].stream)) deferred = queue.removeLast()
+        session?.let { reporter.restream(it, entry.stream.playSessionId, entry.stream.transcoded) }
         load(pooled, position)
         pooled.player.playWhenReady = true
         show(entry)
@@ -391,7 +400,9 @@ class OnDemandPlayer @Inject constructor(
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) return
             if (player.currentMediaItemIndex == 0) return
             val finished = queue.removeFirstOrNull()
-            endSession(atEnd = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO, entry = finished)
+            // Next skips on from where it was (an outro skipped this way still counts past 90%).
+            endSession(atEnd = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO, entry = finished, positionMs = leftAtMs)
+            leftAtMs = null
             player.removeMediaItems(0, player.currentMediaItemIndex)
             val entry = queue.firstOrNull() ?: return
             retried = false
@@ -421,6 +432,24 @@ class OnDemandPlayer @Inject constructor(
             session?.let { reporter.playingChanged(it, isPlaying) }
         }
 
+        // Like Jellyfin's own apps, a pause, a play or a seek is told at once, so the resume
+        // point is current when the screen is left (leaving pauses) and the page reads it.
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            val player = exo ?: return
+            session?.let { reporter.progress(it, player.currentPosition, paused = !playWhenReady) }
+        }
+
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            if (oldPosition.mediaItemIndex != newPosition.mediaItemIndex) {
+                // Moving on to the next episode; called just before onMediaItemTransition.
+                if (reason != Player.DISCONTINUITY_REASON_REMOVE) leftAtMs = oldPosition.positionMs
+                return
+            }
+            if (reason != Player.DISCONTINUITY_REASON_SEEK) return
+            val player = exo ?: return
+            session?.let { reporter.progress(it, newPosition.positionMs, paused = !player.playWhenReady) }
+        }
+
         override fun onRenderedFirstFrame() {
             val entry = queue.firstOrNull() ?: return
             if (session == null) startSession(entry, exo?.currentPosition ?: 0)
@@ -431,7 +460,7 @@ class OnDemandPlayer @Inject constructor(
             AppLog.w(TAG, "On-demand playback failed: ${error.errorCodeName}", error)
             if (!entry.stream.transcoded && !retried && error.errorCode in FormatErrors) {
                 retried = true
-                endSession(atEnd = false)
+                // The session goes on over HLS: one view, one start in Jellyfin.
                 scope.launch { retryAsHls(entry) }
             } else {
                 fail("This can't be played right now (${error.errorCodeName}).")
