@@ -305,7 +305,7 @@ The system is flat. There are no shadows, gradients or glows anywhere, and no bl
 
 **The No Zoom Rule.** Focus never scales, glows or lifts. Compose for TV's default focus scale and glow are off.
 
-**The Fill Not Frame Rule** (user decision). A button or key is a fill, never a frame: no outline at rest, on focus or on press. It reads apart from the ground by its fill alone (coal, or rose for the primary), the way a menu row does, and every state change is a change of fill. Hairlines belong to panels over video, empty entry slots, badges and the guide's cells, never to anything you press as a button.
+**The Fill Not Frame Rule** (user decision). A button or key is a fill, never a frame: no outline at rest, on focus or on press. It reads apart from the ground by its fill alone (coal, or rose for the touch primary), the way a menu row does, and every state change is a change of fill. Hairlines belong to panels over video, empty entry slots, badges and the guide's cells, never to anything you press as a button.
 
 ## Shapes
 
@@ -318,7 +318,7 @@ The mark is a channel bug: an ink "A" on a rose tile with a small corner (6 unit
 ### Buttons
 Flat, solid and labelled; the OSD's action keys. Fills only, never outlines.
 - **Shape:** near-square (2 px).
-- **Primary:** rose with ink label at rest on every device (user decision: TV and phone buttons match), 48 px tall with 20 px side padding on touch, 52 px and 24 px on TV, optional 20 px leading icon; one per screen.
+- **Primary:** on touch, rose with ink label at rest, 48 px tall with 20 px side padding, optional 20 px leading icon; one per screen. On TV no button is rose at rest (user decision: there rose only ever means focus, so a rose button at rest would read as focused): the primary takes the secondary's fill at 52 px tall with 24 px side padding, and focus leads to it.
 - **Focus:** a button turns rose with ink text; the touch primary, already rose, turns bone.
 - **Secondary:** coal with bone label, no outline; in Settings and dialogs it is coal high on every device (it has to step up off the TV's coal panel, and the phone's settings list wears the same fill so the two match). A touch press steps it up one more.
 - **In Settings** (user decision, TV and phone alike): buttons share their line evenly, the label and icon centred. One alone spans the list's width, a destructive one too; two split it half and half with 8 px between them. When a label wouldn't fit its share the buttons stack 8 px apart, each across the list.

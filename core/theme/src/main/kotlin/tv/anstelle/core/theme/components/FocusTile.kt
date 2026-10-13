@@ -111,7 +111,8 @@ enum class TileTrailing { None, Chevron }
  * choice that left and right step through on the D-pad (OK steps forward too); [selected]
  * marks the chosen item of a list with a check. A [toggle] shows as a switch on touch
  * screens and as its [value] (On, Off) on TV. A [primary] row is the screen's one main
- * choice: rose with ink text, turning bone when focused, like the primary button.
+ * choice on touch: rose with ink text, turning bone when focused, like the primary button. TV
+ * leaves it to focus, so nothing is rose at rest there.
  */
 @Composable
 fun FocusTile(
@@ -133,6 +134,8 @@ fun FocusTile(
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
+    // Rose at rest only on touch: on TV rose means focus.
+    val rose = primary && !isTv
     val stepping = onPrevious != null && onNext != null
     // A destructive row carries the danger red: its icon at rest, its fill on focus.
     val focusInk = if (danger) OnDangerColor else theme.onAccent
@@ -140,11 +143,11 @@ fun FocusTile(
         onClick = onClick,
         onLongClick = onLongClick,
         enabled = enabled,
-        color = if (primary) theme.accent else theme.surface,
-        contentColor = if (primary) theme.onAccent else theme.text,
+        color = if (rose) theme.accent else theme.surface,
+        contentColor = if (rose) theme.onAccent else theme.text,
         focusColor = when {
             danger -> DangerColor
-            primary -> theme.text
+            rose -> theme.text
             else -> theme.accent
         },
         focusContentColor = focusInk,
@@ -163,7 +166,7 @@ fun FocusTile(
     ) { focused ->
         val muted = when {
             focused -> focusInk.copy(alpha = 0.76f)
-            primary -> theme.onAccent.copy(alpha = 0.76f)
+            rose -> theme.onAccent.copy(alpha = 0.76f)
             else -> theme.textMuted
         }
         Row(
@@ -260,10 +263,12 @@ fun FocusTile(
 }
 
 /**
- * A button, the same on TV and touch (user decision): [primary] is the screen's one main action,
- * rose at rest and bone when focused so focus still shows. The rest sit one surface step above
- * their ground, coal high in Settings on every device. A [danger] button (delete, remove) is the
- * fixed danger red everywhere. A button is a fill, never an outline.
+ * A button. On touch [primary] is the screen's one main action, rose at rest and bone when
+ * pressed into focus. On TV rose only ever means focus (user decision), so no button is rose at
+ * rest there: the primary sits on the same step as the rest and is led to by focus instead. The
+ * rest sit one surface step above their ground, coal high in Settings on every device. A
+ * [danger] button (delete, remove) is the fixed danger red everywhere. A button is a fill, never
+ * an outline.
  */
 @Composable
 fun OsdButton(
@@ -278,24 +283,25 @@ fun OsdButton(
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     // A destructive button is the danger red in every theme and on every device; focus turns it
-    // white with red ink. The primary is rose at rest and turns bone on focus.
+    // white with red ink. On touch the primary is rose at rest and turns bone on focus.
+    val rose = primary && !isTv
     FocusSurface(
         onClick = onClick,
         enabled = enabled,
         color = when {
             danger -> DangerColor
-            primary -> theme.accent
+            rose -> theme.accent
             LocalOnPanel.current -> theme.surfaceHigh
             else -> theme.surface
         },
         contentColor = when {
             danger -> OnDangerColor
-            primary -> theme.onAccent
+            rose -> theme.onAccent
             else -> theme.text
         },
         focusColor = when {
             danger -> OnDangerColor
-            primary -> theme.text
+            rose -> theme.text
             else -> theme.accent
         },
         focusContentColor = if (danger) DangerColor else theme.onAccent,
