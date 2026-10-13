@@ -1,5 +1,6 @@
 package tv.anstelle.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -237,6 +238,12 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
             }
             composable<OnDemandChannelRoute> { entry ->
                 val page = entry.toRoute<OnDemandChannelRoute>()
+                // Never back to wherever the page was opened from: always the on-demand main page.
+                BackHandler {
+                    if (!navController.popBackStack(OnDemandRoute, inclusive = false)) {
+                        navController.navigate(OnDemandRoute) { popUpTo<OnDemandChannelRoute> { inclusive = true } }
+                    }
+                }
                 ChannelScreen(
                     onWatchLive = { navController.navigate(PlayerRoute(it)) },
                     onStartOver = { navController.navigate(PlayerRoute(it, restart = true)) },
@@ -248,23 +255,24 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         }
         composable<OnDemandPlayRoute> { entry ->
             val playing = entry.toRoute<OnDemandPlayRoute>()
-            OnDemandPlayerScreen(
-                // Back to the channel's page it was picked on, or that page in the player's place.
-                onOpenOnDemand = if (playing.channelId == 0L) {
-                    null
-                } else {
-                    {
-                        val from = navController.previousBackStackEntry
-                        val onPage = from?.destination?.hasRoute(OnDemandChannelRoute::class) == true &&
-                            from.toRoute<OnDemandChannelRoute>().channelId == playing.channelId
-                        if (onPage) {
-                            navController.popBackStack()
-                        } else {
-                            navController.navigate(OnDemandChannelRoute(playing.channelId, playing.atUtcMs)) { popUpTo<OnDemandPlayRoute> { inclusive = true } }
-                        }
+            // Back to the channel's page it was picked on, or that page in the player's place.
+            val openOnDemand: (() -> Unit)? = if (playing.channelId == 0L) {
+                null
+            } else {
+                {
+                    val from = navController.previousBackStackEntry
+                    val onPage = from?.destination?.hasRoute(OnDemandChannelRoute::class) == true &&
+                        from.toRoute<OnDemandChannelRoute>().channelId == playing.channelId
+                    if (onPage) {
+                        navController.popBackStack()
+                    } else {
+                        navController.navigate(OnDemandChannelRoute(playing.channelId, playing.atUtcMs)) { popUpTo<OnDemandPlayRoute> { inclusive = true } }
                     }
-                },
-            )
+                }
+            }
+            // Registered before the player's own, which wins while its overlay or a panel is open.
+            if (openOnDemand != null) BackHandler { openOnDemand() }
+            OnDemandPlayerScreen(onOpenOnDemand = openOnDemand)
         }
         adminOnly<AddToChannelRoute>(navController) { AddToChannelScreen(onGone = { navController.popBackStack() }) }
         composable<DashboardRoute> { DashboardScreen(onTurnedOff = { navController.navigateTopLevel(TopLevelDestination.Guide) }) }
@@ -357,6 +365,8 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
             }
         }
         composable<PlayerRoute> {
+            // Live TV always leaves to Live TV, whatever opened the player.
+            BackHandler { navController.navigateTopLevel(TopLevelDestination.Guide) }
             PlayerScreen(
                 // The on-demand player takes the channel's place, so back leaves to where the channel was opened from.
                 onPlayOnDemand = { itemId, position, channelId, atUtcMs ->
