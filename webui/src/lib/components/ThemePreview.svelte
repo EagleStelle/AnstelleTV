@@ -36,7 +36,7 @@
 			<span class="flex items-center gap-1.5 font-display text-[11px] leading-3.5 font-semibold tracking-field" style:color={c.accent}>
 				<i class="size-1.75" style:background={c.accent}></i>NOW <b class="font-semibold" style:color={c.textMuted}>8:00 – 8:30</b>
 			</span>
-			<span class="truncate font-semibold" style:color={c.bannerText}>The Late Show</span>
+			<span class="truncate font-semibold" style:color={c.bannerText}>Feature Presentation</span>
 			<span class="flex h-1 gap-0.5">
 				{#each Array(20) as _, i (i)}<i class="flex-1" style:background={i < 11 ? c.accent : c.line}></i>{/each}
 			</span>

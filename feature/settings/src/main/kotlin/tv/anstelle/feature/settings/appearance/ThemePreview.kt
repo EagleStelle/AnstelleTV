@@ -64,7 +64,7 @@ fun ThemePreview(spec: ThemeSpec, modifier: Modifier = Modifier) {
                 NumberBlock("101", style = typography.headlineSmall, modifier = Modifier.fillMaxHeight().width(64.dp))
                 Column(Modifier.weight(1f).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     StatusLine(onAir = true, label = "Now", text = "8:00 – 8:30")
-                    androidx.compose.material3.Text("The Late Show", style = typography.titleMedium, color = theme.bannerText, maxLines = 1)
+                    androidx.compose.material3.Text("Feature Presentation", style = typography.titleMedium, color = theme.bannerText, maxLines = 1)
                     SegmentLadder(0.55f, segments = 20)
                 }
             }
