@@ -257,6 +257,15 @@ fun GuideScreen(
             viewModel.preview(program.channel.id)
         }
     }
+    // A selection on the program airing now moves on with it when it ends, so OK keeps watching the channel live.
+    LaunchedEffect(selected?.channel?.id, selected?.startUtcMs) {
+        val program = selected ?: return@LaunchedEffect
+        if (!program.isOn(System.currentTimeMillis())) return@LaunchedEffect
+        delay(program.endUtcMs - System.currentTimeMillis())
+        if (grid.selectedChannel == program.channel.id && grid.selectedTime < program.endUtcMs) {
+            grid.selectNow(program.channel.id, System.currentTimeMillis())
+        }
+    }
     // The preview can't show a program that isn't on now, so the details stay on what it plays.
     val described by remember(state.channels, state.access) {
         derivedStateOf { selected?.takeIf { it.isOn(now.value) } ?: playingProgram(playback) }
