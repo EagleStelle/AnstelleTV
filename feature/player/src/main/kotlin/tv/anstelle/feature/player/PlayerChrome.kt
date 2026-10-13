@@ -1,10 +1,14 @@
 package tv.anstelle.feature.player
 
+import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.LocalActivity
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -44,6 +48,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.contentDescription
@@ -57,6 +62,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
+import kotlin.math.abs
 import kotlin.math.hypot
 import tv.anstelle.core.data.playback.StreamFacts
 import tv.anstelle.core.data.playback.TrackOption
@@ -79,24 +85,97 @@ internal suspend fun FocusRequester.requestWhenShown() {
 }
 
 /**
+ * Tells [onHeld] whether a finger is down anywhere inside, so a touch in the banner (scrolling a
+ * track list, dragging the bar) holds it up the way a key press does. It only watches: the touch
+ * still reaches the list or key under it. Leaving with a finger down counts as lifting it.
+ */
+internal fun Modifier.onTouchHeld(onHeld: (Boolean) -> Unit) = pointerInput(Unit) {
+    try {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                onHeld(event.changes.any { it.pressed })
+            }
+        }
+    } finally {
+        onHeld(false)
+    }
+}
+
+/** Which way a finger swept across the picture. */
+internal enum class Swipe { LEFT, RIGHT, UP, DOWN }
+
+/**
+ * Tells [onSwipe] which way a finger swept across the element once it lifts, by the axis it
+ * moved along most. A drag shorter than [SWIPE_REACH] does nothing.
+ */
+internal fun Modifier.onSwipe(onSwipe: (Swipe) -> Unit) = pointerInput(Unit) {
+    var dragged = Offset.Zero
+    detectDragGestures(
+        onDragStart = { dragged = Offset.Zero },
+        onDragEnd = {
+            val (x, y) = dragged
+            if (maxOf(abs(x), abs(y)) >= SWIPE_REACH.toPx()) {
+                onSwipe(
+                    when {
+                        abs(x) > abs(y) -> if (x < 0) Swipe.LEFT else Swipe.RIGHT
+                        y < 0 -> Swipe.UP
+                        else -> Swipe.DOWN
+                    },
+                )
+            }
+        },
+        onDrag = { _, amount -> dragged += amount },
+    )
+}
+
+private val SWIPE_REACH = 96.dp
+
+/**
  * On phones and tablets, a player turns the screen sideways and hides the system bars while
- * it is open (a swipe from the edge shows them for a moment). Leaving puts both back. A TV is
- * already landscape and has no bars.
+ * it is open (a swipe from the edge shows them for a moment). Leaving for the rest of the app
+ * shows the bars and turns it back upright; going from one player straight to the other
+ * stays sideways. A TV is already landscape and has no bars.
  */
 @Composable
 internal fun LandscapeFullScreen() {
     if (LocalIsTv.current) return
     val activity = LocalActivity.current ?: return
     DisposableEffect(activity) {
-        val previous = activity.requestedOrientation
+        FullScreen.enter(activity)
+        onDispose { FullScreen.leave(activity) }
+    }
+}
+
+/**
+ * The players open full screen. From the live player to the on-demand one, the screen coming in
+ * may enter before or after the one going leaves, so the way back waits a moment, and is
+ * called off when another player has entered by then. Main thread only.
+ */
+private object FullScreen {
+    private var players = 0
+    private val main = Handler(Looper.getMainLooper())
+    private var upright: Runnable? = null
+
+    fun enter(activity: Activity) {
+        players++
+        upright?.let(main::removeCallbacks)
+        upright = null
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         val bars = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         bars.hide(WindowInsetsCompat.Type.systemBars())
-        onDispose {
-            bars.show(WindowInsetsCompat.Type.systemBars())
-            activity.requestedOrientation = previous
-        }
+    }
+
+    fun leave(activity: Activity) {
+        players = (players - 1).coerceAtLeast(0)
+        if (players > 0) return
+        upright?.let(main::removeCallbacks)
+        upright = Runnable {
+            upright = null
+            WindowCompat.getInsetsController(activity.window, activity.window.decorView).show(WindowInsetsCompat.Type.systemBars())
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }.also(main::post)
     }
 }
 

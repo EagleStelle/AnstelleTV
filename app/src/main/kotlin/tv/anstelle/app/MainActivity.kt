@@ -2,6 +2,7 @@ package tv.anstelle.app
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
@@ -46,6 +47,8 @@ class MainActivity : ComponentActivity() {
         // System bar icons follow the theme's ground, whatever the system theme is: dark themes
         // come first, so they start light.
         if (!isTv) systemBars(light = false)
+        // Phones stay upright; only the players turn sideways (and put it back on exit).
+        if (!isTv) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         super.onCreate(savedInstanceState)
         setContent { AnstelleApp(isTv = isTv, onLightTheme = { light -> if (!isTv) systemBars(light) }) }
         if (BuildConfig.DEBUG) JankStats.createAndTrack(window, JankLogger())

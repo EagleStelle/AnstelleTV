@@ -10,7 +10,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -101,7 +100,6 @@ import tv.anstelle.core.theme.components.WatchIcons
 
 import java.text.DateFormat
 import java.util.Date
-import kotlin.math.abs
 
 /** Where the banner's keys are: [CONTROLS] has focus on them, the others show a track list. */
 private enum class Panel { CONTROLS, AUDIO, SUBTITLES }
@@ -145,14 +143,16 @@ fun PlayerScreen(
     var panel by remember { mutableStateOf<Panel?>(null) }
     // Every tune brings the banner up with a key highlighted on TV; seeking leaves focus on the picture so left and right keep seeking.
     var tunedBanner by remember { mutableStateOf<Any?>(null) }
-    LaunchedEffect(state.tuneCount, bannerRequest, confirm) {
+    // A finger is down in the banner: it stays up until the finger lifts, then waits again.
+    var bannerTouched by remember { mutableStateOf(false) }
+    LaunchedEffect(state.tuneCount, bannerRequest, confirm, bannerTouched) {
         bannerVisible = true
         if (isTv && tunedBanner != state.tuneCount) {
             tunedBanner = state.tuneCount
             if (panel == null) panel = Panel.CONTROLS
         }
-        if (confirm != null) return@LaunchedEffect
-        // With no key pressed for a while, the banner goes, highlighted key and all.
+        if (confirm != null || bannerTouched) return@LaunchedEffect
+        // With no key pressed or touch for a while, the banner goes, highlighted key and all.
         delay(BANNER_MS)
         bannerVisible = false
         panel = null
@@ -196,7 +196,6 @@ fun PlayerScreen(
     // A Back press the banner took on key-down; its key-up hides the banner.
     var backHeld by remember { mutableStateOf(false) }
 
-    val swipeThreshold = with(LocalDensity.current) { 96.dp.toPx() }
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -277,15 +276,16 @@ fun PlayerScreen(
                     }
                 }
             }
-            .pointerInput(Unit) {
-                var dragged = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { dragged = 0f },
-                    onDragEnd = {
-                        if (abs(dragged) > swipeThreshold) if (dragged < 0) viewModel.channelUp() else viewModel.channelDown()
-                    },
-                    onVerticalDrag = { _, amount -> dragged += amount },
-                )
+            // Up and down change channel; left and right seek back and ahead, as the remote's arrows do.
+            .onSwipe { swipe ->
+                when (swipe) {
+                    Swipe.UP -> viewModel.channelUp()
+                    Swipe.DOWN -> viewModel.channelDown()
+                    Swipe.LEFT, Swipe.RIGHT -> {
+                        viewModel.seekBy(if (swipe == Swipe.LEFT) -BACK_MS else AHEAD_MS)
+                        bannerRequest++
+                    }
+                }
             },
     ) {
         Video(player, subtitleLift = if (bannerVisible) bannerHeight else 0)
@@ -297,7 +297,12 @@ fun PlayerScreen(
         }
 
         // The banner and the ident come and go at once, as on demand's do: a fade would draw their shades through a layer, banded.
-        if (bannerVisible) Box(Modifier.align(Alignment.BottomCenter).onSizeChanged { bannerHeight = it.height }) {
+        if (bannerVisible) Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .onSizeChanged { bannerHeight = it.height }
+                .onTouchHeld { bannerTouched = it },
+        ) {
             // Read again whenever the playback state moves: the keys stay on screen across tunes.
             val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.short }
             val subtitles = remember(state, panel) { viewModel.subtitleOptions().firstOrNull { it.selected }?.short }

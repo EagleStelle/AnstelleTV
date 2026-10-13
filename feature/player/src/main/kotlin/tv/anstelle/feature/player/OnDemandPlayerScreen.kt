@@ -261,10 +261,12 @@ fun OnDemandPlayerScreen(
     LaunchedEffect(Unit) { if (isTv) panel = DemandPanel.CONTROLS }
     // Picking an episode takes reading: the strip stays up until one is picked or Back closes it.
     val browsingEpisodes = panel == DemandPanel.EPISODES
-    LaunchedEffect(overlay, state.playing, browsingEpisodes) {
+    // A finger is down in the banner: it stays up until the finger lifts, then waits again.
+    var overlayTouched by remember { mutableStateOf(false) }
+    LaunchedEffect(overlay, state.playing, browsingEpisodes, overlayTouched) {
         overlayVisible = true
-        if (state.playing && !browsingEpisodes) {
-            // With no key pressed for a while, the banner goes, highlighted key and all.
+        if (state.playing && !browsingEpisodes && !overlayTouched) {
+            // With no key pressed or touch for a while, the banner goes, highlighted key and all.
             delay(OVERLAY_MS)
             overlayVisible = false
             panel = null
@@ -412,6 +414,15 @@ fun OnDemandPlayerScreen(
                         overlay++
                     }
                 }
+            }
+            // Left and right seek back and ahead, as the remote's arrows do.
+            .onSwipe { swipe ->
+                when (swipe) {
+                    Swipe.LEFT -> viewModel.seekBy(-BACK_MS)
+                    Swipe.RIGHT -> viewModel.seekBy(AHEAD_MS)
+                    Swipe.UP, Swipe.DOWN -> return@onSwipe
+                }
+                overlay++
             },
     ) {
         Video(viewModel.player, subtitleLift = if (overlayShown) overlayHeight else 0)
@@ -431,7 +442,10 @@ fun OnDemandPlayerScreen(
             Overlay(
                 state = state,
                 viewModel = viewModel,
-                modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { overlayHeight = it.height },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .onSizeChanged { overlayHeight = it.height }
+                    .onTouchHeld { overlayTouched = it },
                 skip = skip?.let { type ->
                     {
                         // Gone with the banner or its segment, it no longer holds focus.
