@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -64,6 +65,7 @@ import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdBadge
 import tv.anstelle.core.theme.components.SegmentLadder
+import tv.anstelle.core.theme.components.SegmentRing
 
 /**
  * Focuses a banner key that may not be on screen yet: a hidden banner composes its keys only
@@ -165,7 +167,18 @@ internal fun Modifier.cornerShade(color: Color, atStart: Boolean = false) = draw
 }
 
 /**
- * A soft shade behind a line of text over the picture (Tuning…, a notice): [color] deepest at
+ * The wait while a channel tunes or a program loads: the theme's segment ring in the middle of
+ * the picture, on no shade and with no words. [description] is what a screen reader says instead.
+ */
+@Composable
+internal fun LoadingSpinner(description: String) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        SegmentRing(description)
+    }
+}
+
+/**
+ * A soft shade behind a line of text over the picture (a notice): [color] deepest at
  * its center and gone well past its ends, an ellipse around the text instead of a box.
  */
 internal fun Modifier.softShade(color: Color) = drawBehind {

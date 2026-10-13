@@ -299,7 +299,7 @@ The system is flat. There are no shadows, gradients or glows anywhere, and no bl
 ### Named Rules
 **The Wash Not Fade Rule.** Artwork under text takes one flat wash of the ground, never a gradient, scrim fade or blur. 80% keeps bone text at 9:1 and muted text above 4.5:1 even over a white sky, and tints the art toward ink instead of grey.
 
-**The Shade Over Picture Rule** (user decision). The player's OSD sits on the picture itself, never on a panel, and the banner tone fades in under it only where text needs it: the edge shade rises from the screen's bottom edge, gone 96 px above the banner on TV (48 on phones), 70% at the banner's first line and 88% at its foot; the corner shade is a quarter ellipse from the top-end corner behind the ident, reaching 1.25 times the ident's diagonal, 88% in the corner; a message over the picture (Tuning…, a notice) sits on a soft elliptical shade. They are the only gradients in the product, and only over video: they keep bone text readable over a white sky while the picture runs on under the banner, as a broadcast's own graphics do. They never take an edge, a corner or a fill of their own.
+**The Shade Over Picture Rule** (user decision). The player's OSD sits on the picture itself, never on a panel, and the banner tone fades in under it only where text needs it: the edge shade rises from the screen's bottom edge, gone 96 px above the banner on TV (48 on phones), 70% at the banner's first line and 88% at its foot; the corner shade is a quarter ellipse from the top-end corner behind the ident, reaching 1.25 times the ident's diagonal, 88% in the corner; a message over the picture (a notice, an error) sits on a soft elliptical shade. A wait never takes one: the segment ring stands on the bare picture. They are the only gradients in the product, and only over video: they keep bone text readable over a white sky while the picture runs on under the banner, as a broadcast's own graphics do. They never take an edge, a corner or a fill of their own.
 
 **The Step Not Shadow Rule.** Anything that needs to read as above something else moves one step up the surface ladder and, over video, takes a line-colored hairline. It never casts a shadow or blurs what is behind it.
 
@@ -309,7 +309,7 @@ The system is flat. There are no shadows, gradients or glows anywhere, and no bl
 
 ## Shapes
 
-Near-square corners everywhere: 2 px on controls, rows, guide cells, posters, buttons, badges and number blocks; 4 px on panels over video and dialogs. Edges are 1 px hairlines in line color (panels, off-air cells, empty entry slots) or muted (badges, the unfocused selection in the guide); buttons and keys never take one (see The Fill Not Frame Rule). Markers are squares, not dots: the on-air marker is a solid 8 px square, up next the same square hollow with a 1.5 px stroke, watched through a 10 px bone square with a tick cut through it, and the now line's head in the time header is an 8 px square on a 2 px stem. Progress is a ladder of rectangular segments with 2 px gaps.
+Near-square corners everywhere: 2 px on controls, rows, guide cells, posters, buttons, badges and number blocks; 4 px on panels over video and dialogs. Edges are 1 px hairlines in line color (panels, off-air cells, empty entry slots) or muted (badges, the unfocused selection in the guide); buttons and keys never take one (see The Fill Not Frame Rule). Markers are squares, not dots: the on-air marker is a solid 8 px square, up next the same square hollow with a 1.5 px stroke, watched through a 10 px bone square with a tick cut through it, and the now line's head in the time header is an 8 px square on a 2 px stem. Progress is a ladder of rectangular segments with 2 px gaps; a wait with no end known is the same ladder bent into a ring.
 
 The mark is a channel bug: an ink "A" on a rose tile with a small corner (6 units on a 108-unit grid), its crossbar running on past the right leg the way the now line runs out of frame. The in-app mark and the generated launcher icon and TV banner share the same geometry.
 
@@ -385,6 +385,9 @@ Uploads are made standard once, when stored: decoded no larger than needed, thei
 
 ### OSD Badge
 A fact such as 4K, HDR10 or 5.1: condensed label-small in bone, inside a 1 px muted outline at 60%, never filled.
+
+### Segment Ring
+The wait while a channel tunes or a program loads, in both players on every device, in place of any words (`SegmentRing`): the progress ladder bent into a 48 px ring of 16 segments, 6 px deep with square ends and 2 px gaps at the stroke's middle, segment one at twelve o'clock. A lit run in rose travels clockwise over segments in line: Material's indeterminate rhythm (the head reaches five eighths of the ring ahead in 667 ms, the tail catches up in the next 667 ms, the whole run drifting an eighth round meanwhile, and the next sweep sets off from where the last ended), stepped into whole segments so it snaps the way the ladder fills, never glides. It stands on the bare picture, centered, with no track, plate, shade or label: the line segments are its edge over a bright frame, the rose run over a dark one. Screen readers hear Tuning or Loading.
 
 ### Watched (an episode aired, for you)
 An episode watched through (marked played in Jellyfin, or left past 95%) speaks the guide's language for the past, never the accent: rose means here and now, and this is done. Every pair below is one the theme floors already guarantee, so it holds in every theme, light ones included.

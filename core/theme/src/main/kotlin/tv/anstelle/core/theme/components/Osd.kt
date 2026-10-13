@@ -1,5 +1,11 @@
 package tv.anstelle.core.theme.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.background
@@ -20,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -31,7 +38,9 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -45,6 +54,7 @@ import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.PanelShape
+import kotlin.math.floor
 import kotlin.math.roundToInt
 
 /** Side padding of a full page. */
@@ -274,6 +284,76 @@ fun SegmentLadder(fraction: Float, modifier: Modifier = Modifier, segments: Int 
         }
     }
 }
+
+/**
+ * A wait with no end known yet (a channel tuning, a program loading): the ladder bent into a
+ * ring of [segments], square-ended, with a lit run in the accent over the line-colored rest.
+ * The run keeps Material's indeterminate rhythm (the head reaches ahead, the tail catches up, and
+ * the next sweep sets off from where the last ended), stepped into whole segments the way the ladder
+ * fills, so it snaps rather than glides. It has no track, plate or shade of its own: the
+ * line-colored segments are its edge over a bright picture, the lit run over a dark one.
+ */
+@Composable
+fun SegmentRing(description: String, modifier: Modifier = Modifier, segments: Int = 16) {
+    val theme = LocalAnstelleTheme.current
+    // Four sweeps of three quarters each make three whole turns, so the loop closes seamlessly.
+    val loop by rememberInfiniteTransition(label = "ring").animateFloat(
+        initialValue = 0f,
+        targetValue = RING_SWEEPS.toFloat(),
+        animationSpec = infiniteRepeatable(tween(durationMillis = RING_SWEEP_MS * RING_SWEEPS, easing = LinearEasing)),
+        label = "loop",
+    )
+    Canvas(
+        modifier.size(48.dp).semantics {
+            contentDescription = description
+            progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
+        },
+    ) {
+        val stroke = 6.dp.toPx()
+        val radius = (size.minDimension - stroke) / 2
+        val slot = 360f / segments
+        // A 2 px gap at the stroke's middle, as between the ladder's segments.
+        val sweep = slot - Math.toDegrees(2.dp.toPx() / radius.toDouble()).toFloat()
+        val sweepIndex = loop.toInt()
+        val t = loop - sweepIndex
+        val reach = segments * RING_REACH
+        val base = segments * (sweepIndex * RING_ADVANCE + RING_DRIFT * t)
+        val head = base + reach * FastOutSlowInEasing.transform((t * 2).coerceAtMost(1f))
+        val tail = base + reach * FastOutSlowInEasing.transform((t * 2 - 1).coerceAtLeast(0f))
+        // Whole segments only: at least one lit, the head's own included.
+        val first = floor(tail).toInt()
+        val lit = floor(head).toInt() + 1 - first
+        val arc = Size(radius * 2, radius * 2)
+        val topLeft = Offset(center.x - radius, center.y - radius)
+        for (i in 0 until segments) {
+            drawArc(
+                color = if ((i - first).mod(segments) < lit) theme.accent else theme.line,
+                // Segment 0 starts at twelve o'clock, half a gap in.
+                startAngle = -90f + i * slot + (slot - sweep) / 2,
+                sweepAngle = sweep,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arc,
+                style = Stroke(stroke, cap = StrokeCap.Butt),
+            )
+        }
+    }
+}
+
+/** One reach and catch-up of the ring's run, Material's indeterminate cycle. */
+private const val RING_SWEEP_MS = 1_333
+
+/** Sweeps before the run is back where it began. */
+private const val RING_SWEEPS = 4
+
+/** How far the head reaches ahead of the tail at most, as a share of the ring. */
+private const val RING_REACH = 0.625f
+
+/** How far the whole run drifts round during a sweep, as a share of the ring. */
+private const val RING_DRIFT = 0.125f
+
+/** Where each sweep starts relative to the last: reach plus drift, three quarters round. */
+private const val RING_ADVANCE = RING_REACH + RING_DRIFT
 
 /** On air: a solid square. Up next: the same square, hollow. */
 @Composable

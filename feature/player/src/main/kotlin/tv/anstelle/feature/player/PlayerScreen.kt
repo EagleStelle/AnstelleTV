@@ -293,7 +293,7 @@ fun PlayerScreen(
         when (state.status) {
             TuneStatus.OFF_AIR, TuneStatus.RESTRICTED -> StandIn(state)
             TuneStatus.NO_SCHEDULE, TuneStatus.ERROR -> Message(state.message ?: "Nothing to play.")
-            else -> if (state.buffering || player == null) Message("Tuning…", subtle = true)
+            else -> if (state.buffering || player == null) LoadingSpinner("Tuning")
         }
 
         // The banner and the ident come and go at once, as on demand's do: a fade would draw their shades through a layer, banded.
@@ -710,17 +710,13 @@ private fun StandIn(state: PlaybackState) {
 }
 
 @Composable
-private fun Message(text: String, modifier: Modifier = Modifier, subtle: Boolean = false) {
+private fun Message(text: String, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         androidx.compose.material3.Text(
             text,
-            style = if (subtle) {
-                androidx.compose.material3.MaterialTheme.typography.titleMedium
-            } else {
-                androidx.compose.material3.MaterialTheme.typography.titleLarge
-            },
-            color = if (subtle) theme.textMuted else theme.text,
+            style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+            color = theme.text,
             modifier = modifier
                 .softShade(theme.banner)
                 .padding(horizontal = 24.dp, vertical = 14.dp),

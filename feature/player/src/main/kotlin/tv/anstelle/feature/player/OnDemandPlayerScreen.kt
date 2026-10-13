@@ -421,8 +421,8 @@ fun OnDemandPlayerScreen(
                 RestrictedMark(state.restriction?.title ?: Restriction.AGE_TITLE, size = StandInSize.SCREEN)
             }
             OnDemandStatus.ERROR -> Message(state.message ?: "This can't be played.")
-            OnDemandStatus.LOADING -> Message("Loading…")
-            else -> if (state.buffering) Message("Loading…")
+            OnDemandStatus.LOADING -> LoadingSpinner("Loading")
+            else -> if (state.buffering) LoadingSpinner("Loading")
         }
         if (overlayShown) {
             // Read again whenever the playback state moves: the keys stay on screen across episodes.
