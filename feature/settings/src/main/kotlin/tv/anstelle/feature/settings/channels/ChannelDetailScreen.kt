@@ -251,7 +251,7 @@ fun ChannelDetailScreen(
 
     SettingsPage(
         title = "${channel.number}  ${channel.name}",
-        trail = listOf("Settings", "Channels"),
+        trail = listOf("Settings", "Live TV"),
         about = if (channel.fromLibrary) {
             null
         } else {

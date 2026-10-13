@@ -55,6 +55,9 @@ const val PlayerRouteNoChannel = -1
 @Serializable data class AddServerRoute(val serverId: Long = 0, val linkProfileId: Long = 0, val newProfile: Boolean = false)
 
 @Serializable data object ChannelsRoute
+
+/** The custom channels, or with [library] the ones made from the library. */
+@Serializable data class ChannelListRoute(val library: Boolean)
 @Serializable data class ChannelDetailRoute(val channelId: Long)
 
 /** [channelId] 0 builds a new channel. */

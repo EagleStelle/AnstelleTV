@@ -252,7 +252,7 @@ fun SettingsScreen(
             }
             item(key = "channels") {
                 LinkRow(
-                    title = "Channels",
+                    title = "Live TV",
                     summary = when (state.channels.total) {
                         0 -> "None yet"
                         1 -> "1 channel"
@@ -499,7 +499,7 @@ private fun WebReadout(state: SettingsUiState) {
 
 private fun title(area: SettingsArea) = when (area) {
     SettingsArea.SERVERS -> "Servers"
-    SettingsArea.CHANNELS -> "Channels"
+    SettingsArea.CHANNELS -> "Live TV"
     SettingsArea.PLAYBACK -> "Playback"
     SettingsArea.HISTORY -> "Watch history"
     SettingsArea.THEME -> "Themes"

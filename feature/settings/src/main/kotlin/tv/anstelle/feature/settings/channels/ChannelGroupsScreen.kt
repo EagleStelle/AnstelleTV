@@ -106,7 +106,7 @@ fun ChannelGroupsScreen(
 
     SettingsPage(
         title = "Groups",
-        trail = listOf("Settings", "Channels"),
+        trail = listOf("Settings", "Live TV"),
         about = "Each group is a tab in Live TV, in this order, and numbers its channels A to Z from its start. " +
             "Move a group by its handle to change the order. " +
             "Library groups hold the channels made from your library. A group you made can be deleted once it is empty.",

@@ -381,7 +381,7 @@ fun ChannelLineupScreen(
     }
     val panes = rememberSaveableStateHolder()
     // The pages above this one: the channel's own page for a lineup, the channel list for a new one.
-    val trail = listOf("Settings", "Channels") + listOfNotNull(state.name.takeIf { !state.isNew && it.isNotEmpty() })
+    val trail = listOf("Settings", "Live TV") + listOfNotNull(state.name.takeIf { !state.isNew && it.isNotEmpty() })
     val builder = trail + if (state.isNew) "New channel" else "Lineup"
 
     val page = state.page

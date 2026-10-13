@@ -93,6 +93,7 @@ import tv.anstelle.feature.settings.channels.AddToChannelScreen
 import tv.anstelle.feature.settings.channels.ChannelDetailScreen
 import tv.anstelle.feature.settings.channels.ChannelGroupsScreen
 import tv.anstelle.feature.settings.channels.ChannelLineupScreen
+import tv.anstelle.feature.settings.channels.ChannelListScreen
 import tv.anstelle.feature.settings.channels.ChannelsScreen
 import tv.anstelle.feature.settings.playback.LanguageList
 import tv.anstelle.feature.settings.playback.LanguagePickerScreen
@@ -299,9 +300,15 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
             // App-wide: the owner's and admins'.
             adminOnly<ChannelsRoute>(navController) {
                 ChannelsScreen(
-                    onOpenChannel = { navController.navigate(ChannelDetailRoute(it)) },
+                    onOpenChannelList = { navController.navigate(ChannelListRoute(it)) },
                     onNewChannel = { navController.navigate(ChannelLineupRoute()) },
                     onOpenGroups = { navController.navigate(ChannelGroupsRoute) },
+                )
+            }
+            adminOnly<ChannelListRoute>(navController) { entry ->
+                ChannelListScreen(
+                    library = entry.toRoute<ChannelListRoute>().library,
+                    onOpenChannel = { navController.navigate(ChannelDetailRoute(it)) },
                 )
             }
             adminOnly<ChannelDetailRoute>(navController) {
