@@ -402,8 +402,8 @@ fun WatchedMarker(
 /**
  * What was watched of an episode, on a strip of the wash across its still's foot: the minutes
  * watched as a ladder in the accent (where you left it is where you are), and once watched
- * through the watched square with WATCHED in the field voice, the way a status line says
- * AIRED. Watching one again shows the square before the ladder. One height in every state,
+ * through the watched square with WATCHED in the field voice, both in the accent so they
+ * follow the theme. Watching one again shows the square before the ladder. One height in every state,
  * so a list of stills keeps one line. Show it only when [fraction] is above 0 or [watched].
  */
 @Composable
@@ -419,14 +419,14 @@ fun WatchStrip(fraction: Float, watched: Boolean, modifier: Modifier = Modifier,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         val spot = fraction > 0f
-        if (watched) WatchedMarker(description = if (spot) "Watched" else null)
+        if (watched) WatchedMarker(color = theme.accent, tick = theme.onAccent, description = if (spot) "Watched" else null)
         if (spot) {
             SegmentLadder(fraction, Modifier.weight(1f), segments = segments)
         } else if (watched) {
             androidx.compose.material3.Text(
                 "WATCHED",
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                color = theme.text,
+                color = theme.accent,
                 maxLines = 1,
             )
         }
