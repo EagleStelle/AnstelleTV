@@ -1,24 +1,19 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { api, problem, type Backup } from '#lib/api.ts';
+	import BackupReadout from '#lib/components/BackupReadout.svelte';
 	import Button from '#lib/components/Button.svelte';
 	import Dialog from '#lib/components/Dialog.svelte';
-	import Facts from '#lib/components/Facts.svelte';
-	import Figure from '#lib/components/Figure.svelte';
-	import Figures from '#lib/components/Figures.svelte';
 	import Notice from '#lib/components/Notice.svelte';
 	import Page from '#lib/components/Page.svelte';
-	import Readout from '#lib/components/Readout.svelte';
-	import Rule from '#lib/components/Rule.svelte';
-	import StatusLine from '#lib/components/StatusLine.svelte';
-	import { ago, counted } from '#lib/format.ts';
 	import { live } from '#lib/live.svelte.ts';
 	import { session } from '#lib/session.svelte.ts';
 	import Download from '~icons/material-symbols/download';
-	import Restore from '~icons/material-symbols/settings-backup-restore';
+	import Upload from '~icons/material-symbols/upload';
 	import { onMount } from 'svelte';
 
 	let backup = $state<Backup | null>(null);
+	/** A problem asks for an answer, so it opens over the page; only progress stays in the list. */
 	let error = $state<string | null>(null);
 	let file = $state<File | null>(null);
 	let question = $state<{ question: string; explanation: string } | null>(null);
@@ -29,7 +24,6 @@
 	async function load() {
 		try {
 			backup = await api.backup();
-			error = null;
 		} catch (e) {
 			error = problem(e);
 		}
@@ -49,7 +43,6 @@
 			question = await api.checkBackup(chosen);
 			file = chosen;
 			asking = true;
-			error = null;
 		} catch (e) {
 			error = problem(e);
 		}
@@ -89,40 +82,19 @@
 	trail={[{ label: 'Home', href: '/' }]}
 	note="A backup holds the channels, profiles, themes, settings and dashboard history, and restoring one replaces everything on the TV. Sign-ins never travel: servers the TV isn't signed in to need signing in again."
 >
+	<!-- The file verbs side by side: saving one, and restoring one for the owner. -->
 	{#snippet actions()}
 		{#if !restoring}
 			<Button label="Save backup" icon={Download} primary href={api.backupUrl} download />
 			{#if session.isOwner}
-				<Button label="Restore from file" icon={Restore} danger onclick={() => picker?.click()} />
+				<Button label="Restore from file" icon={Upload} danger onclick={() => picker?.click()} />
 			{/if}
 		{/if}
 	{/snippet}
 	{#snippet overview()}
-		{#if backup}
-			<Readout>
-				{#if backup.savedUtcMs}
-					<StatusLine label="Saved" text={ago(backup.savedUtcMs)} />
-				{:else}
-					<StatusLine label="Not saved yet" state="off" />
-				{/if}
-				<Figures>
-					<Figure value={backup.channels} name={backup.channels === 1 ? 'channel' : 'channels'} lead />
-					<Figure value={backup.profiles} name={backup.profiles === 1 ? 'profile' : 'profiles'} />
-					<Figure value={backup.themes} name={backup.themes === 1 ? 'custom theme' : 'custom themes'} />
-				</Figures>
-				<Rule />
-				<Facts
-					items={[
-						['Servers', counted(backup.servers, 'server')],
-						['Groups', counted(backup.groups, 'group')],
-						['History', backup.historyDays === 1 ? '1 day' : `${backup.historyDays} days`]
-					]}
-				/>
-			</Readout>
-		{/if}
+		{#if backup}<BackupReadout {backup} />{/if}
 	{/snippet}
 
-	{#if error}<Notice text={error} error />{/if}
 	{#if restoring}
 		<Notice text="Restoring… The TV starts over on the backup, then this browser pairs again." />
 	{:else}
@@ -134,5 +106,11 @@
 	{#snippet actions()}
 		<Button label="Cancel" autofocus onclick={() => (asking = false)} />
 		<Button label="Replace" danger onclick={restore} />
+	{/snippet}
+</Dialog>
+
+<Dialog open={error !== null} title="That didn’t work" about={error ?? undefined} onclose={() => (error = null)}>
+	{#snippet actions()}
+		<Button label="Okay" primary autofocus onclick={() => (error = null)} />
 	{/snippet}
 </Dialog>

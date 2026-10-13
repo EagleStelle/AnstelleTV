@@ -17,13 +17,13 @@
 	import ThemePreview from '#lib/components/ThemePreview.svelte';
 	import { theme as worn } from '#lib/theme.svelte.ts';
 	import { fromHex, isColor, MAX_CHROMA, toHex, type Oklch } from '#lib/oklch.ts';
-	import AutoAwesome from '~icons/material-symbols/auto-awesome-outline';
+	import AutoAwesome from '~icons/material-symbols/auto-awesome';
 	import Check from '~icons/material-symbols/check';
 	import ChevronRight from '~icons/material-symbols/chevron-right';
-	import ContentCopy from '~icons/material-symbols/content-copy-outline';
+	import ContentCopy from '~icons/material-symbols/content-copy';
 	import FormatSize from '~icons/material-symbols/format-size';
 	import RoundedCorner from '~icons/material-symbols/rounded-corner';
-	import TableRows from '~icons/material-symbols/table-rows-outline';
+	import TableRows from '~icons/material-symbols/table-rows';
 	import TextFields from '~icons/material-symbols/text-fields';
 	import Title from '~icons/material-symbols/title';
 	import { onDestroy } from 'svelte';

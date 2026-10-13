@@ -42,7 +42,7 @@
 	title="Lineup"
 	trail={[
 		{ label: 'Home', href: '/' },
-		{ label: 'Channels', href: '/channels' },
+		{ label: 'Live TV', href: '/channels' },
 		{ label: name || 'Channel', href: `/channels/${id}` }
 	]}
 	note="A series or movie plays when it matches every rule in a set. Changes start after the next program."

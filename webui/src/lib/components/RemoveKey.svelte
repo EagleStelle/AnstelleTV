@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Delete from '~icons/material-symbols/delete-outline';
+	import Delete from '~icons/material-symbols/delete';
 
 	/** A red bin at a row's end that removes the row's item at once. */
 	let { label, onclick }: { label: string; onclick: () => void } = $props();

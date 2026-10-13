@@ -11,25 +11,24 @@
 	import Page from '#lib/components/Page.svelte';
 	import Readout from '#lib/components/Readout.svelte';
 	import Row from '#lib/components/Row.svelte';
-	import Rule from '#lib/components/Rule.svelte';
 	import Section from '#lib/components/Section.svelte';
 	import StatusLine from '#lib/components/StatusLine.svelte';
 	import SwitchRow from '#lib/components/SwitchRow.svelte';
 	import TextRow from '#lib/components/TextRow.svelte';
 	import { time } from '#lib/format.ts';
 	import { live } from '#lib/live.svelte.ts';
-	import Folder from '~icons/material-symbols/folder-outline';
-	import HideImage from '~icons/material-symbols/hide-image-outline';
-	import Image from '~icons/material-symbols/image-outline';
-	import Movie from '~icons/material-symbols/movie-outline';
+	import Folder from '~icons/material-symbols/folder';
+	import HideImage from '~icons/material-symbols/hide-image';
+	import Image from '~icons/material-symbols/image';
+	import Movie from '~icons/material-symbols/movie';
 	import Star from '~icons/material-symbols/star';
 	import StarOutline from '~icons/material-symbols/star-outline';
 	import Title from '~icons/material-symbols/title';
 	import Tune from '~icons/material-symbols/tune';
-	import Tv from '~icons/material-symbols/tv-outline';
+	import Tv from '~icons/material-symbols/tv';
 	import Upload from '~icons/material-symbols/upload';
-	import Visibility from '~icons/material-symbols/visibility-outline';
-	import VisibilityOff from '~icons/material-symbols/visibility-off-outline';
+	import Visibility from '~icons/material-symbols/visibility';
+	import VisibilityOff from '~icons/material-symbols/visibility-off';
 	import { onMount } from 'svelte';
 
 	const id = $derived(Number(page.params.id));
@@ -104,7 +103,7 @@
 	async function remove() {
 		try {
 			await api.deleteChannel(id);
-			await goto('/channels');
+			await goto('/channels/custom');
 		} catch (e) {
 			error = problem(e);
 		}
@@ -114,7 +113,7 @@
 	const custom = $derived(groups.filter((g) => !g.fromLibrary));
 	const trail = [
 		{ label: 'Home', href: '/' },
-		{ label: 'Channels', href: '/channels' }
+		{ label: 'Live TV', href: '/channels' }
 	];
 </script>
 
@@ -132,13 +131,14 @@
 			? undefined
 			: 'Movies can air once daily: each at most once in 24 hours, when series or a full day of movies fill the time. Nothing airs twice in a row while anything else can.'}
 	>
-		<!-- What airs now, next and later, as the banner's status lines side by side. -->
+		<!-- What airs now, next and later, as the banner's status lines side by side, after the channel's logo. -->
 		{#snippet overview()}
 			<Readout>
-				<div class="flex flex-wrap items-start gap-x-10 gap-y-5">
+				<div class="flex flex-wrap items-center gap-x-10 gap-y-5">
+					{#if channel.logoUrl}<img src={channel.logoUrl} alt="{channel.name} logo" class="h-15 w-25 shrink-0 object-contain object-left" />{/if}
 					{#each detail!.airings as airing, i (airing.startUtcMs)}
 						<div class="flex min-w-0 flex-1 basis-44 flex-col gap-1">
-							{#if i === 0 && airing.startUtcMs <= Date.now()}
+							{#if i === 0}
 								<StatusLine label={airing.title ? 'Now' : 'Off air'} text="until {time(airing.endUtcMs)}" />
 							{:else}
 								<StatusLine label={i === 1 ? 'Next' : 'Later'} text={time(airing.startUtcMs)} state="off" />
@@ -146,10 +146,8 @@
 							{#if airing.title}<p class={['truncate font-semibold', i === 0 ? 'text-title-l' : 'text-title-m']}>{airing.title}</p>{/if}
 						</div>
 					{/each}
-					{#if detail!.airings.length === 0}<p class="text-text-muted">Nothing scheduled yet.</p>{/if}
+					{#if detail!.airings.length === 0}<p class="text-body-m text-text-muted">No schedule yet.</p>{/if}
 				</div>
-				<Rule />
-				<p class="text-text-muted">{detail!.summary}</p>
 			</Readout>
 		{/snippet}
 
@@ -217,7 +215,7 @@
 					{/snippet}
 				</ChoiceRow>
 			{/if}
-			<Section title="Channel" />
+			<Section title="Name and logo" />
 			<TextRow
 				title="Name"
 				value={channel.name}
@@ -233,7 +231,7 @@
 					}
 				}}
 			/>
-			<Row title="Logo" summary={channel.logoUrl ? undefined : 'None'} icon={channel.logoUrl ? Image : HideImage}>
+			<Row title="Logo" summary={channel.logoUrl ? 'Your image' : 'None'} icon={channel.logoUrl ? Image : HideImage}>
 				{#snippet end()}
 					{#if channel.logoUrl}<span class="grid h-12 w-20 place-items-center"><img src={channel.logoUrl} alt="" class="max-h-full max-w-full object-contain" /></span>{/if}
 				{/snippet}

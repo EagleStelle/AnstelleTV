@@ -5,6 +5,7 @@
 	import Button from '#lib/components/Button.svelte';
 	import Buttons from '#lib/components/Buttons.svelte';
 	import DangerButton from '#lib/components/DangerButton.svelte';
+	import Fact from '#lib/components/Fact.svelte';
 	import Facts from '#lib/components/Facts.svelte';
 	import Figure from '#lib/components/Figure.svelte';
 	import Figures from '#lib/components/Figures.svelte';
@@ -14,17 +15,21 @@
 	import Readout from '#lib/components/Readout.svelte';
 	import Row from '#lib/components/Row.svelte';
 	import Rule from '#lib/components/Rule.svelte';
+	import ScanLadder from '#lib/components/ScanLadder.svelte';
 	import Section from '#lib/components/Section.svelte';
+	import SeriesFigure from '#lib/components/SeriesFigure.svelte';
 	import StatusLine from '#lib/components/StatusLine.svelte';
 	import SwitchRow from '#lib/components/SwitchRow.svelte';
 	import { ago, itemKind, libraryKind } from '#lib/format.ts';
 	import { live } from '#lib/live.svelte.ts';
+	import Dns from '~icons/material-symbols/dns';
 	import Login from '~icons/material-symbols/login';
-	import Person from '~icons/material-symbols/person-outline';
+	import Person from '~icons/material-symbols/person';
+	import Public from '~icons/material-symbols/public';
 	import Refresh from '~icons/material-symbols/refresh';
 	import Sync from '~icons/material-symbols/sync';
-	import VideoLibrary from '~icons/material-symbols/video-library-outline';
-	import VideocamOff from '~icons/material-symbols/videocam-off-outline';
+	import VideoLibrary from '~icons/material-symbols/video-library';
+	import VideocamOff from '~icons/material-symbols/videocam-off';
 	import { onMount } from 'svelte';
 
 	const id = $derived(Number(page.params.id));
@@ -80,6 +85,11 @@
 		trail={[{ label: 'Home', href: '/' }, { label: 'Servers', href: '/servers' }]}
 		note="Sync now fetches what changed; Full sync reads every item again. A library turned off is dropped at the next sync."
 	>
+		<!--
+			What the server is and how its sync stands, read like a set's system-information panel: the
+			sync state set like the banner's NOW line, what the library holds in tabular figures, then the
+			connection's facts, each behind the icon that names it.
+		-->
 		{#snippet actions()}
 			{#if server.isSignedIn}
 				<Button label="Sync now" icon={Sync} primary onclick={() => act(() => api.sync(id, false))} />
@@ -89,36 +99,44 @@
 			{/if}
 		{/snippet}
 		{#snippet overview()}
-			<Readout>
+			<Readout roomy>
 				{#if server.progress}
-					<StatusLine label="Syncing" text={server.progress} state="off" />
-				{:else if !server.isSignedIn}
-					<StatusLine label="Signed out" state="problem" />
-				{:else if server.lastSyncError}
-					<StatusLine label="Sync failed" text={server.lastSyncError} state="problem" />
+					<div class="flex flex-col gap-2.5">
+						<StatusLine label="Syncing" text={server.progress} state="off" />
+						<ScanLadder />
+					</div>
+				{:else if !server.isSignedIn || server.lastSyncError}
+					<div class="flex flex-col gap-1.5">
+						<StatusLine label={server.isSignedIn ? 'Sync failed' : 'Signed out'} state="problem" />
+						{#if server.isSignedIn && server.lastSyncError}<p class="text-body-m">{server.lastSyncError}</p>{/if}
+					</div>
 				{:else if server.lastSyncUtcMs}
 					<StatusLine label="Synced" text={ago(server.lastSyncUtcMs)} />
 				{:else}
 					<StatusLine label="Not synced yet" state="off" />
 				{/if}
 				{#if detail!.counts.length === 0}
-					<p class="text-text-muted">No items yet</p>
+					<p class="text-body-m text-text-muted">No items yet</p>
 				{:else}
-					<Figures>
-						{#if counts.movies}<Figure value={counts.movies} name={itemKind('MOVIE', counts.movies)} lead />{/if}
-						{#if counts.series}<Figure value={counts.series} name="series" lead={!counts.movies} />{/if}
-						{#if counts.episodes}<Figure value={counts.episodes} name={itemKind('EPISODE', counts.episodes)} />{/if}
+					<!-- Movies, then series joined to their episodes, then anything else. -->
+					<Figures wide>
+						{#if counts.movies}<Figure value={counts.movies} name={itemKind('MOVIE', counts.movies)} />{/if}
+						{#if counts.series && counts.episodes}
+							<SeriesFigure series={counts.series} episodes={counts.episodes} />
+						{:else if counts.series}
+							<Figure value={counts.series} name="series" />
+						{:else if counts.episodes}
+							<Figure value={counts.episodes} name={itemKind('EPISODE', counts.episodes)} />
+						{/if}
 						{#each counts.rest as [type, count] (type)}<Figure value={count} name={itemKind(type, count)} />{/each}
 					</Figures>
 				{/if}
 				<Rule />
-				<Facts
-					items={[
-						...(server.version ? [['Server version', `Jellyfin ${server.version}`] as [string, string]] : []),
-						...(server.userName ? [['Signed in as', server.userName] as [string, string]] : []),
-						['Address', server.address]
-					]}
-				/>
+				<Facts wide>
+					{#if server.version}<Fact icon={Dns} text="Jellyfin {server.version}" label="Server version" />{/if}
+					{#if server.userName}<Fact icon={Person} text={server.userName} label="Signed in as" />{/if}
+					<Fact icon={Public} text={server.address} label="Address" />
+				</Facts>
 			</Readout>
 		{/snippet}
 

@@ -23,6 +23,7 @@ import tv.anstelle.webserver.api.GroupRequest
 import tv.anstelle.webserver.api.LineupDto
 import tv.anstelle.webserver.api.MoveRequest
 import tv.anstelle.webserver.api.NewChannelRequest
+import tv.anstelle.webserver.api.RowsRequest
 import tv.anstelle.webserver.api.SettingRequest
 import java.io.IOException
 
@@ -30,8 +31,10 @@ private const val NO_CHANNEL = "no_channel"
 private const val NO_CHANNEL_TEXT = "There is no such channel."
 private const val NO_GROUP = "no_group"
 private const val NO_GROUP_TEXT = "There is no such group."
+private const val NO_KIND = "no_kind"
+private const val NO_KIND_TEXT = "On Demand has no such tab."
 
-/** Channels, their logos and lineups, the lineup builder, groups and the On Demand banner. */
+/** Channels, their logos and lineups, the lineup builder, groups, and On Demand's banners and rows. */
 internal fun Route.channelRoutes(deps: ServerDependencies) {
     val api = deps.channels
 
@@ -168,9 +171,22 @@ internal fun Route.channelRoutes(deps: ServerDependencies) {
         }
     }
 
-    put("/settings/ondemand-banner") {
-        call.requireManager(deps) ?: return@put
-        api.setBannerSize(call.receive<SettingRequest>().value)
-        call.respond(HttpStatusCode.NoContent)
+    route("/ondemand") {
+        get {
+            call.requireManager(deps) ?: return@get
+            call.respond(api.onDemand())
+        }
+
+        put("/banners/{kind}") {
+            call.requireManager(deps) ?: return@put
+            val kind = call.parameters["kind"].orEmpty()
+            if (api.setBanner(kind, call.receive<SettingRequest>().value)) call.respond(HttpStatusCode.NoContent) else call.respondNotFound(NO_KIND, NO_KIND_TEXT)
+        }
+
+        put("/rows/{kind}") {
+            call.requireManager(deps) ?: return@put
+            val kind = call.parameters["kind"].orEmpty()
+            if (api.setRows(kind, call.receive<RowsRequest>().keys)) call.respond(HttpStatusCode.NoContent) else call.respondNotFound(NO_KIND, NO_KIND_TEXT)
+        }
     }
 }

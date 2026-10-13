@@ -66,7 +66,14 @@ internal class RoomThemesApi @Inject constructor(
             .sortedWith(compareBy<ThemeSummary>({ !it.isBuiltIn }, { it.spec.key != ThemeRepository.DEFAULT_KEY }, { it.spec.name.lowercase() }))
             .map { summary ->
                 val colors = summary.spec.colors
-                ThemeDto(summary.id, summary.spec.name, summary.isBuiltIn, listOf(colors.background, colors.surface, colors.text, colors.accent), inUse = summary.id == worn)
+                ThemeDto(
+                    summary.id,
+                    summary.spec.name,
+                    summary.isBuiltIn,
+                    listOf(colors.background, colors.surface, colors.text, colors.accent),
+                    inUse = summary.id == worn,
+                    spec = ApiJson.parseToJsonElement(summary.spec.toJson()).jsonObject,
+                )
             }
     }
 

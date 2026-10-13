@@ -7,8 +7,8 @@
 	import { live } from '#lib/live.svelte.ts';
 	import { serverStatus } from '#lib/servers.ts';
 	import Add from '~icons/material-symbols/add';
-	import CloudOff from '~icons/material-symbols/cloud-off-outline';
-	import Dns from '~icons/material-symbols/dns-outline';
+	import CloudOff from '~icons/material-symbols/cloud-off';
+	import Dns from '~icons/material-symbols/dns';
 	import Sync from '~icons/material-symbols/sync';
 	import { onMount } from 'svelte';
 

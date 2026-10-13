@@ -19,25 +19,33 @@ import tv.anstelle.webserver.api.BackupCheckDto
 import tv.anstelle.webserver.api.BackupDto
 import tv.anstelle.webserver.api.BuilderDto
 import tv.anstelle.webserver.api.BuiltInThemeException
+import tv.anstelle.webserver.api.CatalogKindDto
 import tv.anstelle.webserver.api.ChannelDetailDto
 import tv.anstelle.webserver.api.ChannelDto
 import tv.anstelle.webserver.api.ChannelPatch
 import tv.anstelle.webserver.api.ChannelsApi
+import tv.anstelle.webserver.api.ChannelStatsDto
 import tv.anstelle.webserver.api.ChannelsDto
 import tv.anstelle.webserver.api.DeviceApi
 import tv.anstelle.webserver.api.FoundServerDto
 import tv.anstelle.webserver.api.GroupDto
 import tv.anstelle.webserver.api.GroupRequest
 import tv.anstelle.webserver.api.GroupsDto
+import tv.anstelle.webserver.api.KindOverviewDto
+import tv.anstelle.webserver.api.LabelledInt
 import tv.anstelle.webserver.api.LineupDto
 import tv.anstelle.webserver.api.LineupPreviewDto
 import tv.anstelle.webserver.api.NewChannelRequest
+import tv.anstelle.webserver.api.OnDemandDto
+import tv.anstelle.webserver.api.OnDemandOverviewDto
 import tv.anstelle.webserver.api.OptionDto
 import tv.anstelle.webserver.api.OverviewDto
 import tv.anstelle.webserver.api.ReachDto
 import tv.anstelle.webserver.api.ServerDetailDto
 import tv.anstelle.webserver.api.ServerDto
 import tv.anstelle.webserver.api.ServersApi
+import tv.anstelle.webserver.api.ServersOverviewDto
+import tv.anstelle.webserver.api.ShelfDto
 import tv.anstelle.webserver.api.SignInStateDto
 import tv.anstelle.webserver.api.ThemeDesignDto
 import tv.anstelle.webserver.api.ThemeDto
@@ -124,7 +132,7 @@ class FakeChannels : ChannelsApi {
         return true
     }
 
-    override suspend fun channels() = ChannelsDto(listOf(channel()), bannerSize = 10, bannerSizes = listOf(5, 10))
+    override suspend fun channels() = ChannelsDto(listOf(channel()))
     override suspend fun channel(channelId: Long): ChannelDetailDto? = null
 
     override suspend fun update(channelId: Long, patch: ChannelPatch): Boolean {
@@ -179,7 +187,29 @@ class FakeChannels : ChannelsApi {
     override suspend fun updateGroup(groupId: Long, request: GroupRequest) = groupId == 1L
     override suspend fun moveGroup(groupId: Long, delta: Int) = Unit
     override suspend fun deleteGroup(groupId: Long) = require(groupId != 1L) { "Move or delete its channels first." }
-    override suspend fun setBannerSize(size: Int) = require(size in listOf(5, 10)) { "Pick one of 5, 10." }
+
+    /** Home and Movies only; Movies opens with Continue watching, then channel 1's row. */
+    override suspend fun onDemand() = OnDemandDto(
+        homeBanner = 10,
+        homeChoices = listOf(LabelledInt(5, "5 channels"), LabelledInt(10, "10 channels")),
+        kinds = listOf(
+            CatalogKindDto(
+                key = "movies",
+                label = "Movies",
+                banner = 10,
+                bannerChoices = listOf(LabelledInt(5, "5 movies"), LabelledInt(10, "10 movies")),
+                rows = listOf(ShelfDto("continue", "continue", "Continue watching"), ShelfDto("channel:1", "channel", "Sitcoms", channelNumber = 2)),
+            ),
+        ),
+    )
+
+    override suspend fun setBanner(kind: String, size: Int): Boolean {
+        if (kind != "home" && kind != "movies") return false
+        require(size in listOf(5, 10)) { "Pick one of 5, 10." }
+        return true
+    }
+
+    override suspend fun setRows(kind: String, keys: List<String>) = kind == "movies"
 }
 
 class FakeServers : ServersApi {
@@ -264,7 +294,11 @@ class FakeBackup : BackupApi {
 }
 
 class FakeDevice(private val store: InMemoryClientStore) : DeviceApi {
-    override suspend fun overview() = OverviewDto(1, "Home", false, 2, 0, 16, store.clients.size, null)
+    override suspend fun overview() = OverviewDto(
+        servers = ServersOverviewDto(1, "Home", needAttention = 0, syncing = 0, lastSyncUtcMs = null, movies = 12, series = 3, episodes = 40),
+        channels = ChannelStatsDto(total = 2, custom = 1, library = 1, visible = 2, favorites = 1, hidden = 0, groups = 1),
+        onDemand = OnDemandOverviewDto("10 per banner", 10, listOf(KindOverviewDto("movies", "Movies", 10, "Continue watching"))),
+    )
     override suspend fun web(you: Long) = WebDto(true, listOf("http://192.168.1.20:8765"), emptyList())
     override suspend fun hasClient(clientId: Long) = clientId in store.clients
 }

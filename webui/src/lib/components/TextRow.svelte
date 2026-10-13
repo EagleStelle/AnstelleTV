@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Component } from 'svelte';
-	import Edit from '~icons/material-symbols/edit-outline';
+	import Edit from '~icons/material-symbols/edit';
 	import Button from './Button.svelte';
 	import Dialog from './Dialog.svelte';
 	import Notice from './Notice.svelte';

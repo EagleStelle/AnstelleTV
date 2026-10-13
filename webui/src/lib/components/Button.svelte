@@ -16,10 +16,12 @@
 		onclick?: () => void;
 		disabled?: boolean;
 		type?: 'button' | 'submit';
+		/** The form a submit button sends when it sits outside it. */
+		form?: string;
 		autofocus?: boolean;
 	}
 
-	let { label, icon: Icon, primary = false, danger = false, href, download = false, onclick, disabled = false, type = 'button', autofocus = false }: Props = $props();
+	let { label, icon: Icon, primary = false, danger = false, href, download = false, onclick, disabled = false, type = 'button', form, autofocus = false }: Props = $props();
 
 	const classes = $derived([
 		'inline-flex min-h-12 items-center justify-center gap-2 rounded-control px-5 text-label-l font-semibold tracking-label whitespace-nowrap transition-colors',
@@ -38,7 +40,7 @@
 	</a>
 {:else}
 	<!-- svelte-ignore a11y_autofocus -->
-	<button class={classes} {type} {onclick} {disabled} {autofocus}>
+	<button class={classes} {type} {form} {onclick} {disabled} {autofocus}>
 		{#if Icon}<Icon class="size-5" />{/if}<span>{label}</span>
 	</button>
 {/if}

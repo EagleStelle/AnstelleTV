@@ -321,12 +321,38 @@ class ServerRoutesTest {
         }
         assertEquals(HttpStatusCode.BadRequest, empty.status)
         assertTrue(empty.bodyAsText().contains("Add a rule or a show first."))
-        val banner = client.put("/api/settings/ondemand-banner") {
+        val banner = client.put("/api/ondemand/banners/home") {
             header(HttpHeaders.Authorization, auth)
             contentType(ContentType.Application.Json)
             setBody("""{"value":7}""")
         }
         assertEquals(HttpStatusCode.BadRequest, banner.status)
+    }
+
+    @Test
+    fun onDemandBannersAndRowsByTab() = serverTest { server ->
+        val auth = "Bearer ${pair(server)}"
+        val settings = client.get("/api/ondemand") { header(HttpHeaders.Authorization, auth) }
+        assertEquals(HttpStatusCode.OK, settings.status)
+        assertTrue(settings.bodyAsText().contains("channel:1"))
+        val banner = client.put("/api/ondemand/banners/movies") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"value":5}""")
+        }
+        assertEquals(HttpStatusCode.NoContent, banner.status)
+        val rows = client.put("/api/ondemand/rows/movies") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"keys":["channel:1","continue"]}""")
+        }
+        assertEquals(HttpStatusCode.NoContent, rows.status)
+        val noTab = client.put("/api/ondemand/rows/music") {
+            header(HttpHeaders.Authorization, auth)
+            contentType(ContentType.Application.Json)
+            setBody("""{"keys":[]}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, noTab.status)
     }
 
     @Test

@@ -3,14 +3,18 @@ package tv.anstelle.webserver.api
 import kotlinx.coroutines.flow.first
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ServerRepository
-import tv.anstelle.core.data.ThemeRepository
+import tv.anstelle.core.data.Settings
+import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.WebServerController
-import tv.anstelle.core.data.backup.BackupRepository
 import tv.anstelle.core.data.channels.ChannelRepository
+import tv.anstelle.core.data.channels.ChannelStats
+import tv.anstelle.core.data.ondemand.CatalogKind
+import tv.anstelle.core.data.ondemand.OnDemandSummary
 import tv.anstelle.core.database.dao.PairedClientDao
+import tv.anstelle.core.model.MediaType
 import javax.inject.Inject
 
-/** The TV itself for the web UI: the home's overview and the browsers paired with it. */
+/** The TV itself for the web UI: the home's rows and readouts, and the browsers paired with it. */
 interface DeviceApi {
     suspend fun overview(): OverviewDto
 
@@ -23,25 +27,40 @@ interface DeviceApi {
 internal class RoomDeviceApi @Inject constructor(
     private val servers: ServerRepository,
     private val channels: ChannelRepository,
-    private val themes: ThemeRepository,
-    private val backups: BackupRepository,
+    private val settings: SettingsRepository,
     private val profiles: ProfileRepository,
     private val webServer: WebServerController,
     private val pairedClients: PairedClientDao,
 ) : DeviceApi {
     override suspend fun overview(): OverviewDto {
         val serverList = servers.observeServers().first()
-        themes.seedBuiltIns()
-        val themeList = themes.observeThemes().first()
+        val syncing = servers.syncProgress.first()
+        val held = serverList.flatMap { servers.observeItemCounts(it.id).first() }.groupBy({ it.type }, { it.count }).mapValues { it.value.sum() }
+        val channelList = channels.observeChannels().first()
+        val stats = ChannelStats.of(channelList)
+        val onDemand = OnDemandSummary.of(
+            homeBanner = settings.get(Settings.OnDemandBanner),
+            banners = CatalogKind.entries.associateWith { settings.get(Settings.catalogBanner(it)) },
+            orders = CatalogKind.entries.associateWith { settings.get(Settings.catalogShelves(it)) },
+            channelNames = channelList.associate { it.channel.id to it.channel.name },
+        )
         return OverviewDto(
-            servers = serverList.size,
-            serverName = serverList.singleOrNull()?.name,
-            serversNeedAttention = serverList.any { !it.isSignedIn || it.lastSyncError != null },
-            channels = channels.observeChannels().first().size,
-            customThemes = themeList.count { !it.isBuiltIn },
-            builtInThemes = themeList.count { it.isBuiltIn },
-            pairedClients = pairedClients.observeAll().first().size,
-            backupSavedUtcMs = backups.observeSummary().first().savedUtcMs,
+            servers = ServersOverviewDto(
+                count = serverList.size,
+                name = serverList.singleOrNull()?.name,
+                needAttention = serverList.count { !it.isSignedIn || it.lastSyncError != null },
+                syncing = serverList.count { it.id in syncing },
+                lastSyncUtcMs = serverList.mapNotNull { it.lastSyncUtcMs }.maxOrNull(),
+                movies = held[MediaType.MOVIE] ?: 0,
+                series = held[MediaType.SERIES] ?: 0,
+                episodes = held[MediaType.EPISODE] ?: 0,
+            ),
+            channels = ChannelStatsDto(stats.total, stats.custom, stats.library, stats.visible, stats.favorites, stats.hidden, stats.groups),
+            onDemand = OnDemandOverviewDto(
+                summary = onDemand.summary,
+                homeBanner = onDemand.homeBanner,
+                kinds = CatalogKind.entries.map { KindOverviewDto(it.key, it.label, onDemand.banner(it), onDemand.firstRow[it]) },
+            ),
         )
     }
 

@@ -8,8 +8,8 @@
 	import Page from '#lib/components/Page.svelte';
 	import ReachReadout from '#lib/components/ReachReadout.svelte';
 	import TextRow from '#lib/components/TextRow.svelte';
-	import Folder from '~icons/material-symbols/folder-outline';
-	import CreateNewFolder from '~icons/material-symbols/create-new-folder-outline';
+	import Folder from '~icons/material-symbols/folder';
+	import CreateNewFolder from '~icons/material-symbols/create-new-folder';
 	import Title from '~icons/material-symbols/title';
 	import { onMount } from 'svelte';
 
@@ -47,7 +47,7 @@
 	title="New channel"
 	trail={[
 		{ label: 'Home', href: '/' },
-		{ label: 'Channels', href: '/channels' }
+		{ label: 'Live TV', href: '/channels' }
 	]}
 	note="Name it, pick its group, then add rules. A series or movie plays when it matches every rule in a set."
 >

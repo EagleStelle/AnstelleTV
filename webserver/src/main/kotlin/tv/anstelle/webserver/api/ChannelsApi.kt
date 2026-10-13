@@ -32,6 +32,11 @@ import tv.anstelle.core.data.channels.seriesPlaybackHint
 import tv.anstelle.core.data.channels.seriesPlaybackLabel
 import tv.anstelle.core.data.channels.weightHint
 import tv.anstelle.core.data.channels.weightLabel
+import tv.anstelle.core.data.ondemand.CatalogKind
+import tv.anstelle.core.data.ondemand.CatalogRepository
+import tv.anstelle.core.data.ondemand.Shelf
+import tv.anstelle.core.data.ondemand.ShelfOrder
+import tv.anstelle.core.data.ondemand.ShelfType
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.Playback
 import tv.anstelle.core.model.PlaybackOrder
@@ -41,7 +46,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Channels, their lineups and groups, for the web UI. Missing channels and groups come back as
+ * Channels, their lineups and groups, and On Demand's banners and rows, for the web UI. Missing channels and groups come back as
  * null or false; a change a library channel refuses throws [LibraryChannelLockedException], and
  * one that breaks a rule throws [IllegalArgumentException] saying why.
  */
@@ -77,23 +82,30 @@ interface ChannelsApi {
     suspend fun moveGroup(groupId: Long, delta: Int)
     suspend fun deleteGroup(groupId: Long)
 
-    suspend fun setBannerSize(size: Int)
+    /** On Demand's banners and each catalog tab's rows, shared by every profile like the channels. */
+    suspend fun onDemand(): OnDemandDto
+
+    /**
+     * Sets how many picks a banner deals: Home's for [kind] `home`, else that catalog kind's.
+     * False for a kind that doesn't exist; a size not offered throws [IllegalArgumentException].
+     */
+    suspend fun setBanner(kind: String, size: Int): Boolean
+
+    /** Stores a catalog kind's rows in the order of [keys]; false for a kind that doesn't exist. */
+    suspend fun setRows(kind: String, keys: List<String>): Boolean
 }
 
 @Singleton
 internal class RoomChannelsApi @Inject constructor(
     private val channels: ChannelRepository,
+    private val catalog: CatalogRepository,
     private val settings: SettingsRepository,
     private val time: TimeSource,
 ) : ChannelsApi {
     private val choicesLock = Mutex()
     private var cached: Pair<LineupChoices, Long>? = null
 
-    override suspend fun channels(): ChannelsDto = ChannelsDto(
-        channels = channels.observeChannels().first().map { it.toDto() },
-        bannerSize = settings.get(Settings.OnDemandBanner),
-        bannerSizes = Settings.OnDemandBannerSizes,
-    )
+    override suspend fun channels(): ChannelsDto = ChannelsDto(channels.observeChannels().first().map { it.toDto() })
 
     override suspend fun channel(channelId: Long): ChannelDetailDto? {
         val summary = summary(channelId) ?: return null
@@ -212,9 +224,34 @@ internal class RoomChannelsApi @Inject constructor(
 
     override suspend fun deleteGroup(groupId: Long) = channels.deleteGroup(groupId)
 
-    override suspend fun setBannerSize(size: Int) {
+    override suspend fun onDemand(): OnDemandDto = OnDemandDto(
+        homeBanner = settings.get(Settings.OnDemandBanner),
+        homeChoices = Settings.OnDemandBannerSizes.map { LabelledInt(it, "$it channels") },
+        kinds = CatalogKind.entries.map { kind ->
+            // Its fixed rows, then the library channels airing it, in the order stored for the tab.
+            val available = kind.fixedShelves.map { Shelf(it) } + catalog.channelTitles(kind).map { (channel, _) -> Shelf(ShelfType.CHANNEL, channel) }
+            val rows = ShelfOrder.arrange(available, ShelfOrder.decode(settings.get(Settings.catalogShelves(kind))))
+            CatalogKindDto(
+                key = kind.key,
+                label = kind.label,
+                banner = settings.get(Settings.catalogBanner(kind)),
+                bannerChoices = Settings.OnDemandBannerSizes.map { LabelledInt(it, kind.count(it)) },
+                rows = rows.map { ShelfDto(it.key, it.type.key, it.label, it.channel?.number) },
+            )
+        },
+    )
+
+    override suspend fun setBanner(kind: String, size: Int): Boolean {
+        val key = if (kind == HOME) Settings.OnDemandBanner else CatalogKind.entries.firstOrNull { it.key == kind }?.let(Settings::catalogBanner) ?: return false
         require(size in Settings.OnDemandBannerSizes) { "Pick one of ${Settings.OnDemandBannerSizes.joinToString()}." }
-        settings.set(Settings.OnDemandBanner, size)
+        settings.set(key, size)
+        return true
+    }
+
+    override suspend fun setRows(kind: String, keys: List<String>): Boolean {
+        val catalogKind = CatalogKind.entries.firstOrNull { it.key == kind } ?: return false
+        catalog.setShelfOrder(catalogKind, keys.map(String::trim).filter(String::isNotEmpty).distinct())
+        return true
     }
 
     private suspend fun summary(channelId: Long): ChannelSummary? = channels.observeChannels().first().firstOrNull { it.channel.id == channelId }
@@ -270,6 +307,7 @@ internal class RoomChannelsApi @Inject constructor(
     private companion object {
         const val AIRINGS = 3
         const val CHOICES_TTL_MS = 2 * 60 * 1000L
+        const val HOME = "home"
         const val SERIES = "series"
         const val MOVIE = "movie"
         const val NOT_IN_LIBRARY = "Not in your library"

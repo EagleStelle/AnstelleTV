@@ -48,20 +48,49 @@ data class SessionDto(
     val profile: SessionProfileDto,
 )
 
-/** What the home's rows say about each area, like the app's settings home. */
+/** What the home's rows and readouts say about each area, like the app's settings home. */
 @Serializable
 data class OverviewDto(
-    val servers: Int,
-    /** The only server's name, when there is one. */
-    val serverName: String?,
-    /** A server is signed out or its last sync failed. */
-    val serversNeedAttention: Boolean,
-    val channels: Int,
-    val customThemes: Int,
-    val builtInThemes: Int,
-    val pairedClients: Int,
-    val backupSavedUtcMs: Long?,
+    val servers: ServersOverviewDto,
+    val channels: ChannelStatsDto,
+    val onDemand: OnDemandOverviewDto,
 )
+
+/** Every server as one: how their syncing stands and what their libraries hold together. */
+@Serializable
+data class ServersOverviewDto(
+    val count: Int,
+    /** The only server's name, when there is one. */
+    val name: String?,
+    /** Servers signed out or whose last sync failed. */
+    val needAttention: Int,
+    /** Servers syncing now. */
+    val syncing: Int,
+    /** The newest sync of any server. */
+    val lastSyncUtcMs: Long?,
+    val movies: Int,
+    val series: Int,
+    val episodes: Int,
+)
+
+@Serializable
+data class ChannelStatsDto(
+    val total: Int,
+    val custom: Int,
+    val library: Int,
+    val visible: Int,
+    val favorites: Int,
+    val hidden: Int,
+    val groups: Int,
+)
+
+/** [summary] is the home row's line, "10 per banner". */
+@Serializable
+data class OnDemandOverviewDto(val summary: String, val homeBanner: Int, val kinds: List<KindOverviewDto>)
+
+/** A catalog tab: its banner's size and the row it opens with, by name. [key] is `movies` or `series`. */
+@Serializable
+data class KindOverviewDto(val key: String, val label: String, val banner: Int, val firstRow: String?)
 
 // Web control
 
@@ -167,7 +196,7 @@ data class ChannelDto(
 )
 
 @Serializable
-data class ChannelsDto(val channels: List<ChannelDto>, val bannerSize: Int, val bannerSizes: List<Int>)
+data class ChannelsDto(val channels: List<ChannelDto>)
 
 @Serializable
 data class PlaybackDto(val order: String, val blockSize: Int = 1)
@@ -206,6 +235,38 @@ data class ChannelPatch(
 
 @Serializable
 data class SettingRequest(val value: Int)
+
+// On Demand
+
+/** On Demand's settings, shared by every profile: Home's banner, then each catalog tab's banner and rows. */
+@Serializable
+data class OnDemandDto(
+    val homeBanner: Int,
+    /** "10 channels": the sizes Home's banner can take. */
+    val homeChoices: List<LabelledInt>,
+    val kinds: List<CatalogKindDto>,
+)
+
+/** A catalog tab. [key] is `movies` or `series`; [bannerChoices] say "10 movies". */
+@Serializable
+data class CatalogKindDto(
+    val key: String,
+    val label: String,
+    val banner: Int,
+    val bannerChoices: List<LabelledInt>,
+    /** Its rows in the order the tab shows them. */
+    val rows: List<ShelfDto>,
+)
+
+/**
+ * One row of a catalog tab. [key] is what an order is stored by; [type] is `continue`,
+ * `nextup`, `recent` or `channel`, and a channel's row carries its [channelNumber].
+ */
+@Serializable
+data class ShelfDto(val key: String, val type: String, val label: String, val channelNumber: Int? = null)
+
+@Serializable
+data class RowsRequest(val keys: List<String>)
 
 // Lineups
 
@@ -274,6 +335,8 @@ data class ThemeDto(
     val swatches: List<String> = emptyList(),
     /** The theme the paired profile wears. */
     val inUse: Boolean = false,
+    /** The theme's JSON, for the list's preview of the theme pointed at. */
+    val spec: JsonObject? = null,
 )
 
 /** The theme the paired profile wears, which the web UI wears too. [spec] is its JSON. */

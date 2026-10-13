@@ -10,7 +10,7 @@
 	import { ago } from '#lib/format.ts';
 	import { live } from '#lib/live.svelte.ts';
 	import { session } from '#lib/session.svelte.ts';
-	import Computer from '~icons/material-symbols/computer-outline';
+	import Computer from '~icons/material-symbols/computer';
 	import Link from '~icons/material-symbols/link';
 	import { onMount } from 'svelte';
 

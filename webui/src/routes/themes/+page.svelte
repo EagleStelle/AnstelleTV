@@ -10,20 +10,23 @@
 	import Search from '#lib/components/Search.svelte';
 	import Section from '#lib/components/Section.svelte';
 	import Swatches from '#lib/components/Swatches.svelte';
+	import ThemePreview from '#lib/components/ThemePreview.svelte';
 	import WithKey from '#lib/components/WithKey.svelte';
 	import { section } from '#lib/format.ts';
 	import { live } from '#lib/live.svelte.ts';
 	import { session } from '#lib/session.svelte.ts';
 	import { theme as worn } from '#lib/theme.svelte.ts';
 	import Add from '~icons/material-symbols/add';
-	import ContentCopy from '~icons/material-symbols/content-copy-outline';
-	import Delete from '~icons/material-symbols/delete-outline';
+	import ContentCopy from '~icons/material-symbols/content-copy';
+	import Delete from '~icons/material-symbols/delete';
 	import Download from '~icons/material-symbols/download';
-	import Edit from '~icons/material-symbols/edit-outline';
+	import Edit from '~icons/material-symbols/edit';
 	import Upload from '~icons/material-symbols/upload';
 	import { onMount } from 'svelte';
 
 	let themes = $state<Theme[] | null>(null);
+	/** The theme the pointer or the keyboard is on; the guidance previews it, else the one worn. */
+	let pointed = $state<number | null>(null);
 	let query = $state('');
 	let error = $state<string | null>(null);
 	let message = $state<string | null>(null);
@@ -79,13 +82,21 @@
 	const shown = $derived((themes ?? []).filter((t) => t.name.toLowerCase().includes(needle)));
 	const custom = $derived(shown.filter((t) => !t.isBuiltIn));
 	const builtIn = $derived(shown.filter((t) => t.isBuiltIn));
+	const previewed = $derived((themes ?? []).find((t) => t.id === pointed && t.spec) ?? (themes ?? []).find((t) => t.inUse));
 </script>
 
 {#snippet rows(list: Theme[])}
 	{#each list as theme (theme.id)}
 		<WithKey>
 			<!-- A radio puts the theme on the paired profile, here and on the TV; its menu edits, copies, saves or deletes it. -->
-			<Row title={theme.name} onclick={() => use(theme)} role="radio" aria-checked={theme.inUse}>
+			<Row
+				title={theme.name}
+				onclick={() => use(theme)}
+				onmouseenter={() => (pointed = theme.id)}
+				onfocus={() => (pointed = theme.id)}
+				role="radio"
+				aria-checked={theme.inUse}
+			>
 				{#snippet leading()}
 					<span
 						class={[
@@ -134,6 +145,9 @@
 	{#snippet actions()}
 		<Button label="New theme" icon={Add} onclick={() => act(async () => goto(`/themes/${(await api.newTheme()).id}`))} />
 		<Button label="Import" icon={Upload} onclick={() => picker?.click()} />
+	{/snippet}
+	{#snippet aside()}
+		{#if previewed?.spec}<ThemePreview spec={previewed.spec} />{/if}
 	{/snippet}
 	{#if error}<Notice text={error} error />{/if}
 	{#if message}<Notice text={message} />{/if}

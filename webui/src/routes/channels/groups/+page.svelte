@@ -8,11 +8,11 @@
 	import TextField from '#lib/components/TextField.svelte';
 	import { counted } from '#lib/format.ts';
 	import { live } from '#lib/live.svelte.ts';
-	import CreateNewFolder from '~icons/material-symbols/create-new-folder-outline';
-	import DragIndicator from '~icons/material-symbols/drag-indicator';
-	import Edit from '~icons/material-symbols/edit-outline';
-	import Folder from '~icons/material-symbols/folder-outline';
-	import FolderSpecial from '~icons/material-symbols/folder-special-outline';
+	import CreateNewFolder from '~icons/material-symbols/create-new-folder';
+	import DragHandle from '~icons/material-symbols/drag-handle';
+	import Edit from '~icons/material-symbols/edit';
+	import Folder from '~icons/material-symbols/folder';
+	import FolderSpecial from '~icons/material-symbols/folder-special';
 	import { onMount } from 'svelte';
 
 	let groups = $state<Group[] | null>(null);
@@ -128,7 +128,7 @@
 	title="Groups"
 	trail={[
 		{ label: 'Home', href: '/' },
-		{ label: 'Channels', href: '/channels' }
+		{ label: 'Live TV', href: '/channels' }
 	]}
 	note="Each group is a tab in Live TV, in this order, and numbers its channels A to Z from its start. Move a group by its handle (or its handle and the up and down keys) to change the order. Library groups hold the channels made from your library. A group you made can be deleted once it is empty."
 >
@@ -160,7 +160,7 @@
 					ondragend={() => (dragging = null)}
 					onkeydown={(event) => keys(event, group)}
 				>
-					<DragIndicator class="size-6" />
+					<DragHandle class="size-6" />
 				</button>
 			</li>
 		{/each}

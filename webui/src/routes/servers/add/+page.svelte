@@ -4,20 +4,21 @@
 	import { api, problem, type FoundServer } from '#lib/api.ts';
 	import Button from '#lib/components/Button.svelte';
 	import Buttons from '#lib/components/Buttons.svelte';
-	import Facts from '#lib/components/Facts.svelte';
+	import CodeBlocks from '#lib/components/CodeBlocks.svelte';
 	import Notice from '#lib/components/Notice.svelte';
 	import Page from '#lib/components/Page.svelte';
-	import Readout from '#lib/components/Readout.svelte';
-	import StatusLine from '#lib/components/StatusLine.svelte';
+	import Section from '#lib/components/Section.svelte';
 	import TextField from '#lib/components/TextField.svelte';
+	import Close from '~icons/material-symbols/close';
+	import Link from '~icons/material-symbols/link';
 	import Login from '~icons/material-symbols/login';
-	import QrCode from '~icons/material-symbols/dialpad';
+	import QrCode from '~icons/material-symbols/qr-code-2';
 	import { onDestroy, onMount } from 'svelte';
 
 	/**
 	 * Adding a server the way the official Jellyfin apps do: one address (an IP address, a host
 	 * name or a full URL), then Quick Connect or a password. The same server added again under
-	 * another address updates the one already here.
+	 * another address updates the one already here. Each step is a page of its own, as in the app.
 	 */
 	let step = $state<'address' | 'signIn' | 'quickConnect'>('address');
 	let address = $state(page.url.searchParams.get('address') ?? '');
@@ -28,6 +29,11 @@
 	let busy = $state(false);
 	let error = $state<string | null>(null);
 	let poll: ReturnType<typeof setInterval> | null = null;
+
+	const trail = [
+		{ label: 'Home', href: '/' },
+		{ label: 'Servers', href: '/servers' }
+	];
 
 	onMount(() => {
 		if (address) void find();
@@ -68,10 +74,13 @@
 	}
 
 	function quickConnect() {
+		code = null;
+		step = 'quickConnect';
 		return run(async () => {
 			code = (await api.quickConnect(found!.signInId)).code;
-			step = 'quickConnect';
 			poll = setInterval(check, 3000);
+		}).then(() => {
+			if (error) step = 'signIn';
 		});
 	}
 
@@ -111,44 +120,44 @@
 	}
 </script>
 
-<Page
-	title="Add server"
-	trail={[{ label: 'Home', href: '/' }, { label: 'Servers', href: '/servers' }]}
-	note="Type the server's address: an IP address, a host name or a full URL. Then sign in with Quick Connect, approved in another Jellyfin app, or a username and password."
->
-	{#snippet overview()}
-		{#if found}
-			<Readout>
-				<StatusLine label="Found" text={found.name} />
-				<Facts items={[['Server version', `Jellyfin ${found.version}`], ['Address', found.address]]} />
-			</Readout>
-		{/if}
-	{/snippet}
-
-	{#if error}<Notice text={error} error />{/if}
-
-	{#if step === 'address'}
+{#if step === 'address' || !found}
+	<Page title="Add server" {trail} note="Enter the address of your Jellyfin server: an IP address or a web address.">
 		<form class="flex max-w-lg flex-col gap-3 px-4 py-2" onsubmit={find}>
 			<!-- svelte-ignore a11y_autofocus -->
-			<TextField label="Server address" bind:value={address} inputmode="url" placeholder="192.168.1.20" autocomplete="url" autofocus required />
-			<Button label="Connect" type="submit" primary disabled={busy || !address.trim()} />
+			<TextField
+				label="Server address"
+				bind:value={address}
+				inputmode="url"
+				placeholder="192.168.1.20:8096 or jellyfin.example.com"
+				autocomplete="url"
+				autofocus
+				required
+			/>
 		</form>
-	{:else if step === 'signIn' && found}
+		{#if error}<Notice text={error} error />{/if}
+		<Buttons><Button label={busy ? 'Connecting…' : 'Connect'} icon={Link} primary disabled={busy || !address.trim()} onclick={() => find()} /></Buttons>
+	</Page>
+{:else if step === 'signIn'}
+	<Page title="Sign in" {trail} note="{found.name}: Jellyfin {found.version} at {found.address}">
 		{#if found.quickConnect}
+			<Section title="Quick Connect" />
 			<Buttons><Button label="Use Quick Connect" icon={QrCode} primary onclick={quickConnect} disabled={busy} /></Buttons>
+			<Section title="Password" />
 		{/if}
-		<form class="flex max-w-lg flex-col gap-3 px-4 py-2" onsubmit={signIn}>
+		<form id="password" class="flex max-w-lg flex-col gap-2 px-4 py-1" onsubmit={signIn}>
 			<TextField label="Username" bind:value={username} autocomplete="username" required />
 			<TextField label="Password" type="password" bind:value={password} autocomplete="current-password" />
-			<Button label="Sign in" icon={Login} type="submit" primary={!found.quickConnect} disabled={busy || !username.trim()} />
-			<Button label="Back" onclick={back} />
 		</form>
-	{:else if step === 'quickConnect'}
-		<div class="flex flex-col gap-2 p-4">
-			<p class="field-label text-text-muted">Quick Connect code</p>
-			<p class="tabular text-display-m font-bold tracking-[0.12em] text-accent" aria-live="polite">{code}</p>
-			<p class="text-body-m text-text-muted">In another Jellyfin app signed in as you, open Quick Connect and enter this code.</p>
-		</div>
-		<Buttons><Button label="Back" onclick={back} /></Buttons>
-	{/if}
-</Page>
+		{#if error}<Notice text={error} error />{/if}
+		<Buttons>
+			<Button label="Back" onclick={back} />
+			<Button label={busy ? 'Signing in…' : 'Sign in'} icon={Login} type="submit" form="password" primary={!found.quickConnect} disabled={busy || !username.trim()} />
+		</Buttons>
+	</Page>
+{:else}
+	<Page title="Quick Connect" {trail} note="In Jellyfin on another device, open your profile, choose Quick Connect and enter this code.">
+		<div class="px-4 pt-4"><CodeBlocks {code} /></div>
+		<Notice text={code ? 'Waiting for approval…' : 'Getting a code…'} />
+		<Buttons><Button label="Cancel" icon={Close} onclick={back} /></Buttons>
+	</Page>
+{/if}

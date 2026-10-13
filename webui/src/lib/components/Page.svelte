@@ -29,8 +29,6 @@
 	let { title, trail = [], note, actions, overview, aside, wide = false, children }: Props = $props();
 </script>
 
-<svelte:head><title>{title} - AnstelleTV</title></svelte:head>
-
 <div class="mx-auto w-full max-w-6xl px-4 pb-16 min-[840px]:px-6 min-[840px]:pb-24">
 	<div class={[!aside && !wide && 'max-w-3xl']}>
 		<header class="flex flex-col gap-3 border-b border-line pt-6 pb-5 min-[840px]:pt-12 min-[840px]:pb-7">

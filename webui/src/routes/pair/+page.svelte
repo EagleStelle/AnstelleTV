@@ -73,8 +73,6 @@
 	}
 </script>
 
-<svelte:head><title>Pair this browser - AnstelleTV</title></svelte:head>
-
 <main class="mx-auto flex w-[min(100%,440px)] flex-col gap-4 px-4 py-16">
 	<div class="mb-4 flex items-center gap-2.5">
 		<Mark size={40} />

@@ -26,15 +26,55 @@ export interface PairStart {
 	deviceName: string;
 }
 
+/** What the home's rows and readouts say about each area, like the app's settings home. */
 export interface Overview {
-	servers: number;
-	serverName?: string;
-	serversNeedAttention: boolean;
-	channels: number;
-	customThemes: number;
-	builtInThemes: number;
-	pairedClients: number;
-	backupSavedUtcMs?: number;
+	servers: {
+		count: number;
+		/** The only server's name, when there is one. */
+		name?: string;
+		/** Servers signed out or whose last sync failed. */
+		needAttention: number;
+		syncing: number;
+		lastSyncUtcMs?: number;
+		movies: number;
+		series: number;
+		episodes: number;
+	};
+	channels: { total: number; custom: number; library: number; visible: number; favorites: number; hidden: number; groups: number };
+	onDemand: {
+		/** "10 per banner". */
+		summary: string;
+		homeBanner: number;
+		kinds: { key: CatalogKey; label: string; banner: number; firstRow?: string }[];
+	};
+}
+
+export type CatalogKey = 'movies' | 'series';
+
+/** One row of a catalog tab; a channel's row carries its number. */
+export interface Shelf {
+	key: string;
+	type: 'continue' | 'nextup' | 'recent' | 'channel';
+	label: string;
+	channelNumber?: number;
+}
+
+export interface CatalogKind {
+	key: CatalogKey;
+	label: string;
+	banner: number;
+	/** "10 movies". */
+	bannerChoices: { value: number; label: string }[];
+	/** In the order the tab shows them. */
+	rows: Shelf[];
+}
+
+/** On Demand's settings, shared by every profile. */
+export interface OnDemand {
+	homeBanner: number;
+	/** "10 channels". */
+	homeChoices: { value: number; label: string }[];
+	kinds: CatalogKind[];
 }
 
 export interface Client {
@@ -229,6 +269,8 @@ export interface Theme {
 	swatches: string[];
 	/** The theme the paired profile wears, and so this browser. */
 	inUse: boolean;
+	/** For the list's preview; absent on a theme just imported. */
+	spec?: ThemeSpec;
 }
 
 export interface ThemeSpec {
@@ -348,7 +390,7 @@ export const api = {
 	signInState: (signInId: string) => get<SignInState>(`/servers/signin/${signInId}`),
 	cancelSignIn: (signInId: string) => request<void>('DELETE', `/servers/signin/${signInId}`),
 
-	channels: () => get<{ channels: Channel[]; bannerSize: number; bannerSizes: number[] }>('/channels'),
+	channels: () => get<{ channels: Channel[] }>('/channels'),
 	channel: (id: number) => get<ChannelDetail>(`/channels/${id}`),
 	updateChannel: (id: number, patch: ChannelPatch) => request<void>('PATCH', `/channels/${id}`, patch),
 	deleteChannel: (id: number) => request<void>('DELETE', `/channels/${id}`),
@@ -365,7 +407,11 @@ export const api = {
 		if (from !== undefined) params.set('from', from);
 		return get<Option[]>(`/lineup/options?${params}`);
 	},
-	setBannerSize: (value: number) => request<void>('PUT', '/settings/ondemand-banner', { value }),
+
+	onDemand: () => get<OnDemand>('/ondemand'),
+	/** [kind] is `home` or a catalog tab. */
+	setBanner: (kind: 'home' | CatalogKey, value: number) => request<void>('PUT', `/ondemand/banners/${kind}`, { value }),
+	setRows: (kind: CatalogKey, keys: string[]) => request<void>('PUT', `/ondemand/rows/${kind}`, { keys }),
 
 	groups: () => get<{ groups: Group[]; nextStart: number; lastGroupId?: number }>('/groups'),
 	createGroup: (name: string, start: number) => request<{ id: number }>('POST', '/groups', { name, start }),

@@ -63,10 +63,9 @@ import tv.anstelle.core.data.WebServerStatus
 import tv.anstelle.core.data.backup.BackupRepository
 import tv.anstelle.core.data.backup.BackupSummary
 import tv.anstelle.core.data.channels.ChannelRepository
-import tv.anstelle.core.data.channels.ChannelSummary
+import tv.anstelle.core.data.channels.ChannelStats
 import tv.anstelle.core.data.ondemand.CatalogKind
-import tv.anstelle.core.data.ondemand.ShelfOrder
-import tv.anstelle.core.data.ondemand.ShelfType
+import tv.anstelle.core.data.ondemand.OnDemandSummary
 import tv.anstelle.core.data.playback.TrackChoices
 import tv.anstelle.core.data.stats.DashboardHistory
 import tv.anstelle.core.database.dao.PairedClientDao
@@ -93,65 +92,6 @@ import tv.anstelle.feature.settings.playback.modeName
 import tv.anstelle.feature.settings.playback.syncName
 import tv.anstelle.feature.settings.servers.syncedAgo
 import javax.inject.Inject
-
-/** What the channel list holds, for the home's readout. */
-@Immutable
-data class ChannelStats(
-    val total: Int = 0,
-    val custom: Int = 0,
-    val visible: Int = 0,
-    val favorites: Int = 0,
-    val hidden: Int = 0,
-    val groups: Int = 0,
-) {
-    val library: Int get() = total - custom
-
-    companion object {
-        fun of(channels: List<ChannelSummary>) = ChannelStats(
-            total = channels.size,
-            custom = channels.count { !it.channel.fromLibrary },
-            visible = channels.count { !it.channel.isHidden },
-            favorites = channels.count { it.channel.isFavorite },
-            hidden = channels.count { it.channel.isHidden },
-            groups = channels.mapTo(HashSet()) { it.channel.groupId }.size,
-        )
-    }
-}
-
-/** On Demand's banners and the row each catalog tab opens with, for the home's row and readout. */
-@Immutable
-data class OnDemandSummary(
-    val homeBanner: Int = Settings.OnDemandBanner.default,
-    val banners: Map<CatalogKind, Int> = emptyMap(),
-    /** Each kind's first row by name. */
-    val firstRow: Map<CatalogKind, String> = emptyMap(),
-) {
-    /** "10 per banner", or each banner's size when they differ. */
-    val summary: String
-        get() {
-            val sizes = listOf(homeBanner) + CatalogKind.entries.map { banners[it] ?: Settings.catalogBanner(it).default }
-            return if (sizes.distinct().size == 1) "${sizes.first()} per banner" else "Banners of ${sizes.dropLast(1).joinToString(", ")} and ${sizes.last()}"
-        }
-
-    companion object {
-        /**
-         * The first row of each kind as stored, by name: a channel row by its channel's name from
-         * [channelNames]. Without a stored order, the fixed rows lead, as on the tab.
-         */
-        fun of(homeBanner: Int, banners: Map<CatalogKind, Int>, orders: Map<CatalogKind, String>, channelNames: Map<Long, String>) = OnDemandSummary(
-            homeBanner = homeBanner,
-            banners = banners,
-            firstRow = CatalogKind.entries.mapNotNull { kind ->
-                val stored = ShelfOrder.decode(orders[kind].orEmpty())
-                val keys = stored.ifEmpty { kind.fixedShelves.map { it.key } }
-                keys.firstNotNullOfOrNull { key ->
-                    ShelfType.entries.firstOrNull { it.key == key && it != ShelfType.CHANNEL }?.label
-                        ?: key.substringAfter("${ShelfType.CHANNEL.key}:", "").toLongOrNull()?.let(channelNames::get)
-                }?.let { kind to it }
-            }.toMap(),
-        )
-    }
-}
 
 @Immutable
 data class SettingsUiState(
@@ -488,7 +428,7 @@ private fun OnDemandReadout(summary: OnDemandSummary) {
         ReadoutHeading(Icons.Filled.ViewCarousel, "Banners")
         ReadoutFigures {
             ReadoutFigure(summary.homeBanner, "Home")
-            for (kind in CatalogKind.entries) ReadoutFigure(summary.banners[kind] ?: Settings.catalogBanner(kind).default, kind.label)
+            for (kind in CatalogKind.entries) ReadoutFigure(summary.banner(kind), kind.label)
         }
         ReadoutRule()
         ReadoutHeading(Icons.Filled.ViewAgenda, "First rows")

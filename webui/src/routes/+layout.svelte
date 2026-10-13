@@ -12,6 +12,8 @@
 	import DnsOutline from '~icons/material-symbols/dns-outline';
 	import LiveTv from '~icons/material-symbols/live-tv';
 	import LiveTvOutline from '~icons/material-symbols/live-tv-outline';
+	import Movie from '~icons/material-symbols/movie';
+	import MovieOutline from '~icons/material-symbols/movie-outline';
 	import Palette from '~icons/material-symbols/palette';
 	import PaletteOutline from '~icons/material-symbols/palette-outline';
 	import Wifi from '~icons/material-symbols/wifi';
@@ -22,7 +24,8 @@
 	/** The areas, the open one with a filled icon and a bright label. */
 	const tabs = [
 		{ href: '/servers', label: 'Servers', icon: DnsOutline, open: Dns },
-		{ href: '/channels', label: 'Channels', icon: LiveTvOutline, open: LiveTv },
+		{ href: '/channels', label: 'Live TV', icon: LiveTvOutline, open: LiveTv },
+		{ href: '/ondemand', label: 'On Demand', icon: MovieOutline, open: Movie },
 		{ href: '/themes', label: 'Themes', icon: PaletteOutline, open: Palette },
 		{ href: '/web', label: 'Web control', icon: Wifi, open: Wifi },
 		{ href: '/backup', label: 'Backup', icon: Backup, open: Backup }
@@ -99,7 +102,7 @@
 			{:else if session.status === 'offline'}
 				<div class="mx-auto flex max-w-120 flex-col gap-4 px-4 py-12 min-[840px]:px-6">
 					<Mark size={48} />
-					<h1 class="font-display text-headline-m font-semibold">Canâ€™t reach the TV</h1>
+					<h1 class="font-display text-headline-m font-semibold">Can’t reach the TV</h1>
 					<p class="text-text-muted">Make sure AnstelleTV is on and Web control is turned on in its Settings.</p>
 					<div><Button label="Try again" primary onclick={() => session.refresh()} /></div>
 				</div>

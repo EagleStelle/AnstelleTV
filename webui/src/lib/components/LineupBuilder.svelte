@@ -4,10 +4,10 @@
 	import Add from '~icons/material-symbols/add';
 	import Block from '~icons/material-symbols/block';
 	import Check from '~icons/material-symbols/check';
-	import Delete from '~icons/material-symbols/delete-outline';
-	import FilterAlt from '~icons/material-symbols/filter-alt-outline';
-	import LibraryAdd from '~icons/material-symbols/library-add-outline';
-	import Scale from '~icons/material-symbols/scale-outline';
+	import Delete from '~icons/material-symbols/delete';
+	import FilterAlt from '~icons/material-symbols/filter-alt';
+	import LibraryAdd from '~icons/material-symbols/library-add';
+	import Scale from '~icons/material-symbols/scale';
 	import { onMount, untrack, type Snippet } from 'svelte';
 	import Button from './Button.svelte';
 	import Buttons from './Buttons.svelte';
