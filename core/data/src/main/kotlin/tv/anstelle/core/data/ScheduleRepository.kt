@@ -73,20 +73,32 @@ class ScheduleRepository @Inject constructor(
      * included, so the guide and every later extension follow what the viewer is watching.
      */
     suspend fun shift(channelId: Long, startUtcMs: Long, deltaMs: Long) {
-        scheduleDao.shift(channelId, startUtcMs, deltaMs) { stored ->
-            val state = try {
-                EngineState.decode(stored.stateBlob)
-            } catch (e: Exception) {
-                AppLog.w(TAG, "Unreadable schedule state for channel $channelId, regenerating", e)
-                null
-            }
-            stored.copy(
-                generatedUntilUtcMs = stored.generatedUntilUtcMs + deltaMs,
-                // An unreadable state stays as it is; the next update regenerates it anyway.
-                stateBlob = state?.shifted(deltaMs)?.encode() ?: stored.stateBlob,
-                updatedAtUtcMs = time.nowUtcMs(),
-            )
+        scheduleDao.shift(channelId, startUtcMs, deltaMs) { stored -> moved(channelId, stored, deltaMs) }
+    }
+
+    /**
+     * Ends [channelId]'s airing that started at [startUtcMs] at [endUtcMs], once its program ended
+     * there because its file is shorter or longer than the runtime it was scheduled with:
+     * everything after it moves by the difference, engine state included, so the next airing
+     * starts where the program really ended.
+     */
+    suspend fun endAt(channelId: Long, startUtcMs: Long, endUtcMs: Long) {
+        scheduleDao.endAt(channelId, startUtcMs, endUtcMs) { stored, deltaMs -> moved(channelId, stored, deltaMs) }
+    }
+
+    private fun moved(channelId: Long, stored: ScheduleStateEntity, deltaMs: Long): ScheduleStateEntity {
+        val state = try {
+            EngineState.decode(stored.stateBlob)
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Unreadable schedule state for channel $channelId, regenerating", e)
+            null
         }
+        return stored.copy(
+            generatedUntilUtcMs = stored.generatedUntilUtcMs + deltaMs,
+            // An unreadable state stays as it is; the next update regenerates it anyway.
+            stateBlob = state?.shifted(deltaMs)?.encode() ?: stored.stateBlob,
+            updatedAtUtcMs = time.nowUtcMs(),
+        )
     }
 
     private companion object {

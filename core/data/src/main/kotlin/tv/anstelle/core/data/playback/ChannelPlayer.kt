@@ -125,6 +125,10 @@ private class Program(
  *   queued, and when the new program is more than [MAX_DRIFT_MS] behind the wall clock (after
  *   buffering, say) it seeks ahead. A program with ASS subtitles isn't queued that way
  *   ([ProgramStream.chainsWith]): it starts on its own when the one before it ends.
+ * - **Real length:** a file can run far longer or shorter than the runtime its server gives it.
+ *   A program that ends off its airing's end ends its airing there, and everything after it on
+ *   the channel moves with it; the item keeps the length its file played for, so its later
+ *   airings on every channel get it ([ProgramLength]).
  * - **Tracks:** each program starts on the watching profile's audio and subtitle defaults.
  * - **Who plays:** each program streams as the profile's Jellyfin user on its server
  *   ([ProfileRepository.watchAccount]), and its watch history goes there.
@@ -190,6 +194,9 @@ class ChannelPlayer @Inject constructor(
     private var session: ReportSession? = null
     private var trace: TuneTrace? = null
     private var retriedSlot = Long.MIN_VALUE
+
+    /** The program on now's last position sample, which tells its real length when it ends. */
+    private var sample: ProgramLength.Sample? = null
 
     /** The watching profile, read at every tune: its defaults, history and what it may watch apply. */
     private var profileId = 0L
@@ -284,12 +291,10 @@ class ChannelPlayer @Inject constructor(
     /** Moves [program]'s airing, and everything after it on the channel, by [deltaMs]. */
     private fun retime(program: Program, deltaMs: Long) {
         if (kotlin.math.abs(deltaMs) < MIN_SHIFT_MS) return
-        val moved = queue.map { it.shifted(deltaMs) }
-        queue.clear()
-        queue.addAll(moved)
+        moveQueue(deltaMs)
         _state.update { state ->
             state.copy(
-                now = moved.first().info,
+                now = queue.first().info,
                 next = state.next?.let { it.copy(startUtcMs = it.startUtcMs + deltaMs, endUtcMs = it.endUtcMs + deltaMs) },
             )
         }
@@ -299,6 +304,51 @@ class ChannelPlayer @Inject constructor(
             shifts.withLock { withContext(io + NonCancellable) { schedules.shift(channelId, from, deltaMs) } }
         }
         AppLog.i(TAG, "Seek on ${current?.number}: the schedule moved ${deltaMs / 1000} s")
+    }
+
+    private fun moveQueue(deltaMs: Long) {
+        val moved = queue.map { it.shifted(deltaMs) }
+        queue.clear()
+        queue.addAll(moved)
+    }
+
+    /**
+     * Where [finished], whose file was seen playing for [lengthMs] (null when unknown), really
+     * ended, when that is off its airing's end; null when it ended on time.
+     */
+    private fun realEnd(finished: Program, lengthMs: Long?): Long? =
+        ProgramLength.realEnd(finished.slot.startUtcMs, finished.slot.endUtcMs, time.nowUtcMs(), lengthMs)
+
+    /**
+     * Ends [finished]'s airing at [endUtcMs], where its program really ended, and moves
+     * everything after it on the channel by the difference, so the next airing starts there.
+     * Written in order with the seeks; the queue is the caller's to move.
+     */
+    private fun followEnd(finished: Program, endUtcMs: Long): Job {
+        val channelId = finished.slot.channelId
+        val startUtcMs = finished.slot.startUtcMs
+        AppLog.i(TAG, "Item ${finished.item.id} on ${current?.number} ended ${(endUtcMs - finished.slot.endUtcMs) / 1000} s off its airing: the schedule moved")
+        return scope.launch {
+            shifts.withLock { withContext(io + NonCancellable) { schedules.endAt(channelId, startUtcMs, endUtcMs) } }
+        }
+    }
+
+    /**
+     * Keeps the length [finished]'s file played for when the server's runtime for it is off, so
+     * its later airings get it: every schedule is updated, which plans the channels airing it
+     * again after their current and next airings, once [moving] (its own airing's end) is written.
+     * Only a file played directly tells its length.
+     */
+    private fun learnLength(finished: Program, lengthMs: Long?, moving: Job?) {
+        if (lengthMs == null || finished.stream.transcoded || !ProgramLength.differs(lengthMs, finished.item.durationMs)) return
+        AppLog.i(TAG, "Item ${finished.item.id} runs ${lengthMs / 1000} s, not the ${finished.item.durationMs / 1000} s its server gives")
+        scope.launch {
+            moving?.join()
+            withContext(io + NonCancellable) {
+                itemDao.setDuration(finished.item.id, lengthMs)
+                updater.updateAll()
+            }
+        }
     }
 
     fun trackOptions(type: Int): List<TrackOption> = _player.value?.let { tracks.options(it, type) }.orEmpty()
@@ -314,6 +364,7 @@ class ChannelPlayer @Inject constructor(
         tickJob?.cancel()
         endSession(atEnd = false)
         trace = null
+        sample = null
         detach()
         pool.stopAll()
         queue.clear()
@@ -337,6 +388,7 @@ class ChannelPlayer @Inject constructor(
     private suspend fun tuneNow(channel: Channel, after: Long? = null) {
         endSession(atEnd = false)
         trace = TuneTrace.begin()
+        sample = null
         _state.update {
             PlaybackState(channel = channel, status = TuneStatus.TUNING, tuneCount = it.tuneCount + if (after == null) 1 else 0)
         }
@@ -576,10 +628,15 @@ class ChannelPlayer @Inject constructor(
         }
     }
 
-    /** Every second a sample of what played; every 10 s a progress report; every 20 s a standby refresh. */
+    /**
+     * Every second a sample of what played and of where the program is in its file; every 10 s
+     * a progress report; every 20 s a standby refresh.
+     */
     private fun tick(ticks: Int) {
         val player = _player.value ?: return
         if (player.isPlaying) session?.let { reporter.playing(it, player.currentPosition) }
+        // The first playlist entry is the program on now (queue.first()).
+        if (player.isPlaying && player.currentMediaItemIndex == 0) sample = ProgramLength.sample(sample, player.currentPosition, time.nowUtcMs())
         if (ticks % PROGRESS_TICKS == 0) session?.let { reporter.progress(it, player.currentPosition, paused = !player.isPlaying) }
         if (ticks % STANDBY_TICKS == 0) refreshStandby()
     }
@@ -675,10 +732,19 @@ class ChannelPlayer @Inject constructor(
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) return
             val player = _player.value ?: return
             val finished = queue.removeFirstOrNull()
+            val length = ProgramLength.ended(sample, time.nowUtcMs())
+            sample = null
             endSession(atEnd = true, program = finished)
             if (player.currentMediaItemIndex > 0) player.removeMediaItems(0, player.currentMediaItemIndex)
-            val program = queue.firstOrNull() ?: return
+            if (queue.isEmpty()) return
 
+            if (finished != null) {
+                // A file shorter or longer than its airing moves the rest of the channel with it.
+                val end = realEnd(finished, length)
+                if (end != null) moveQueue(end - finished.slot.endUtcMs)
+                learnLength(finished, length, moving = end?.let { followEnd(finished, it) })
+            }
+            val program = queue.first()
             val expected = time.nowUtcMs() - program.slot.startUtcMs
             val drift = expected - player.currentPosition
             val corrected = drift > MAX_DRIFT_MS
@@ -697,10 +763,25 @@ class ChannelPlayer @Inject constructor(
                 // Nothing more is queued: the next program wasn't chained, the channel goes off
                 // air, or the schedule ran out.
                 Player.STATE_ENDED -> current?.let { channel ->
-                    val ended = queue.firstOrNull()?.slot?.endUtcMs
+                    val finished = queue.firstOrNull()
+                    val length = ProgramLength.ended(sample, time.nowUtcMs())
+                    sample = null
+                    // A file shorter or longer than its airing moves the rest of the channel
+                    // with it, before the channel tunes to what follows.
+                    var end: Long? = null
+                    var moving: Job? = null
+                    if (finished != null) {
+                        end = realEnd(finished, length)
+                        moving = end?.let { followEnd(finished, it) }
+                        learnLength(finished, length, moving)
+                    }
+                    val after = end ?: finished?.slot?.endUtcMs
                     endSession(atEnd = true)
                     tuneJob?.cancel()
-                    tuneJob = scope.launch { tuneNow(channel, after = ended) }
+                    tuneJob = scope.launch {
+                        moving?.join()
+                        tuneNow(channel, after = after)
+                    }
                 }
                 else -> {
                     val buffering = playbackState == Player.STATE_BUFFERING

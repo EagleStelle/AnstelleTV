@@ -227,6 +227,13 @@ interface MediaItemDao {
     @Upsert
     suspend fun upsertAll(items: List<MediaItemEntity>)
 
+    /**
+     * Gives an item the length its file played for when the server's runtime was off. It holds
+     * until the next sync brings the item again with the server's runtime.
+     */
+    @Query("UPDATE media_item SET durationMs = :durationMs WHERE id = :id")
+    suspend fun setDuration(id: Long, durationMs: Long)
+
     @Query("DELETE FROM media_item WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 

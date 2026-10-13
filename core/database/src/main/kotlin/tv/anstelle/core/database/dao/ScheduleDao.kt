@@ -279,6 +279,22 @@ interface ScheduleDao {
     }
 
     /**
+     * Ends [channelId]'s airing that started at [startUtcMs] at [endUtcMs], after the player found
+     * its file shorter or longer than its slot: every later slot moves by the difference.
+     * [restate] moves the engine state by it.
+     */
+    @Transaction
+    suspend fun endAt(channelId: Long, startUtcMs: Long, endUtcMs: Long, restate: (ScheduleStateEntity, Long) -> ScheduleStateEntity) {
+        val airing = slotAt(channelId, startUtcMs)?.takeIf { it.startUtcMs == startUtcMs } ?: return
+        val deltaMs = endUtcMs - airing.endUtcMs
+        if (deltaMs == 0L || endUtcMs <= startUtcMs) return
+        moveOut(channelId, airing.endUtcMs, deltaMs)
+        moveIn(channelId)
+        setEnd(airing.id, endUtcMs)
+        state(channelId)?.let { upsertState(restate(it, deltaMs)) }
+    }
+
+    /**
      * Replaces everything from [fromUtcMs] on and stores the new engine state, atomically. An
      * airing running across [fromUtcMs] ends there.
      */

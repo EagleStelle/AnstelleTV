@@ -116,6 +116,32 @@ class ScheduleRepositoryTest {
     }
 
     @Test
+    fun aFileShorterThanItsAiringPullsTheRestEarlier() = runTest {
+        saveTwoHours()
+        val until = repository.stored(9)!!.generatedUntilUtcMs
+        // The second episode's file ran out 4 minutes before its 24-minute airing ended.
+        repository.endAt(9, start + 24 * minute, start + 44 * minute)
+        assertEquals(
+            listOf(Triple(ep(1), 0L, 24L), Triple(ep(2), 24L, 44L), Triple(ep(3), 44L, 68L), Triple(ep(4), 68L, 92L), Triple(ep(5), 92L, 116L)),
+            layout(),
+        )
+        assertEquals(until - 4 * minute, repository.stored(9)!!.state.nextStartUtcMs)
+    }
+
+    @Test
+    fun aFileLongerThanItsAiringPushesTheRestLater() = runTest {
+        saveTwoHours()
+        // The first episode's file played 30 minutes.
+        repository.endAt(9, start, start + 30 * minute)
+        assertEquals(listOf(Triple(ep(1), 0L, 30L), Triple(ep(2), 30L, 54L), Triple(ep(3), 54L, 78L)), layout().take(3))
+        assertEquals(repository.stored(9)!!.state.nextStartUtcMs, dao.slotsOf(9).last().endUtcMs)
+        // An airing that isn't there, or an end before its start, changes nothing.
+        repository.endAt(9, start + minute, start + 40 * minute)
+        repository.endAt(9, start, start)
+        assertEquals(listOf(Triple(ep(1), 0L, 30L), Triple(ep(2), 30L, 54L)), layout().take(2))
+    }
+
+    @Test
     fun unreadableStateIsTreatedAsMissing() = runTest {
         dao.upsertState(ScheduleStateEntity(9, start, byteArrayOf(42), 1, start))
         assertNull(repository.stored(9))
