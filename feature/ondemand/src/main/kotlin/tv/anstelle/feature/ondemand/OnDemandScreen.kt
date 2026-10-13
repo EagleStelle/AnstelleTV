@@ -4,17 +4,23 @@ import tv.anstelle.core.theme.components.obscured
 import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.StandInSize
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -22,38 +28,38 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -75,6 +81,7 @@ import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelSummary
 import tv.anstelle.core.data.lineUnderLogo
+import tv.anstelle.core.data.ondemand.CatalogKind
 import tv.anstelle.core.data.ondemand.ChannelNow
 import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.ondemand.WatchChoices
@@ -84,10 +91,10 @@ import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.Backdrop
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.NumberBlock
+import tv.anstelle.core.theme.components.OsdTab
 import tv.anstelle.core.theme.components.PlaceholderAction
 import tv.anstelle.core.theme.components.PlaceholderScreen
 import tv.anstelle.core.theme.components.SegmentLadder
@@ -97,7 +104,6 @@ import tv.anstelle.core.theme.components.screenEdge
 import tv.anstelle.core.theme.components.screenGap
 import tv.anstelle.core.theme.components.screenSide
 import javax.inject.Inject
-import kotlin.math.abs
 import kotlin.random.Random
 
 /** One channel in a row: what it airs now, or null before it has a schedule. */
@@ -120,8 +126,8 @@ data class OnDemandUiState(
 )
 
 /**
- * On demand: what every channel airs now, as a banner of random channels over one row per
- * guide group, in the groups' own order. The airings follow the clock: the next one to end
+ * On demand's Home: what every channel airs now, as a banner of random channels over one row
+ * per guide group, in the groups' own order. The airings follow the clock: the next one to end
  * reloads them all, as do schedule and library changes.
  */
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
@@ -178,6 +184,12 @@ class OnDemandViewModel @Inject constructor(
         }
     }
 
+    /** The channel airing title [titleId] now, whose page a title opens in place of its own; null when none does. */
+    suspend fun airingChannel(titleId: Long): Long? {
+        val profile = profiles.activeProfile()
+        return repository.airingChannel(titleId, time.nowUtcMs(), profiles.access(profile.id))
+    }
+
     private var refreshJob: kotlinx.coroutines.Job? = null
 
     /** Reloads once the first of [airings] ends, so tiles move on with the channels. */
@@ -205,17 +217,238 @@ class OnDemandViewModel @Inject constructor(
     }
 }
 
+/** The tab On Demand was last on, kept for the process so pages opened from a tab go back to it. */
+private var lastTab: String = HOME
+
+/** One of On Demand's tabs: Channels, then one per [CatalogKind]. Search is no tab: it is the field beside them. */
+@Immutable
+private data class OnDemandTab(val key: String, val label: String, val kind: CatalogKind? = null)
+
+/** Search's page, which the field opens; no tab is open meanwhile. */
+private const val SEARCH = "search"
+private const val HOME = "home"
+
+private val Tabs = listOf(OnDemandTab(HOME, "Channels")) + CatalogKind.entries.map { OnDemandTab(it.key, it.label, kind = it) }
+
 /**
- * On demand, by channel: a banner cycling through random channels' programs, then each guide
- * group as a row of channel tiles, numbered and named, showing what airs on them now. A
- * channel opens on its program, where it can be watched live or on demand.
+ * On demand, with a tab row along its top: Channels (a banner of random channels over each guide
+ * group's tiles), then a tab per kind of title (Movies, Series), each a banner of random titles
+ * over rows of what the library holds; and apart at the row's end, the search field, which opens
+ * Search's page. A channel opens on its program; a title on its page; a Continue watching card
+ * plays at once.
  */
 @Composable
 fun OnDemandScreen(
     onOpenChannel: (channelId: Long) -> Unit,
+    onOpenTitle: (titleId: Long) -> Unit,
+    onPlay: (itemId: Long, positionMs: Long) -> Unit,
     /** Null for a member, who has no channels or servers to set up. */
     onOpenSettings: (() -> Unit)?,
+    /** Null for a member: adding to a channel is the owner's and admins'. */
+    onAddToChannel: ((itemId: Long) -> Unit)?,
     modifier: Modifier = Modifier,
+    catalog: CatalogViewModel = hiltViewModel(),
+) {
+    val theme = LocalAnstelleTheme.current
+    // The open tab outlives the screen: coming back from a movie's, series' or channel's page lands on the tab it was opened from.
+    var open by rememberSaveable { mutableStateOf(lastTab) }
+    if (open != SEARCH) lastTab = open
+    // The tab Search was opened from, which leaving Search goes back to.
+    var browsing by rememberSaveable { mutableStateOf(lastTab) }
+    // Opening Search puts the caret in its field at once.
+    var typeNow by remember { mutableStateOf(false) }
+    // A tab picked in the row keeps focus on the row; coming back to the screen, the tab focuses its own content.
+    var picked by remember { mutableStateOf(false) }
+    // What was last opened on any tab, so Back lands on it again.
+    var opened by rememberSaveable { mutableStateOf<String?>(null) }
+    val returnFocus = remember { FocusRequester() }
+    val focus = TabFocus(opened, { opened = it }, returnFocus, autoFocus = !picked)
+    // A movie or series airing on a channel right now opens that channel's page, not its own.
+    val home: OnDemandViewModel = hiltViewModel()
+    val scope = rememberCoroutineScope()
+    val openTitle: (Long) -> Unit = remember(onOpenTitle, onOpenChannel, home) {
+        { id ->
+            scope.launch {
+                val channel = home.airingChannel(id)
+                if (channel != null) onOpenChannel(channel) else onOpenTitle(id)
+            }
+            Unit
+        }
+    }
+    val actions = remember(openTitle, onPlay, onAddToChannel) { CatalogActions(openTitle, onPlay, onAddToChannel) }
+    val searching = open == SEARCH
+    val tab = Tabs.firstOrNull { it.key == open } ?: Tabs[0]
+    if (tab.kind != null || searching) LaunchedEffect(Unit) { catalog.start() }
+    LifecycleResumeEffect(catalog) {
+        catalog.refreshWatch()
+        onPauseOrDispose {}
+    }
+    // Each tab keeps its own scroll while another is open.
+    val saved = rememberSaveableStateHolder()
+    val query by catalog.query.collectAsStateWithLifecycle()
+    // Leaving Search goes back to the tab it was opened from.
+    BackHandler(enabled = searching) { open = browsing }
+
+    Column(modifier.fillMaxSize().background(theme.background)) {
+        TabRow(
+            tabs = Tabs,
+            open = open,
+            onSelect = {
+                picked = true
+                open = it
+            },
+            search = SearchState(
+                query = query,
+                onQuery = catalog::setQuery,
+                typeNow = typeNow,
+                onStarted = { typeNow = false },
+                onOpen = {
+                    picked = true
+                    if (open != SEARCH) browsing = open
+                    typeNow = true
+                    open = SEARCH
+                },
+                onLeave = { open = browsing },
+            ),
+        )
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            saved.SaveableStateProvider(if (searching) SEARCH else tab.key) {
+                when {
+                    searching -> {
+                        val filters by catalog.filters.collectAsStateWithLifecycle()
+                        val results by catalog.results.collectAsStateWithLifecycle()
+                        val state by catalog.state.collectAsStateWithLifecycle()
+                        SearchTab(query, filters, catalog::setFilters, results, state.watch, actions, focus)
+                    }
+                    tab.key == HOME -> HomeTab(onOpenChannel, onOpenSettings, focus)
+                    else -> {
+                        val state by catalog.state.collectAsStateWithLifecycle()
+                        val kind = tab.kind ?: return@SaveableStateProvider
+                        CatalogTab(kind, state.tabs[kind], state.watch, actions, focus)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The search field's words and what it does with them, for the tab row. */
+private class SearchState(
+    val query: String,
+    val onQuery: (String) -> Unit,
+    /** Put the caret in the field as it opens. */
+    val typeNow: Boolean,
+    val onStarted: () -> Unit,
+    /** Shows Search's page. */
+    val onOpen: () -> Unit,
+    /** Back to the tab Search was opened from. */
+    val onLeave: () -> Unit,
+)
+
+/**
+ * The tabs along On Demand's top: flat labels with no hairline under the row (user decision), the
+ * open one underlined. Search stands apart at the row's end as a field, not a tab (user decision: it is
+ * not one of the tabs), its edge on the page's side margin, its words on the labels' line.
+ * Opened, it widens toward the tabs and no tab is underlined; on a phone it takes the whole row,
+ * with a back key to the tabs. Coming into the row from below lands on the open tab, or the
+ * field while Search is open.
+ */
+@Composable
+private fun TabRow(tabs: List<OnDemandTab>, open: String, onSelect: (String) -> Unit, search: SearchState) {
+    val isTv = LocalIsTv.current
+    val requesters = remember(tabs) { (tabs.map { it.key } + SEARCH).associateWith { FocusRequester() } }
+    val searching = open == SEARCH
+    // The row runs a tab's padding past the side margin, so labels start on it; the field ends on it.
+    val tabPad = if (isTv) 14.dp else 12.dp
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = if (isTv) screenEdge else 4.dp)
+            .padding(horizontal = screenSide - tabPad),
+    ) {
+        // Too narrow to open beside the tabs: the field takes the row while Search is open.
+        if (searching && maxWidth < WIDE_ROW) {
+            SearchField(
+                query = search.query,
+                onQuery = search.onQuery,
+                requester = requesters.getValue(SEARCH),
+                open = true,
+                onOpen = search.onOpen,
+                startTyping = search.typeNow,
+                onStarted = search.onStarted,
+                onBack = search.onLeave,
+                // A tab's height, so the row keeps its height.
+                modifier = Modifier.fillMaxWidth().padding(end = tabPad),
+            )
+            return@BoxWithConstraints
+        }
+        val room = maxWidth - tabPad - TABS_ROOM
+        val width by animateDpAsState(
+            targetValue = if (searching) minOf(SEARCH_OPEN, room) else minOf(if (isTv) SEARCH_CLOSED_TV else SEARCH_CLOSED, room).coerceAtLeast(SEARCH_MIN),
+            animationSpec = tween(160, easing = FastOutSlowInEasing),
+            label = "search width",
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusProperties { onEnter = { requesters[open]?.requestFocus() } }
+                .focusGroup(),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Row(
+                modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                for (tab in tabs) {
+                    OsdTab(
+                        tab.label,
+                        selected = tab.key == open,
+                        onClick = { onSelect(tab.key) },
+                        compact = isTv,
+                        modifier = Modifier.focusRequester(requesters.getValue(tab.key)),
+                    )
+                }
+            }
+            SearchField(
+                query = search.query,
+                onQuery = search.onQuery,
+                requester = requesters.getValue(SEARCH),
+                open = searching,
+                onOpen = search.onOpen,
+                startTyping = search.typeNow,
+                onStarted = search.onStarted,
+                modifier = Modifier.padding(start = 16.dp, end = tabPad).width(width),
+            )
+        }
+    }
+}
+
+/** From this wide, Search opens beside the tabs; narrower, it takes the row. */
+private val WIDE_ROW = 640.dp
+
+/** The search field's width while Search is closed, on TV and on touch. */
+private val SEARCH_CLOSED_TV = 280.dp
+private val SEARCH_CLOSED = 200.dp
+
+/** The search field's width while Search is open beside the tabs. */
+private val SEARCH_OPEN = 560.dp
+
+/** The least the search field keeps beside the tabs: its mark and the placeholder. */
+private val SEARCH_MIN = 120.dp
+
+/** What the tabs need beside the search field. */
+private val TABS_ROOM = 240.dp
+/**
+ * Home: a banner cycling through random channels' programs, then each guide group as a row of
+ * channel tiles, numbered and named, showing what airs on them now. A channel opens on its
+ * program, where it can be watched live or on demand.
+ */
+@Composable
+private fun HomeTab(
+    onOpenChannel: (channelId: Long) -> Unit,
+    onOpenSettings: (() -> Unit)?,
+    focus: TabFocus,
     viewModel: OnDemandViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -230,47 +463,49 @@ fun OnDemandScreen(
             title = "On Demand",
             description = "No channels yet. Once your library syncs, every channel's program can be watched here whenever you like.",
             actions = actions,
-            modifier = modifier,
         )
         return
     }
     val clock = rememberClock()
     val listState = rememberLazyListState()
     val bannerFocus = remember { FocusRequester() }
-    val returnFocus = remember { FocusRequester() }
-    // The tile a channel was opened from, so Back lands on it again.
-    var opened by rememberSaveable { mutableStateOf<String?>(null) }
     if (isTv) {
         LaunchedEffect(Unit) {
-            val returned = opened != null && runCatching { returnFocus.requestFocus() }.isSuccess
-            if (!returned) runCatching { bannerFocus.requestFocus() }
+            val returned = focus.opened?.startsWith("$HOME/") == true && runCatching { focus.returnTo.requestFocus() }.isSuccess
+            if (!returned && focus.autoFocus) runCatching { bannerFocus.requestFocus() }
         }
     }
     fun open(key: String, channelId: Long) {
-        opened = key
+        focus.onOpened("$HOME/$key")
         onOpenChannel(channelId)
     }
+    fun returns(key: String) = focus.opened == "$HOME/$key"
 
     // The guide's margins and gaps: on TV the banner sits where the guide's preview band does;
-    // a phone runs it edge to edge from the top, like the guide's stacked preview.
+    // a phone runs it edge to edge under the tabs, like the guide's stacked preview.
+    // The gap under the tabs is the list's own edge, not its padding, so it holds while scrolling.
     LazyColumn(
         state = listState,
-        modifier = modifier.fillMaxSize().background(theme.background),
-        contentPadding = PaddingValues(top = if (isTv) screenEdge else 0.dp, bottom = screenEdge),
+        modifier = Modifier.padding(top = screenGap).fillMaxSize().background(theme.background),
+        contentPadding = PaddingValues(bottom = screenEdge),
         verticalArrangement = Arrangement.spacedBy(screenGap),
     ) {
         if (state.banner.isNotEmpty()) {
             item(key = "banner") {
-                Banner(
-                    slides = state.banner,
-                    nowMs = clock.value,
-                    onOpen = { open("banner", it.channel.id) },
-                    // Its picture lines up with the tiles' pictures under it, inside the same focus frame.
+                val slides = state.banner
+                RotatingBanner(
+                    count = slides.size,
+                    backdropUrl = { slides[it].artwork.backdropUrl },
+                    onOpen = { open("banner", slides[it].channel.id) },
+                    // Edge to edge, like a title page's hero.
                     modifier = Modifier
-                        .padding(horizontal = if (isTv) screenSide - TILE_FRAME else 0.dp)
-                        .let { if (opened == "banner") it.focusRequester(returnFocus) else it }
+                        .let { if (returns("banner")) it.focusRequester(focus.returnTo) else it }
                         .focusRequester(bannerFocus),
-                )
+                    footer = { i ->
+                        val slide = slides[i]
+                        SegmentLadder(progress(slide.startUtcMs, slide.endUtcMs, clock.value), Modifier.width(if (isTv) 320.dp else 180.dp))
+                    },
+                ) { i -> ChannelSlide(slides[i], clock.value) }
             }
         }
         for (row in state.rows) {
@@ -289,7 +524,7 @@ fun OnDemandScreen(
                                 tile = tile,
                                 nowMs = clock.value,
                                 onClick = { open(key, tile.channel.id) },
-                                modifier = if (key == opened) Modifier.focusRequester(returnFocus) else Modifier,
+                                modifier = if (returns(key)) Modifier.focusRequester(focus.returnTo) else Modifier,
                             )
                         }
                     }
@@ -312,136 +547,58 @@ private fun RowHeader(row: ChannelRow, modifier: Modifier = Modifier) {
 }
 
 /**
- * The banner: one channel's program at a time, its backdrop under the wash with the channel's
- * number and name, the show's logo, what airs and how far it has got. It cuts to the next
- * channel every few seconds while focus is elsewhere and holds while focused; left and right
- * (or a swipe) step through it, OK opens the channel. Squares under it count the channels.
+ * A channel's banner slide: its number and name, the show's logo, what airs and when, and two
+ * lines of overview; the banner's foot carries how far the airing has got.
  */
 @Composable
-private fun Banner(slides: List<ChannelNow>, nowMs: Long, onOpen: (ChannelNow) -> Unit, modifier: Modifier = Modifier) {
+private fun ChannelSlide(slide: ChannelNow, nowMs: Long) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
-    var index by rememberSaveable { mutableIntStateOf(0) }
-    var focused by remember { mutableStateOf(false) }
-    val count = slides.size
-    val shown = index.coerceIn(0, count - 1)
-    val slide = slides[shown]
-    LaunchedEffect(shown, focused, count) {
-        if (!focused && count > 1) {
-            delay(ROTATE_MS)
-            index = (shown + 1) % count
-        }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        NumberBlock(
+            "${slide.channel.number}",
+            style = typography.titleLarge.merge(TextStyle(fontFamily = theme.displayFont, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")),
+        )
+        androidx.compose.material3.Text(
+            slide.channel.name,
+            style = typography.titleMedium,
+            color = theme.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
-    val swipe = with(LocalDensity.current) { SWIPE.toPx() }
-    FocusSurface(
-        onClick = { onOpen(slide) },
-        color = Color.Transparent,
-        modifier = modifier
-            .fillMaxWidth()
-            .onFocusChanged { focused = it.isFocused }
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (event.key) {
-                    // At the first channel, left goes on to the navigation rail.
-                    Key.DirectionLeft -> (shown > 0).also { if (it) index = shown - 1 }
-                    Key.DirectionRight -> true.also { index = (shown + 1) % count }
-                    else -> false
-                }
-            }
-            .pointerInput(count) {
-                var dragged = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = { dragged = 0f },
-                    onHorizontalDrag = { change, amount ->
-                        change.consume()
-                        dragged += amount
-                    },
-                    onDragEnd = {
-                        if (abs(dragged) > swipe) index = (index.coerceIn(0, count - 1) + if (dragged < 0) 1 else count - 1) % count
-                    },
-                )
-            },
-    ) { isFocused ->
-        // On TV focus shows as an accent frame round the picture; phones run it edge to edge.
-        Backdrop(
-            url = slide.artwork.backdropUrl,
-            modifier = Modifier
-                .padding(if (isTv) TILE_FRAME else 0.dp)
-                .fillMaxWidth()
-                .heightIn(min = if (isTv) 252.dp else 236.dp)
-                .clip(if (isTv) ControlShape else androidx.compose.ui.graphics.RectangleShape),
-            alignment = Alignment.Center,
-        ) {
-            Column(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    // On a phone the text lines up with the row headers under it.
-                    .padding(horizontal = if (isTv) 28.dp else screenSide, vertical = if (isTv) 22.dp else 16.dp),
-                verticalArrangement = Arrangement.spacedBy(if (isTv) 6.dp else 4.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    NumberBlock(
-                        "${slide.channel.number}",
-                        style = typography.titleLarge.merge(TextStyle(fontFamily = theme.displayFont, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")),
-                    )
-                    androidx.compose.material3.Text(
-                        slide.channel.name,
-                        style = typography.titleMedium,
-                        color = theme.text,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                TitleLogo(
-                    logoUrl = slide.artwork.logoUrl,
-                    title = slide.title,
-                    height = if (isTv) 72.dp else 48.dp,
-                    maxLogoWidth = if (isTv) 420.dp else 260.dp,
-                    style = if (isTv) typography.headlineLarge else typography.headlineMedium,
-                    maxLines = 2,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                lineUnderLogo(slide.detail, slide.title, slide.isEpisode, slide.artwork.logoUrl != null)?.let {
-                    androidx.compose.material3.Text(it, style = typography.bodyLarge, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                StatusLine(
-                    onAir = true,
-                    label = "On now",
-                    text = "${WatchChoices.clockRange(slide.startUtcMs, slide.endUtcMs)}  ·  ${WatchChoices.span(slide.endUtcMs - nowMs, roundUp = true)} left",
-                )
-                slide.overview?.let {
-                    androidx.compose.material3.Text(
-                        it,
-                        style = typography.bodyMedium,
-                        color = theme.text,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 620.dp),
-                    )
-                }
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    SegmentLadder(progress(slide.startUtcMs, slide.endUtcMs, nowMs), Modifier.width(if (isTv) 320.dp else 180.dp))
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { Pager(count, shown, isFocused) }
-                }
-            }
-        }
+    TitleLogo(
+        logoUrl = slide.artwork.logoUrl,
+        title = slide.title,
+        height = if (isTv) 72.dp else 48.dp,
+        maxLogoWidth = if (isTv) 420.dp else 260.dp,
+        style = if (isTv) typography.headlineLarge else typography.headlineMedium,
+        maxLines = 2,
+        modifier = Modifier.padding(top = 4.dp),
+    )
+    // An episode's line keeps the episode page's hierarchy, its number quiet; a movie's names it under its logo.
+    val line = if (slide.isEpisode) {
+        slide.detail?.let { splitEpisodeLabel(it) }?.let { (number, title) -> numbered(number, title, theme.textMuted) }
+    } else {
+        lineUnderLogo(slide.detail, slide.title, false, slide.artwork.logoUrl != null)?.let { AnnotatedString(it) }
     }
-}
-
-/** One square per banner channel: the one showing solid in the accent, the rest hollow. */
-@Composable
-private fun Pager(count: Int, shown: Int, focused: Boolean) {
-    if (count < 2) return
-    val theme = LocalAnstelleTheme.current
-    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-        for (i in 0 until count) {
-            AirMarker(onAir = i == shown, color = if (i == shown) (if (focused) theme.text else theme.accent) else theme.textMuted)
-        }
+    line?.let { androidx.compose.material3.Text(it, style = typography.bodyLarge, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    StatusLine(
+        onAir = true,
+        label = "On now",
+        text = "${WatchChoices.clockRange(slide.startUtcMs, slide.endUtcMs)}  ${WatchChoices.span(slide.endUtcMs - nowMs, roundUp = true)} left",
+    )
+    slide.overview?.let {
+        androidx.compose.material3.Text(
+            it,
+            style = typography.bodyMedium,
+            color = theme.text,
+            minLines = 2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 620.dp),
+        )
     }
 }
 
@@ -525,32 +682,25 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                // Off air, restricted or unscheduled, the picture already says why; the caption says when, in the mark's own voice.
-                val dark = now == null || now.offAir || now.restriction != null
-                val line = when {
-                    now == null -> "Nothing scheduled".uppercase()
-                    dark -> "Until ${WatchChoices.clockTime(now.endUtcMs)}".uppercase()
-                    // Time left first: a long episode title is what gets cut.
-                    else -> listOfNotNull("${WatchChoices.span(now.endUtcMs - nowMs, roundUp = true)} left", now.detail.takeIf { now.isEpisode }).joinToString(" · ")
+                if (now == null || now.offAir || now.restriction != null) {
+                    // Off air, restricted or unscheduled, the picture already says why; the caption says when, in the mark's own voice.
+                    androidx.compose.material3.Text(
+                        if (now == null) "Nothing scheduled".uppercase() else "Until ${WatchChoices.clockTime(now.endUtcMs)}".uppercase(),
+                        // Label-medium keeps body-small's line height, so a dark tile stands as tall as the rest.
+                        style = typography.labelMedium,
+                        color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else if (now.isEpisode) {
+                    // The ladder on the picture says how far the airing has got, so the line is only what airs.
+                    val (number, title) = splitEpisodeLabel(now.detail.orEmpty())
+                    CaptionLine(number, title, focused)
+                } else {
+                    // A movie's year, then its title when the picture shows its logo, the way a line under a logo names it.
+                    CaptionLine(now.detail, now.title.takeIf { now.artwork.logoUrl != null }, focused)
                 }
-                androidx.compose.material3.Text(
-                    line,
-                    // Label-medium keeps body-small's line height, so a dark tile stands as tall as the rest.
-                    style = if (dark) typography.labelMedium else typography.bodySmall,
-                    color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
     }
 }
-
-/** The inset that focus fills round a tile's picture. */
-private val TILE_FRAME = 3.dp
-
-/** How far a swipe has to travel to step the banner. */
-private val SWIPE = 48.dp
-
-/** How long the banner holds a channel while focus is elsewhere. */
-private const val ROTATE_MS = 8_000L

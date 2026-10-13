@@ -44,16 +44,32 @@ private val TrappedMoves = setOf(
     FocusDirection.Next, FocusDirection.Previous,
 )
 
-/** One choice in an [ActionDialog]: what it says, one line on what happens, and what it does; [danger] marks a destructive one. */
-class DialogAction(val title: String, val detail: String, val icon: ImageVector, val danger: Boolean, val onClick: () -> Unit) {
+/**
+ * One choice in an [ActionDialog]: what it says, one line on what happens, and what it does;
+ * [danger] marks a destructive one, [selected] the one in use when the dialog picks a value.
+ */
+class DialogAction(
+    val title: String,
+    val detail: String?,
+    val icon: ImageVector?,
+    val danger: Boolean,
+    val onClick: () -> Unit,
+    val selected: Boolean = false,
+) {
     constructor(title: String, detail: String, icon: ImageVector, onClick: () -> Unit) : this(title, detail, icon, false, onClick)
+
+    companion object {
+        /** A value to pick: its name, with a check while it is the one in use. */
+        fun choice(title: String, selected: Boolean, onClick: () -> Unit) = DialogAction(title, null, null, false, onClick, selected)
+    }
 }
 
 /**
  * A short list of choices (the ways to watch a program, the server a new profile signs in on)
  * in an OSD panel over the washed screen: [header] says what it is about, then one row per
  * action. Back or a tap outside closes it, and the D-pad never leaves it. The first action is
- * the likeliest: focus starts on it on TV, and touch screens fill it rose as the primary.
+ * the likeliest: focus starts on it on TV, and touch screens fill it rose as the primary. When
+ * the dialog picks a value, focus starts on the one in use and nothing is the primary.
  */
 @Composable
 fun ActionDialog(actions: List<DialogAction>, onDismiss: () -> Unit, header: @Composable ColumnScope.() -> Unit) {
@@ -103,15 +119,18 @@ fun ActionDialog(actions: List<DialogAction>, onDismiss: () -> Unit, header: @Co
                     .verticalScroll(rememberScrollState()),
             ) {
                 header()
+                val picking = actions.any { it.selected }
+                val lead = if (picking) actions.indexOfFirst { it.selected } else 0
                 actions.forEachIndexed { i, action ->
                     FocusTile(
                         title = action.title,
                         subtitle = action.detail,
                         icon = action.icon,
                         onClick = action.onClick,
-                        primary = i == 0 && !isTv && !action.danger,
+                        primary = i == 0 && !isTv && !action.danger && !picking,
                         danger = action.danger,
-                        modifier = Modifier.fillMaxWidth().let { if (i == 0) it.focusRequester(first) else it },
+                        selected = action.selected,
+                        modifier = Modifier.fillMaxWidth().let { if (i == lead) it.focusRequester(first) else it },
                     )
                 }
             }

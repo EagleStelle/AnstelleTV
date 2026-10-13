@@ -80,8 +80,17 @@ object Settings {
     /** How many channels, picked at random, the On demand banner cycles through. Shared, like the channels. */
     val OnDemandBanner = SettingKey.IntKey("ondemand.banner", 10)
 
-    /** The choices for [OnDemandBanner]. */
+    /** The choices for [OnDemandBanner] and [catalogBanner]. */
     val OnDemandBannerSizes = listOf(5, 10, 15, 20, 25, 30)
+
+    /** How many titles of [kind], picked at random, the banner on its On Demand tab cycles through. Shared. */
+    fun catalogBanner(kind: tv.anstelle.core.data.ondemand.CatalogKind) = SettingKey.IntKey("ondemand.banner.${kind.key}", 10)
+
+    /**
+     * The order of the rows on [kind]'s On Demand tab, as their keys joined by commas
+     * ([tv.anstelle.core.data.ondemand.ShelfOrder]); empty keeps the default order. Shared.
+     */
+    fun catalogShelves(kind: tv.anstelle.core.data.ondemand.CatalogKind) = SettingKey.StringKey("ondemand.rows.${kind.key}", "")
 
     /**
      * The server's parental rating table (`/Localization/ParentalRatings`), one "score<TAB>name"

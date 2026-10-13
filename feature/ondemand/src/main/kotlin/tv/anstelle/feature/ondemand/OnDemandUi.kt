@@ -31,15 +31,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.relocation.BringIntoViewModifierNode
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
@@ -47,11 +49,9 @@ import tv.anstelle.core.theme.LocalIsTv
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import tv.anstelle.core.theme.components.BackBar
 import tv.anstelle.core.theme.components.Backdrop
-import tv.anstelle.core.theme.components.OsdBadge
 import tv.anstelle.core.theme.components.screenEdge
 import tv.anstelle.core.theme.components.screenGap
 import tv.anstelle.core.theme.components.screenSide
-import tv.anstelle.core.theme.components.TitleLogo
 
 
 /** An image from the server, or the title's first letter on the surface step when there is none. */
@@ -72,9 +72,9 @@ internal fun Poster(imageUrl: String?, title: String, modifier: Modifier) {
 
 /**
  * A scrolling page headed by a hero: the show's or movie's backdrop under the flat wash, edge
- * to edge, with [hero] on it (title or logo, facts, overview). The rest of the page follows on
- * the plain ground. Phones get a back arrow over the hero; it takes the ground's color once the
- * hero has scrolled away from under it. TV has no back bar.
+ * to edge, with [hero] on it (the programme sheet). The rest of the page follows on the plain
+ * ground. Phones get a back arrow over the hero; it takes the ground's color once the hero has scrolled away
+ * from under it. TV has no back bar.
  */
 @Composable
 internal fun Page(
@@ -131,7 +131,7 @@ private val BAR_HEIGHT = 56.dp
  * Lets an item of a padded list run out to the list's edges: [horizontal] past each side and
  * [top] above it, while the list still lays it out at its padded size.
  */
-private fun Modifier.bleed(horizontal: Dp, top: Dp) = layout { measurable, constraints ->
+internal fun Modifier.bleed(horizontal: Dp, top: Dp = 0.dp) = layout { measurable, constraints ->
     val extraWidth = (horizontal * 2).roundToPx()
     val extraTop = top.roundToPx()
     val placeable = measurable.measure(
@@ -143,39 +143,25 @@ private fun Modifier.bleed(horizontal: Dp, top: Dp) = layout { measurable, const
 }
 
 /**
- * A title as its logo, or as text when there is none; long titles take two lines. The logo
- * sits on the backdrop the way the server's art was drawn to be shown.
+ * For a page's bars: they belong to the page's top, so while focus is on any of them the page
+ * rests at its top, the whole sheet and its backdrop in sight as when it opened. A bar asking to
+ * be shown (up from the episodes, or across the row) moves the page there and asks the list
+ * nothing, so TV's pivot, which holds focus 30% down the screen, never scrolls the sheet away.
  */
-@Composable
-internal fun HeroTitle(logoUrl: String?, title: String, modifier: Modifier = Modifier) {
-    val isTv = LocalIsTv.current
-    TitleLogo(
-        logoUrl = logoUrl,
-        title = title,
-        height = if (isTv) 84.dp else 56.dp,
-        maxLogoWidth = if (isTv) 420.dp else 240.dp,
-        style = if (isTv) {
-            androidx.compose.material3.MaterialTheme.typography.headlineLarge
-        } else {
-            androidx.compose.material3.MaterialTheme.typography.headlineMedium
-        },
-        maxLines = 2,
-        modifier = modifier,
-    )
+internal fun Modifier.restsAtTop(listState: LazyListState): Modifier = this then RestsAtTopElement(listState)
+
+private data class RestsAtTopElement(val listState: LazyListState) : ModifierNodeElement<RestsAtTopNode>() {
+    override fun create() = RestsAtTopNode(listState)
+
+    override fun update(node: RestsAtTopNode) {
+        node.listState = listState
+    }
 }
 
-/** A long overview: up to [tvLines] on TV, all of it on a phone, where the page scrolls. */
-@Composable
-internal fun Overview(text: String, modifier: Modifier = Modifier, tvLines: Int = 6) {
-    val isTv = LocalIsTv.current
-    androidx.compose.material3.Text(
-        text,
-        style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
-        color = LocalAnstelleTheme.current.text,
-        maxLines = if (isTv) tvLines else Int.MAX_VALUE,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier.widthIn(max = 720.dp),
-    )
+private class RestsAtTopNode(var listState: LazyListState) : Modifier.Node(), BringIntoViewModifierNode {
+    override suspend fun bringIntoView(childCoordinates: LayoutCoordinates, boundsProvider: () -> Rect?) {
+        if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) listState.animateScrollToItem(0)
+    }
 }
 
 /** On TV, focuses the requester's element once it is laid out. */
@@ -184,39 +170,6 @@ internal fun rememberInitialFocus(key: Any? = Unit): FocusRequester {
     val requester = remember { FocusRequester() }
     if (LocalIsTv.current) LaunchedEffect(key) { runCatching { requester.requestFocus() } }
     return requester
-}
-
-@Composable
-internal fun Badge(text: String) = OsdBadge(text)
-
-/** Rating, year, genres and length, then the picture and sound badges. */
-@Composable
-internal fun Facts(facts: String, badges: List<String>) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (facts.isNotEmpty()) Text(facts, size = 15, color = LocalAnstelleTheme.current.textMuted, modifier = Modifier.weight(1f, fill = false))
-        badges.forEach { Badge(it) }
-    }
-}
-
-@Composable
-internal fun Text(
-    text: String,
-    size: Int,
-    modifier: Modifier = Modifier,
-    weight: FontWeight = FontWeight.Normal,
-    color: Color = LocalAnstelleTheme.current.text,
-    maxLines: Int = Int.MAX_VALUE,
-) {
-    androidx.compose.material3.Text(
-        text,
-        modifier = modifier,
-        color = color,
-        fontSize = size.sp,
-        fontWeight = weight,
-        fontFamily = LocalAnstelleTheme.current.bodyFont,
-        maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis,
-    )
 }
 
 /** The wall clock, updated twice a minute, for time left and progress ladders. */

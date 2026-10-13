@@ -78,7 +78,11 @@ import tv.anstelle.core.theme.components.Wordmark
 import tv.anstelle.feature.dashboard.DashboardScreen
 import tv.anstelle.feature.guide.GuideScreen
 import tv.anstelle.feature.ondemand.ChannelScreen
+import tv.anstelle.feature.ondemand.EpisodeScreen
 import tv.anstelle.feature.ondemand.OnDemandScreen
+import tv.anstelle.feature.ondemand.TitleScreen
+import tv.anstelle.feature.settings.OnDemandRowsScreen
+import tv.anstelle.feature.settings.OnDemandSettingsScreen
 import tv.anstelle.feature.player.OnDemandPlayerScreen
 import tv.anstelle.feature.player.PlayerScreen
 import tv.anstelle.feature.profiles.ProfileEditScreen
@@ -234,7 +238,39 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
             composable<OnDemandRoute> {
                 OnDemandScreen(
                     onOpenChannel = { navController.navigate(OnDemandChannelRoute(it)) },
+                    onOpenTitle = { navController.navigate(OnDemandTitleRoute(it)) },
+                    onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position)) },
                     onOpenSettings = openSettings,
+                    onAddToChannel = addToChannel,
+                )
+            }
+            composable<OnDemandTitleRoute> {
+                // Like a channel's page: never back to wherever it was opened from, always the on-demand main page.
+                BackHandler {
+                    if (!navController.popBackStack(OnDemandRoute, inclusive = false)) {
+                        navController.navigate(OnDemandRoute) { popUpTo<OnDemandTitleRoute> { inclusive = true } }
+                    }
+                }
+                TitleScreen(
+                    onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position)) },
+                    onOpenEpisode = { navController.navigate(OnDemandEpisodeRoute(it)) },
+                    onOpenChannel = { navController.navigate(OnDemandChannelRoute(it)) },
+                    onAddToChannel = addToChannel,
+                    onGone = { navController.popBackStack() },
+                )
+            }
+            // Unlike the other media pages, Back from an episode returns to the page that opened it (user decision).
+            composable<OnDemandEpisodeRoute> { entry ->
+                val page = entry.toRoute<OnDemandEpisodeRoute>()
+                EpisodeScreen(
+                    onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position, page.channelId, page.atUtcMs)) },
+                    // Another episode takes this one's place, so Back still returns to the show's or channel's page.
+                    onOpenEpisode = {
+                        navController.navigate(OnDemandEpisodeRoute(it, page.channelId, page.atUtcMs)) { popUpTo<OnDemandEpisodeRoute> { inclusive = true } }
+                    },
+                    onOpenChannel = { navController.navigate(OnDemandChannelRoute(it)) { popUpTo<OnDemandEpisodeRoute> { inclusive = true } } },
+                    onAddToChannel = addToChannel,
+                    onGone = { navController.popBackStack() },
                 )
             }
             composable<OnDemandChannelRoute> { entry ->
@@ -249,6 +285,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onWatchLive = { navController.navigate(PlayerRoute(it)) },
                     onStartOver = { navController.navigate(PlayerRoute(it, restart = true)) },
                     onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position, page.channelId, page.atUtcMs)) },
+                    onOpenEpisode = { navController.navigate(OnDemandEpisodeRoute(it, page.channelId, page.atUtcMs)) },
                     onAddToChannel = addToChannel,
                     onGone = { navController.popBackStack() },
                 )
@@ -256,14 +293,16 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         }
         composable<OnDemandPlayRoute> { entry ->
             val playing = entry.toRoute<OnDemandPlayRoute>()
-            // Back to the channel's page it was picked on, or that page in the player's place.
+            // Back to the page it was picked on (the channel's, or an episode's opened from it), or the channel's page in the player's place.
             val openOnDemand: (() -> Unit)? = if (playing.channelId == 0L) {
                 null
             } else {
                 {
                     val from = navController.previousBackStackEntry
-                    val onPage = from?.destination?.hasRoute(OnDemandChannelRoute::class) == true &&
-                        from.toRoute<OnDemandChannelRoute>().channelId == playing.channelId
+                    val onPage = from != null && (
+                        from.destination.hasRoute(OnDemandEpisodeRoute::class) ||
+                            from.destination.hasRoute(OnDemandChannelRoute::class) && from.toRoute<OnDemandChannelRoute>().channelId == playing.channelId
+                        )
                     if (onPage) {
                         navController.popBackStack()
                     } else {
@@ -285,6 +324,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                 SettingsScreen(
                     onOpenServers = { navController.navigate(ServersRoute) },
                     onOpenChannels = { navController.navigate(ChannelsRoute) },
+                    onOpenOnDemand = { navController.navigate(OnDemandSettingsRoute) },
                     onOpenPlayback = { navController.navigate(PlaybackLanguagesRoute) },
                     onOpenWatchHistory = { navController.navigate(WatchHistoryRoute) },
                     onOpenThemes = { navController.navigate(ThemesRoute()) },
@@ -334,6 +374,8 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
             adminOnly<WebControlRoute>(navController) { WebControlScreen() }
             adminOnly<BackupRoute>(navController) { BackupScreen() }
             adminOnly<ChannelGroupsRoute>(navController) { ChannelGroupsScreen() }
+            adminOnly<OnDemandSettingsRoute>(navController) { OnDemandSettingsScreen(onOpenRows = { navController.navigate(OnDemandRowsRoute(it)) }) }
+            adminOnly<OnDemandRowsRoute>(navController) { entry -> OnDemandRowsScreen(entry.toRoute<OnDemandRowsRoute>().kind) }
             adminOnly<ServersRoute>(navController) {
                 ServersScreen(
                     onAddServer = { navController.navigate(AddServerRoute()) },

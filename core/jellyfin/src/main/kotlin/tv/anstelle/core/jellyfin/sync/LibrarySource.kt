@@ -172,6 +172,8 @@ internal class JellyfinLibrarySource(
             ItemFields.TAGS,
             ItemFields.OVERVIEW,
             ItemFields.SORT_NAME,
+            // When it joined the library, for On Demand's Recently added.
+            ItemFields.DATE_CREATED,
             // The source id, container and streams. Streams are most of each
             // item's size (~8 KB), so pages stay small.
             ItemFields.MEDIA_SOURCES,

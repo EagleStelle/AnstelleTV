@@ -32,6 +32,15 @@ const val PlayerRouteNoChannel = -1
 /** A channel's page, about the airing at [atUtcMs] (a program picked in the guide), or 0 for the one on now. */
 @Serializable data class OnDemandChannelRoute(val channelId: Long, val atUtcMs: Long = 0)
 
+/** A movie's or series' page, opened from On demand's catalog tabs. */
+@Serializable data class OnDemandTitleRoute(val titleId: Long)
+
+/**
+ * An episode's page, opened from its show's carousel. [channelId] and [atUtcMs] name the airing
+ * whose channel page opened it, carried on to the player's On Demand key; 0 for none.
+ */
+@Serializable data class OnDemandEpisodeRoute(val itemId: Long, val channelId: Long = 0, val atUtcMs: Long = 0)
+
 /**
  * Full-screen on-demand playback of [itemId] from [positionMs]. [channelId] and [atUtcMs] name
  * the airing it was picked from, whose channel page the player's On Demand key opens; 0 for none.
@@ -63,6 +72,10 @@ const val PlayerRouteNoChannel = -1
 /** [channelId] 0 builds a new channel. */
 @Serializable data class ChannelLineupRoute(val channelId: Long = 0)
 @Serializable data object ChannelGroupsRoute
+@Serializable data object OnDemandSettingsRoute
+
+/** One On Demand tab's rows, by its kind's key. */
+@Serializable data class OnDemandRowsRoute(val kind: String)
 @Serializable data object PlaybackLanguagesRoute
 @Serializable data object WatchHistoryRoute
 @Serializable data object WebControlRoute

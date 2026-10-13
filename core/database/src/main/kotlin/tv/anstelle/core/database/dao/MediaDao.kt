@@ -50,6 +50,29 @@ data class CatalogRow(
     val premiereDateUtcMs: Long? = null,
 )
 
+/** A movie or series as On Demand's catalog lists it: what a poster, banner and search need. */
+data class TitleRow(
+    val id: Long,
+    val serverId: Long,
+    val remoteId: String,
+    val type: MediaType,
+    val title: String,
+    val sortTitle: String?,
+    val year: Int?,
+    val officialRating: String?,
+    val ratingScore: Int?,
+    val genres: String,
+    val overview: String?,
+    val durationMs: Long,
+    val primaryImageTag: String?,
+    val backdropImageTag: String?,
+    val logoImageTag: String?,
+    val dateAddedUtcMs: Long?,
+)
+
+/** When a series last had an episode added. */
+data class SeriesAddedRow(val serverId: Long, val seriesRemoteId: String, val addedUtcMs: Long)
+
 @Dao
 interface MediaServerDao {
     @Query("SELECT * FROM media_server ORDER BY name")
@@ -168,6 +191,26 @@ interface MediaItemDao {
         """,
     )
     suspend fun catalog(): List<CatalogRow>
+
+    /** Every item of [types] with what On Demand's catalog shows of it. */
+    @Query(
+        """
+        SELECT id, serverId, remoteId, type, title, sortTitle, year, officialRating, ratingScore, genres,
+               overview, durationMs, primaryImageTag, backdropImageTag, logoImageTag, dateAddedUtcMs
+        FROM media_item WHERE type IN (:types)
+        """,
+    )
+    suspend fun titles(types: List<MediaType>): List<TitleRow>
+
+    /** When each series last had an episode added, so a series with a new episode counts as recently added. */
+    @Query(
+        """
+        SELECT serverId, seriesRemoteId, MAX(dateAddedUtcMs) AS addedUtcMs FROM media_item
+        WHERE type = :episodeType AND seriesRemoteId IS NOT NULL AND dateAddedUtcMs IS NOT NULL
+        GROUP BY serverId, seriesRemoteId
+        """,
+    )
+    suspend fun seriesLastAdded(episodeType: MediaType): List<SeriesAddedRow>
 
     /** A show's episodes within [maxRating], in airing order: seasons, then specials, then unnumbered ones. */
     @Query(

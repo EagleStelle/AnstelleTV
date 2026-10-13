@@ -86,7 +86,7 @@ abstract class AnstelleDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     companion object {
-        const val VERSION = 12
+        const val VERSION = 13
         const val NAME = "anstelle.db"
 
         /** Tables the web UI can subscribe to for live updates. */
@@ -109,6 +109,6 @@ abstract class AnstelleDatabase : RoomDatabase() {
                 .apply { if (allowDestructiveMigration) fallbackToDestructiveMigration(dropAllTables = true) }
                 .build()
 
-        private val PRE_RELEASE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+        private val PRE_RELEASE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
     }
 }

@@ -19,10 +19,13 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.InsertChart
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
@@ -61,6 +64,9 @@ import tv.anstelle.core.data.backup.BackupRepository
 import tv.anstelle.core.data.backup.BackupSummary
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelSummary
+import tv.anstelle.core.data.ondemand.CatalogKind
+import tv.anstelle.core.data.ondemand.ShelfOrder
+import tv.anstelle.core.data.ondemand.ShelfType
 import tv.anstelle.core.data.playback.TrackChoices
 import tv.anstelle.core.data.stats.DashboardHistory
 import tv.anstelle.core.database.dao.PairedClientDao
@@ -112,6 +118,41 @@ data class ChannelStats(
     }
 }
 
+/** On Demand's banners and the row each catalog tab opens with, for the home's row and readout. */
+@Immutable
+data class OnDemandSummary(
+    val homeBanner: Int = Settings.OnDemandBanner.default,
+    val banners: Map<CatalogKind, Int> = emptyMap(),
+    /** Each kind's first row by name. */
+    val firstRow: Map<CatalogKind, String> = emptyMap(),
+) {
+    /** "10 per banner", or each banner's size when they differ. */
+    val summary: String
+        get() {
+            val sizes = listOf(homeBanner) + CatalogKind.entries.map { banners[it] ?: Settings.catalogBanner(it).default }
+            return if (sizes.distinct().size == 1) "${sizes.first()} per banner" else "Banners of ${sizes.dropLast(1).joinToString(", ")} and ${sizes.last()}"
+        }
+
+    companion object {
+        /**
+         * The first row of each kind as stored, by name: a channel row by its channel's name from
+         * [channelNames]. Without a stored order, the fixed rows lead, as on the tab.
+         */
+        fun of(homeBanner: Int, banners: Map<CatalogKind, Int>, orders: Map<CatalogKind, String>, channelNames: Map<Long, String>) = OnDemandSummary(
+            homeBanner = homeBanner,
+            banners = banners,
+            firstRow = CatalogKind.entries.mapNotNull { kind ->
+                val stored = ShelfOrder.decode(orders[kind].orEmpty())
+                val keys = stored.ifEmpty { kind.fixedShelves.map { it.key } }
+                keys.firstNotNullOfOrNull { key ->
+                    ShelfType.entries.firstOrNull { it.key == key && it != ShelfType.CHANNEL }?.label
+                        ?: key.substringAfter("${ShelfType.CHANNEL.key}:", "").toLongOrNull()?.let(channelNames::get)
+                }?.let { kind to it }
+            }.toMap(),
+        )
+    }
+}
+
 @Immutable
 data class SettingsUiState(
     val webServerEnabled: Boolean = true,
@@ -124,6 +165,7 @@ data class SettingsUiState(
     val syncProgress: Map<Long, String> = emptyMap(),
     val nowUtcMs: Long = 0,
     val channels: ChannelStats = ChannelStats(),
+    val onDemand: OnDemandSummary = OnDemandSummary(),
     val liveTvSync: WatchSync = codeOf(Settings.liveTvSync(0).default),
     val onDemandSync: WatchSync = codeOf(Settings.onDemandSync(0).default),
     /** Whether the profile keeps its dashboard. */
@@ -162,6 +204,15 @@ class SettingsViewModel @Inject constructor(
         ) { live, onDemand, dashboard -> Triple(codeOf<WatchSync>(live), codeOf<WatchSync>(onDemand), dashboard) }
     }
 
+    private val onDemand = combine(
+        settings.observe(Settings.OnDemandBanner),
+        combine(CatalogKind.entries.map { kind -> settings.observe(Settings.catalogBanner(kind)).map { kind to it } }) { it.toMap() },
+        combine(CatalogKind.entries.map { kind -> settings.observe(Settings.catalogShelves(kind)).map { kind to it } }) { it.toMap() },
+        channels.observeChannels(),
+    ) { home, banners, orders, list ->
+        OnDemandSummary.of(home, banners, orders, list.associate { it.channel.id to it.channel.name })
+    }
+
     private val serverCounts = servers.observeServers().flatMapLatest { list ->
         if (list.isEmpty()) {
             flowOf(emptyMap())
@@ -188,6 +239,8 @@ class SettingsViewModel @Inject constructor(
         )
     }.combine(channels.observeChannels()) { state, list ->
         state.copy(channels = ChannelStats.of(list))
+    }.combine(onDemand) { state, onDemand ->
+        state.copy(onDemand = onDemand)
     }.combine(serverCounts) { state, counts ->
         state.copy(serverCounts = counts)
     }.combine(servers.syncProgress) { state, progress ->
@@ -204,7 +257,7 @@ class SettingsViewModel @Inject constructor(
 }
 
 /** The areas of settings, in the order the home lists them. */
-private enum class SettingsArea { SERVERS, CHANNELS, PLAYBACK, HISTORY, THEME, WEB, BACKUP }
+private enum class SettingsArea { SERVERS, CHANNELS, ON_DEMAND, PLAYBACK, HISTORY, THEME, WEB, BACKUP }
 
 /**
  * Settings' home: one row per area with its state under it, no headings, the way Android's and
@@ -215,6 +268,7 @@ private enum class SettingsArea { SERVERS, CHANNELS, PLAYBACK, HISTORY, THEME, W
 fun SettingsScreen(
     onOpenServers: () -> Unit,
     onOpenChannels: () -> Unit,
+    onOpenOnDemand: () -> Unit,
     onOpenPlayback: () -> Unit,
     onOpenWatchHistory: () -> Unit,
     onOpenThemes: () -> Unit,
@@ -261,6 +315,15 @@ fun SettingsScreen(
                     icon = Icons.Filled.LiveTv,
                     onClick = onOpenChannels,
                     modifier = Modifier.tracks(SettingsArea.CHANNELS),
+                )
+            }
+            item(key = "ondemand") {
+                LinkRow(
+                    title = "On Demand",
+                    summary = state.onDemand.summary,
+                    icon = Icons.Filled.Movie,
+                    onClick = onOpenOnDemand,
+                    modifier = Modifier.tracks(SettingsArea.ON_DEMAND),
                 )
             }
         }
@@ -327,6 +390,7 @@ private fun AreaAside(area: SettingsArea, state: SettingsUiState) {
         when (area) {
             SettingsArea.SERVERS -> ServersReadout(state)
             SettingsArea.CHANNELS -> ChannelsReadout(state.channels)
+            SettingsArea.ON_DEMAND -> OnDemandReadout(state.onDemand)
             SettingsArea.PLAYBACK -> PlaybackReadout(state.tracks)
             SettingsArea.HISTORY -> HistoryReadout(state.liveTvSync, state.onDemandSync, state.dashboard)
             SettingsArea.THEME -> ThemePreview(state.theme ?: DefaultTheme.spec, Modifier.fillMaxWidth())
@@ -410,6 +474,29 @@ private fun ChannelsReadout(stats: ChannelStats) {
             ReadoutFact(Icons.Filled.Star, "${stats.favorites}", if (stats.favorites == 1) "favorite" else "favorites")
             ReadoutFact(Icons.Filled.Folder, "${stats.groups}", if (stats.groups == 1) "group" else "groups")
             ReadoutFact(Icons.Filled.VisibilityOff, "${stats.hidden}", "hidden")
+        }
+    }
+}
+
+/**
+ * Each tab's banner size as figures, then the row each catalog tab opens with, behind its
+ * kind's icon: short enough to sit whole under the title.
+ */
+@Composable
+private fun OnDemandReadout(summary: OnDemandSummary) {
+    ReadoutFrame {
+        ReadoutHeading(Icons.Filled.ViewCarousel, "Banners")
+        ReadoutFigures {
+            ReadoutFigure(summary.homeBanner, "Home")
+            for (kind in CatalogKind.entries) ReadoutFigure(summary.banners[kind] ?: Settings.catalogBanner(kind).default, kind.label)
+        }
+        ReadoutRule()
+        ReadoutHeading(Icons.Filled.ViewAgenda, "First rows")
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (kind in CatalogKind.entries) {
+                val first = summary.firstRow[kind]
+                ReadoutFact(kind.icon, first ?: "None yet", quiet = first == null)
+            }
         }
     }
 }
@@ -500,6 +587,7 @@ private fun WebReadout(state: SettingsUiState) {
 private fun title(area: SettingsArea) = when (area) {
     SettingsArea.SERVERS -> "Servers"
     SettingsArea.CHANNELS -> "Live TV"
+    SettingsArea.ON_DEMAND -> "On Demand"
     SettingsArea.PLAYBACK -> "Playback"
     SettingsArea.HISTORY -> "Watch history"
     SettingsArea.THEME -> "Themes"

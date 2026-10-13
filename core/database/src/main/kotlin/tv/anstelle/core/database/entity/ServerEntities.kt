@@ -136,6 +136,8 @@ data class MediaItemEntity(
     val logoImageTag: String?,
     /** Device time of the sync that last wrote this row. */
     val updatedAtUtcMs: Long,
+    /** When the item was added to the server's library (Jellyfin's DateCreated); null when unknown. */
+    val dateAddedUtcMs: Long? = null,
 )
 
 @Entity(tableName = "profile")

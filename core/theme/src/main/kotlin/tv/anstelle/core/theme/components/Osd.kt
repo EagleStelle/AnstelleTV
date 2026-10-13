@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -144,6 +145,19 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, top: Dp = 16.dp) {
 }
 
 /**
+ * A tab's label: the theme's display font and scale, SemiBold, tabular figures. Anything set in a
+ * tab row beside the tabs (On demand's search slab) takes it too, so the row reads as one line.
+ */
+@Composable
+@ReadOnlyComposable
+fun osdTabLabel(compact: Boolean): TextStyle {
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    return (if (compact) typography.titleSmall else typography.titleMedium).merge(
+        TextStyle(fontFamily = LocalAnstelleTheme.current.displayFont, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"),
+    )
+}
+
+/**
  * A tab: flat text, the open one underlined in the accent; focus fills it. [count] is set in
  * tabular figures after the label; a [done] tab (a season watched through) carries the watched
  * square in its place. [compact] tabs (the guide's, on TV) take a smaller label and less
@@ -169,7 +183,6 @@ fun OsdTab(
                 selected -> theme.text
                 else -> theme.textMuted
             }
-            val typography = androidx.compose.material3.MaterialTheme.typography
             Row(
                 Modifier.padding(
                     horizontal = if (isTv) (if (compact) 14.dp else 16.dp) else 12.dp,
@@ -185,9 +198,7 @@ fun OsdTab(
                             withStyle(SpanStyle(color = color.copy(alpha = 0.7f))) { append("  $count") }
                         }
                     },
-                    style = (if (compact) typography.titleSmall else typography.titleMedium).merge(
-                        TextStyle(fontFamily = theme.displayFont, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"),
-                    ),
+                    style = osdTabLabel(compact),
                     color = color,
                     maxLines = 1,
                 )

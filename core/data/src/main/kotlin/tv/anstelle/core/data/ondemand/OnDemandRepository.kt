@@ -23,6 +23,7 @@ import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.jellyfin.Playstate
 import tv.anstelle.core.jellyfin.PlaystateFactory
 import tv.anstelle.core.jellyfin.auth.TokenStore
+import tv.anstelle.core.jellyfin.sync.ItemMapper
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.ProfileAccess
@@ -100,7 +101,11 @@ data class ItemPage(
     /** The show's title for an episode. */
     val title: String,
     val detail: String?,
-    val facts: String,
+    /** The official rating, "TV-14"; an episode carries its show's. */
+    val rating: String?,
+    /** A movie's release year, or the year an episode aired. */
+    val year: Int?,
+    val genres: List<String>,
     val overview: String?,
     val badges: List<String>,
     /** An episode's still, or a movie's poster. */
@@ -110,6 +115,9 @@ data class ItemPage(
     val durationMs: Long,
     val isEpisode: Boolean,
 )
+
+/** An episode's own page: the episode, and every episode of its show the profile may watch. */
+data class EpisodePage(val item: ItemPage, val episodes: List<EpisodeEntry>)
 
 /**
  * A channel in On demand: the program it airs now (or next, while it is off air) and, for an
@@ -222,6 +230,33 @@ class OnDemandRepository @Inject constructor(
         )
     }
 
+    /**
+     * The channel airing movie or episode [itemId] right now, the lowest-numbered when several
+     * do; null when none does (a series is never one), or the profile may not watch it.
+     */
+    suspend fun airingChannel(itemId: Long, atUtcMs: Long, access: ProfileAccess): Long? = withContext(io) {
+        val channels = channelDao.all().map { it.toModel() }.filter { !it.isHidden }
+        val numbers = channels.associate { it.id to it.number }
+        val maxSlot = scheduleDao.maxSlotMs()
+        channels.map { it.id }.chunked(MAX_IDS_PER_QUERY)
+            .flatMap { scheduleDao.airingsAt(it, atUtcMs, maxSlot) }
+            .filter { row ->
+                val item = row.mediaItemId ?: return@filter false
+                item == itemId && Restriction.of(item, row.ratingScore, access) == null
+            }
+            .minByOrNull { numbers[it.channelId] ?: Int.MAX_VALUE }
+            ?.channelId
+    }
+
+    /** Episode [itemId]'s page; null when it is gone, isn't an episode, or the profile may not watch it. */
+    suspend fun episodePage(itemId: Long, access: ProfileAccess): EpisodePage? = withContext(io) {
+        val entity = itemDao.byId(itemId)?.takeIf { it.seriesRemoteId != null } ?: return@withContext null
+        if (!access.allows(entity.id, entity.ratingScore)) return@withContext null
+        val base = serverDao.byId(entity.serverId)?.baseUrl
+        val series = entity.seriesRemoteId?.let { itemDao.byRemoteId(entity.serverId, it) }
+        EpisodePage(itemPage(entity, series, base), showEpisodes(entity, access).map { it.toEntry(base) })
+    }
+
     /** Where the run of restricted programs ending one at [fromUtcMs] on [channelId] ends. */
     private suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, access: ProfileAccess): Long =
         scheduleDao.restrictedUntil(channelId, fromUtcMs, access.limit, access.profileId)?.coerceAtLeast(fromUtcMs) ?: fromUtcMs
@@ -234,16 +269,20 @@ class OnDemandRepository @Inject constructor(
     suspend fun watchMarks(page: ChannelPage, profileId: Long): WatchMarks = watchMarks(page.item.id, page.episodes, profileId)
 
     /**
-     * What [profileId]'s Jellyfin user watched of [itemId] or, for an episode, of each of
-     * [episodes] of its show, in one request; empty as for a channel's page.
+     * What [profileId]'s Jellyfin user watched of [itemId] or, for an episode or a series, of
+     * each of [episodes] of its show, in one request; empty as for a channel's page.
      */
     suspend fun watchMarks(itemId: Long, episodes: List<EpisodeEntry>, profileId: Long): WatchMarks = withContext(io) {
         try {
             val item = itemDao.byId(itemId) ?: return@withContext WatchMarks()
             val playstate = playstate(item.serverId, profileId) ?: return@withContext WatchMarks()
-            val series = item.seriesRemoteId
+            val series = item.seriesRemoteId ?: item.remoteId.takeIf { item.type == MediaType.SERIES }
             if (series == null) {
-                WatchMarks(resume = mapOf(item.id to playstate.resumePositionMs(item.remoteId)).filterValues { it > 0 })
+                val watch = playstate.itemWatch(item.remoteId)
+                WatchMarks(
+                    resume = mapOf(item.id to watch.positionMs).filterValues { it > 0 },
+                    played = if (watch.played) setOf(item.id) else emptySet(),
+                )
             } else {
                 val ids = episodes.associate { it.remoteId to it.id }
                 val watched = playstate.episodeWatch(series).mapNotNull { (remoteId, watch) -> ids[remoteId]?.let { it to watch } }
@@ -267,7 +306,7 @@ class OnDemandRepository @Inject constructor(
         showEpisodes(item, access).map { it.toEntry(base) }
     }
 
-    private fun MediaItemEntity.toEntry(base: String?) = EpisodeEntry(
+    internal fun MediaItemEntity.toEntry(base: String?) = EpisodeEntry(
         id = id,
         remoteId = remoteId,
         season = season,
@@ -298,7 +337,7 @@ class OnDemandRepository @Inject constructor(
     }
 
     /** The profile's Jellyfin user on the server, when its watch history goes there. */
-    private suspend fun playstate(serverId: Long, profileId: Long): Playstate? {
+    internal suspend fun playstate(serverId: Long, profileId: Long): Playstate? {
         val server = serverDao.byId(serverId) ?: return null
         val token = tokens.get(server.jellyfinServerId) ?: return null
         val account = profiles.watchAccount(profileId, server, token)?.takeIf { it.keepsHistory } ?: return null
@@ -316,7 +355,9 @@ class OnDemandRepository @Inject constructor(
             id = item.id,
             title = programTitle(item.title, item.showTitle),
             detail = programDetail(item.title, item.showTitle, item.season, item.episode, item.year),
-            facts = GuideRepository.facts(item),
+            rating = item.officialRating?.takeIf { it.isNotBlank() },
+            year = item.year,
+            genres = ItemMapper.pipeSplit(item.genres),
             overview = item.overview?.takeIf { it.isNotBlank() },
             badges = ProgramBadges.of(item.hdrType, item.width, item.height, item.audioFormat, item.audioChannels),
             imageUrl = image,

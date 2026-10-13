@@ -87,6 +87,7 @@ object ItemMapper {
             backdropImageTag = item.backdropImageTags?.firstOrNull(),
             logoImageTag = item.imageTags?.get(ImageType.LOGO),
             updatedAtUtcMs = context.nowUtcMs,
+            dateAddedUtcMs = item.dateCreated?.toEpochMs(),
         )
     }
 
