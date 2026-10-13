@@ -95,7 +95,14 @@ class TrackChoices @Inject constructor(
             val format = groups[g].getTrackFormat(t)
             TrackOption(g, t, labels[i], facts[i].language ?: labels[i], format.language, groups[g].isTrackSelected(t))
         }
-        if (type == C.TRACK_TYPE_TEXT) options.add(0, TrackOption(-1, -1, "Off", "Off", null, options.none { it.selected }))
+        if (type == C.TRACK_TYPE_TEXT) {
+            // Embedded subtitles arrive with the video and audio; side-loaded ones come after. While one is still
+            // on its way, which one will show is unknown, so the banner key keeps its name.
+            val coming = options.isEmpty() &&
+                player.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty().isNotEmpty()
+            val off = if (groups.isEmpty() || coming) "Subtitles" else "Off"
+            options.add(0, TrackOption(-1, -1, "Off", off, null, options.none { it.selected }))
+        }
         return options
     }
 
