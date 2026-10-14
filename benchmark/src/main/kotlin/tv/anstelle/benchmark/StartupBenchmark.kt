@@ -16,6 +16,7 @@ import org.junit.runner.RunWith
  *
  *     ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest
  *
+ * On an emulator add `-Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR`.
  * Comparing [startupNoCompilation] with [startupBaselineProfile] shows what the baseline
  * profile buys.
  */

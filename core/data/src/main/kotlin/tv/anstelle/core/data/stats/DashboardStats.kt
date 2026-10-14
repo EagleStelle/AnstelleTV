@@ -120,7 +120,8 @@ class DashboardStats @Inject constructor(
             block()
         } finally {
             if (Build.VERSION.SDK_INT >= 29) Trace.endAsyncSection(SECTION, cookie)
-            AppLog.d(TAG, "Dashboard $what in ${(System.nanoTime() - started) / 1_000_000} ms")
+            // Info, so release builds report it too (`adb logcat -s Anstelle/Stats`).
+            AppLog.i(TAG, "Dashboard $what in ${(System.nanoTime() - started) / 1_000_000} ms")
         }
     }
 

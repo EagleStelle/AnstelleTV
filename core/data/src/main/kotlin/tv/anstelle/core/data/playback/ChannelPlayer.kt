@@ -133,7 +133,9 @@ private class Program(
  * - **Who plays:** each program streams as the profile's Jellyfin user on its server
  *   ([ProfileRepository.watchAccount]), and its watch history goes there.
  * - **Pool:** the channel in the surfing direction (or the one focused in the guide) is
- *   pre-warmed on the standby player, and tuning to it swaps the players.
+ *   pre-warmed on the standby player, and tuning to it swaps the players. The standby is kept
+ *   near the live position only while the viewer surfs: [STANDBY_IDLE_MS] after the last tune
+ *   or guide focus it is let go, so a long watch streams, buffers and decodes one channel.
  * - **Seeking** works as in any video, and the channel's schedule moves with it: the airing
  *   now starts where the new position puts it, and everything after it on the channel moves by
  *   the same amount, so the guide and the next program follow what is on screen.
@@ -188,10 +190,19 @@ class ChannelPlayer @Inject constructor(
     /** The channel to pre-warm instead of the next one in the surfing direction. */
     private var standbyTarget: Long? = null
 
+    /** When the viewer last tuned or focused a channel in the guide; the standby follows only while that is recent. */
+    private var surfedAtMs = 0L
+
     /** The on-screen player's playlist; the first entry is playing. */
     private val queue = ArrayDeque<Program>()
     private var standbyQueue: List<Program> = emptyList()
+    /** Upcoming program prepared at position zero, separate from surfing's wall-clock standby. */
+    private var nextOnStandby: Program? = null
+    private var boundaryJob: Job? = null
+    private var prewarmJob: Job? = null
     private var session: ReportSession? = null
+    /** Last item's end position, captured before an automatic playlist transition resets it. */
+    private var leftAtMs: Long? = null
     private var trace: TuneTrace? = null
     private var retriedSlot = Long.MIN_VALUE
 
@@ -248,9 +259,14 @@ class ChannelPlayer @Inject constructor(
     /** Pre-warms [channelId] on the standby player, e.g. while the guide has it focused. */
     fun prewarm(channelId: Long) {
         if (channelId == current?.id) return
+        if (nextOnStandby != null || boundaryJob?.isActive == true) return
         standbyTarget = channelId
+        surfedAtMs = time.nowUtcMs()
         if (_player.value == null) return
-        lineup.firstOrNull { it.id == channelId }?.let { scope.launch { prewarm(it) } }
+        lineup.firstOrNull { it.id == channelId }?.let { target ->
+            prewarmJob?.cancel()
+            prewarmJob = scope.launch { prewarm(target) }
+        }
     }
 
     /** Tunes to channel [number]; false when there is no such channel. */
@@ -310,6 +326,7 @@ class ChannelPlayer @Inject constructor(
         val moved = queue.map { it.shifted(deltaMs) }
         queue.clear()
         queue.addAll(moved)
+        nextOnStandby = nextOnStandby?.shifted(deltaMs)
     }
 
     /**
@@ -359,6 +376,9 @@ class ChannelPlayer @Inject constructor(
 
     /** Stops playback, e.g. when the player screen closes or the app goes to the background. */
     fun stop() {
+        boundaryJob?.cancel()
+        prewarmJob?.cancel()
+        nextOnStandby = null
         tuneJob?.cancel()
         waitJob?.cancel()
         tickJob?.cancel()
@@ -373,8 +393,13 @@ class ChannelPlayer @Inject constructor(
     }
 
     private fun tuneTo(channel: Channel, surf: Int) {
+        boundaryJob?.cancel()
+        prewarmJob?.cancel()
+        if (nextOnStandby != null) { pool.stop(pool.standby); standbyQueue = emptyList() }
+        nextOnStandby = null
         if (surf != 0) direction = surf
         standbyTarget = null
+        surfedAtMs = time.nowUtcMs()
         current = channel
         tuneJob?.cancel()
         waitJob?.cancel()
@@ -435,7 +460,7 @@ class ChannelPlayer @Inject constructor(
                 standbyQueue = emptyList()
             }
         } else {
-            pool.active.also {
+            pool.renewIfFull(pool.active).also {
                 val programs = listOfNotNull(program, next)
                 load(it, programs, slot)
                 queue.clear()
@@ -494,7 +519,8 @@ class ChannelPlayer @Inject constructor(
     private suspend fun resolve(slot: ScheduleSlotEntity, forceTranscode: Boolean): Program? {
         val item = slot.mediaItemId?.let { itemDao.byId(it) } ?: return null
         val server = serverDao.byId(item.serverId) ?: return null
-        val token = withContext(io) { tokens.get(server.jellyfinServerId) } ?: return null
+        val token = withContext(io) { tokens.get(server.jellyfinServerId) }
+            ?: return null.also { AppLog.w(TAG, "Not signed in to ${server.name}: item ${item.id} can't play") }
         val account = profiles.watchAccount(profileId, server, token) ?: return null
         val decision = if (forceTranscode) {
             StreamDecision.Transcode(listOf("direct play failed"))
@@ -638,12 +664,78 @@ class ChannelPlayer @Inject constructor(
         // The first playlist entry is the program on now (queue.first()).
         if (player.isPlaying && player.currentMediaItemIndex == 0) sample = ProgramLength.sample(sample, player.currentPosition, time.nowUtcMs())
         if (ticks % PROGRESS_TICKS == 0) session?.let { reporter.progress(it, player.currentPosition, paused = !player.isPlaying) }
+        prepareBoundary()
         if (ticks % STANDBY_TICKS == 0) refreshStandby()
     }
 
     private fun refreshStandby() {
+        if (nextOnStandby != null || boundaryJob?.isActive == true) return
+        if (time.nowUtcMs() - surfedAtMs > STANDBY_IDLE_MS) {
+            // Nobody is surfing: the next tune is likely minutes away, when this buffer is long stale.
+            if (pool.standby.channelId != null) {
+                pool.stop(pool.standby)
+                standbyQueue = emptyList()
+                AppLog.d(TAG, "Standby let go")
+            }
+            return
+        }
         val target = standbyTarget?.let { id -> lineup.firstOrNull { it.id == id } } ?: neighbor(direction) ?: return
-        scope.launch { prewarm(target) }
+        if (prewarmJob?.isActive == true) return
+        prewarmJob = scope.launch { prewarm(target) }
+    }
+
+    /** Only the final 30 seconds need a second stream; no extra player or decoder is created. */
+    private fun prepareBoundary() {
+        val player = pool.active.player
+        val program = queue.firstOrNull() ?: return
+        if (queue.size > 1 || nextOnStandby != null || boundaryJob?.isActive == true) return
+        val duration = player.duration.takeIf { it > 0 } ?: program.item.durationMs
+        if (duration <= 0 || duration - player.currentPosition > NEXT_PREPARE_MS) return
+        prewarmJob?.cancel()
+        boundaryJob = scope.launch {
+            val next = nextProgram(program.slot) ?: return@launch
+            if (queue.firstOrNull() !== program) return@launch
+            val standby = pool.renewIfFull(pool.standby)
+            tracks.applyDefaults(standby, prefs)
+            pool.quiet(standby, withContext(io) { probe.capabilities }.concurrentVideoDecoders)
+            val fontFiles = fonts.load(next.stream)
+            if (queue.firstOrNull() !== program || pool.standby !== standby) return@launch
+            standby.player.setMediaItems(listOf(next.mediaItem), 0, 0)
+            standby.subtitles.addFonts(fontFiles)
+            standby.player.prepare()
+            standby.channelId = next.slot.channelId
+            standbyQueue = emptyList()
+            nextOnStandby = next
+            AppLog.i(TAG, "Next program preloading on ${current?.number}")
+        }
+    }
+
+    /** Switches independent libass state and the prepared buffer without resolving/loading again. */
+    private fun handOff(finished: Program?, end: Long?, moving: Job?): Boolean {
+        val next = nextOnStandby ?: return false
+        if (finished == null || next.slot.channelId != finished.slot.channelId ||
+            next.slot.startUtcMs != finished.slot.endUtcMs || pool.standby.player.playerError != null) return false
+        nextOnStandby = null
+        val delta = end?.minus(finished.slot.endUtcMs) ?: 0L
+        detach()
+        val pooled = pool.swap()
+        queue.clear()
+        val playing = next.shifted(delta)
+        queue.add(playing)
+        tracks.applyDefaults(pooled, prefs)
+        attach(pooled.player)
+        pooled.player.playWhenReady = true
+        _state.update { it.copy(status = TuneStatus.PLAYING, now = playing.info, next = null, stream = playing.facts,
+            buffering = pooled.player.playbackState != Player.STATE_READY) }
+        startSession(playing, 0)
+        startTicker()
+        retriedSlot = Long.MIN_VALUE
+        scope.launch {
+            moving?.join()
+            queueAfter(playing)
+        }
+        AppLog.i(TAG, "Next program from prepared standby on ${current?.number}")
+        return true
     }
 
     /** Prepares [channel]'s program on the standby player without playing it. */
@@ -701,11 +793,11 @@ class ChannelPlayer @Inject constructor(
     }
 
     /** Reports the stop of the program that was playing; [atEnd] when it played to its end. */
-    private fun endSession(atEnd: Boolean, program: Program? = queue.firstOrNull()) {
+    private fun endSession(atEnd: Boolean, positionMs: Long? = null) {
         val ended = session ?: return
         session = null
-        val position = if (atEnd) program?.item?.durationMs ?: 0 else _player.value?.currentPosition ?: 0
-        reporter.stop(ended, position)
+        val position = positionMs ?: _player.value?.currentPosition ?: 0
+        reporter.stop(ended, position, ended = atEnd)
     }
 
     private fun stopActive() {
@@ -734,7 +826,8 @@ class ChannelPlayer @Inject constructor(
             val finished = queue.removeFirstOrNull()
             val length = ProgramLength.ended(sample, time.nowUtcMs())
             sample = null
-            endSession(atEnd = true, program = finished)
+            endSession(atEnd = true, positionMs = leftAtMs ?: length ?: finished?.item?.durationMs)
+            leftAtMs = null
             if (player.currentMediaItemIndex > 0) player.removeMediaItems(0, player.currentMediaItemIndex)
             if (queue.isEmpty()) return
 
@@ -758,6 +851,12 @@ class ChannelPlayer @Inject constructor(
             scope.launch { queueAfter(program) }
         }
 
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION && oldPosition.mediaItemIndex != newPosition.mediaItemIndex) {
+                leftAtMs = oldPosition.positionMs
+            }
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
                 // Nothing more is queued: the next program wasn't chained, the channel goes off
@@ -777,6 +876,9 @@ class ChannelPlayer @Inject constructor(
                     }
                     val after = end ?: finished?.slot?.endUtcMs
                     endSession(atEnd = true)
+                    if (handOff(finished, end, moving)) return
+                    boundaryJob?.cancel()
+                    nextOnStandby = null
                     tuneJob?.cancel()
                     tuneJob = scope.launch {
                         moving?.join()
@@ -852,6 +954,10 @@ class ChannelPlayer @Inject constructor(
         /** Every 10 s at one tick a second. */
         const val PROGRESS_TICKS = 10
         const val STANDBY_TICKS = 20
+
+        /** How long after the last tune or guide focus the standby is kept warm. */
+        const val STANDBY_IDLE_MS = 2 * 60_000L
+        const val NEXT_PREPARE_MS = 30_000L
     }
 }
 

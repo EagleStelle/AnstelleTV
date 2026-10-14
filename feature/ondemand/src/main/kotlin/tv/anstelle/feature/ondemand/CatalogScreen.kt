@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,7 +62,6 @@ import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.DialogAction
 import tv.anstelle.core.theme.components.FocusSurface
-import tv.anstelle.core.theme.components.WatchIcons
 import tv.anstelle.core.theme.components.screenEdge
 import tv.anstelle.core.theme.components.screenGap
 import tv.anstelle.core.theme.components.screenSide
@@ -72,6 +70,7 @@ import tv.anstelle.core.theme.components.screenSide
 internal class CatalogActions(
     val onOpenTitle: (titleId: Long) -> Unit,
     val onPlay: (itemId: Long, positionMs: Long) -> Unit,
+    val onPlaySeries: (titleId: Long, positionMs: Long) -> Unit,
     /** Null for a member: adding to a channel is the owner's and admins'. */
     val onAddToChannel: ((itemId: Long) -> Unit)?,
 )
@@ -89,10 +88,8 @@ private val PosterWidth @Composable get() = if (LocalIsTv.current) 132.dp else 1
 private val PosterMin @Composable get() = if (LocalIsTv.current) 132.dp else 104.dp
 
 /**
- * One kind's tab: the banner of random titles, then its rows in the order Settings, On Demand
- * keeps, each one row scrolling sideways, the way Home's channel rows do: Continue watching
- * and Next up as cards, Recently added and every library channel's titles as tall posters. On
- * TV the channel and page keys jump row to row.
+ * One kind's tab: random-title banner, then configured rows scrolling sideways. Movie cards use
+ * poster tiles; episode cards use wide still tiles. On TV the channel and page keys jump rows.
  */
 @Composable
 internal fun CatalogTab(
@@ -120,6 +117,7 @@ internal fun CatalogTab(
     // The row focus is in, for the channel keys.
     var current by remember { mutableIntStateOf(-1) }
     var holding by remember { mutableStateOf<WatchCard?>(null) }
+    var holdingTitle by remember { mutableStateOf<Title?>(null) }
     val lead = if (state.banner.isNotEmpty()) 1 else 0
     if (isTv) {
         LaunchedEffect(Unit) {
@@ -191,18 +189,33 @@ internal fun CatalogTab(
                         if (content.cards.isNotEmpty()) {
                             itemsIndexed(content.cards, key = { _, card -> card.itemId }) { i, card ->
                                 val key = "$shelfKey/${card.itemId}"
-                                WatchCardTile(
-                                    card = card,
-                                    onClick = {
-                                        focus.onOpened(key)
-                                        actions.onPlay(card.itemId, card.positionMs)
-                                    },
-                                    onHold = {
-                                        focus.onOpened(key)
-                                        holding = card
-                                    },
-                                    modifier = Modifier.place(i, key),
-                                )
+                                if (card.kind == CatalogKind.MOVIES) {
+                                    PosterCard(
+                                        card = card,
+                                        onClick = {
+                                            focus.onOpened(key)
+                                            actions.onOpenTitle(card.titleId)
+                                        },
+                                        onHold = {
+                                            focus.onOpened(key)
+                                            holding = card
+                                        },
+                                        modifier = Modifier.width(PosterWidth).place(i, key),
+                                    )
+                                } else {
+                                    WatchCardTile(
+                                        card = card,
+                                        onClick = {
+                                            focus.onOpened(key)
+                                            actions.onOpenTitle(card.titleId)
+                                        },
+                                        onHold = {
+                                            focus.onOpened(key)
+                                            holding = card
+                                        },
+                                        modifier = Modifier.place(i, key),
+                                    )
+                                }
                             }
                         } else {
                             itemsIndexed(content.titles, key = { _, title -> title.id }) { i, title ->
@@ -213,6 +226,10 @@ internal fun CatalogTab(
                                     onClick = {
                                         focus.onOpened(key)
                                         actions.onOpenTitle(title.id)
+                                    },
+                                    onHold = {
+                                        focus.onOpened(key)
+                                        holdingTitle = title
                                     },
                                     modifier = Modifier.width(PosterWidth).place(i, key),
                                 )
@@ -225,11 +242,13 @@ internal fun CatalogTab(
     }
 
     holding?.let { card -> CardActions(card, actions, onDismiss = { holding = null; runCatching { focus.returnTo.requestFocus() } }) }
+    holdingTitle?.let { title ->
+        TitleCardActions(title, watch, actions, onDismiss = { holdingTitle = null; runCatching { focus.returnTo.requestFocus() } })
+    }
 }
 
 /**
- * A Continue watching or Next up card's other ways: resume or play, from the start, its movie's
- * or series' page, and Add to channel.
+ * A Continue watching or Next up card's other ways: resume or play, from the start, and Add to channel.
  */
 @Composable
 private fun CardActions(card: WatchCard, actions: CatalogActions, onDismiss: () -> Unit) {
@@ -237,30 +256,66 @@ private fun CardActions(card: WatchCard, actions: CatalogActions, onDismiss: () 
     val typography = androidx.compose.material3.MaterialTheme.typography
     val movie = !card.kind.episodic
     val choices = listOfNotNull(
-        if (card.positionMs > 0) WatchChoices.resume(card.positionMs) else WatchChoice(WatchKind.PLAY, "Play", "On Demand from 0:00."),
-        WatchChoices.playFromStart.takeIf { card.positionMs > 0 },
+        if (card.positionMs > 0) {
+            if (card.kind.episodic) WatchChoices.resumeEpisode(card.number, card.positionMs) else WatchChoices.resume(card.positionMs)
+        } else {
+            if (card.kind.episodic) WatchChoices.playEpisode(card.number) else WatchChoice(WatchKind.PLAY, "Play", "On Demand from 0:00.")
+        },
+        if (card.kind.episodic) WatchChoices.playSeriesFromStart().takeIf { card.positionMs > 0 } else WatchChoices.playFromStart.takeIf { card.positionMs > 0 },
         WatchChoices.addToChannel(isMovie = movie).takeIf { actions.onAddToChannel != null },
     )
     ActionDialog(
         actions = choices.map { choice ->
-            DialogAction(choice.title, choice.detail, if (choice.kind == WatchKind.ADD_TO_CHANNEL) WatchIcons.AddToChannel else WatchIcons.play(choice.positionMs, false)) {
+                DialogAction(choice.title, choice.detail, choice.icon()) {
                 onDismiss()
                 if (choice.kind == WatchKind.ADD_TO_CHANNEL) actions.onAddToChannel?.invoke(card.itemId) else actions.onPlay(card.itemId, choice.positionMs)
             }
-        }.let { list ->
-            // Its page sits after the ways to play, before adding it anywhere.
-            val page = DialogAction(if (movie) "Go to movie" else "Go to series", if (movie) "What it is about, and every way to watch it." else "Every season and episode.", Icons.Filled.Info) {
-                onDismiss()
-                actions.onOpenTitle(card.titleId)
-            }
-            val at = list.size - if (actions.onAddToChannel != null) 1 else 0
-            list.take(at) + page + list.drop(at)
         },
         onDismiss = onDismiss,
     ) {
         androidx.compose.material3.Text(card.title, style = typography.headlineSmall, color = theme.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
         listOfNotNull(card.number, card.episodeTitle).joinToString("  ").ifEmpty { null }?.let {
             androidx.compose.material3.Text(it, style = typography.bodyMedium, color = theme.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** A movie or series poster's shared ways to play or add it to a channel. */
+@Composable
+private fun TitleCardActions(title: Title, watch: CatalogWatch, actions: CatalogActions, onDismiss: () -> Unit) {
+    val theme = LocalAnstelleTheme.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    val movie = !title.kind.episodic
+    val resume = watch[title.id]?.resumeMs ?: 0L
+    val episode = watch.seriesProgress[title.id]
+    val itemId = if (movie) title.id else episode?.itemId ?: title.id
+    val choices = listOfNotNull(
+        if (movie) (if (resume > 0) WatchChoices.resume(resume) else WatchChoice(WatchKind.PLAY, "Play", "On Demand from 0:00.")) else null,
+        if (!movie) (episode?.let {
+            if (it.positionMs > 0) WatchChoices.resumeEpisode(it.number, it.positionMs) else WatchChoices.playSeries(it.number ?: "S1E1")
+        } ?: WatchChoices.playSeries()) else null,
+        WatchChoices.playFromStart.takeIf { movie && resume > 0 },
+        WatchChoices.playSeriesFromStart().takeIf { !movie && (episode?.positionMs ?: 0) > 0 },
+        WatchChoices.addToChannel(isMovie = movie).takeIf { actions.onAddToChannel != null },
+    )
+    ActionDialog(
+        actions = choices.map { choice ->
+            DialogAction(choice.title, choice.detail, choice.icon()) {
+                onDismiss()
+                when {
+                    choice.kind == WatchKind.ADD_TO_CHANNEL -> actions.onAddToChannel?.invoke(title.id)
+                    !movie && episode == null -> actions.onPlaySeries(title.id, choice.positionMs)
+                    else -> actions.onPlay(itemId, choice.positionMs)
+                }
+            }
+        },
+        onDismiss = onDismiss,
+    ) {
+        androidx.compose.material3.Text(title.title, style = typography.headlineSmall, color = theme.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (!movie && episode != null) {
+            listOfNotNull(episode.number, episode.episodeTitle).joinToString("  ").ifEmpty { null }?.let {
+                androidx.compose.material3.Text(it, style = typography.bodyMedium, color = theme.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
@@ -288,6 +343,7 @@ internal fun SearchTab(
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     var picking by remember { mutableStateOf<FilterKey?>(null) }
+    var holdingTitle by remember { mutableStateOf<Title?>(null) }
     // Each key, and the one a closed sheet hands focus back to, so the D-pad stays where it was.
     val keys = remember { FilterKey.entries.associateWith { FocusRequester() } }
     var back by remember { mutableStateOf<FilterKey?>(null) }
@@ -357,7 +413,7 @@ internal fun SearchTab(
                 )
             }
         }
-        posters(results.titles, watch, actions, focus)
+        posters(results.titles, watch, actions, focus) { holdingTitle = it }
     }
 
     picking?.let { field ->
@@ -383,10 +439,13 @@ internal fun SearchTab(
             androidx.compose.material3.Text(field.title, style = typography.headlineSmall, color = theme.text)
         }
     }
+    holdingTitle?.let { title ->
+        TitleCardActions(title, watch, actions, onDismiss = { holdingTitle = null; runCatching { focus.returnTo.requestFocus() } })
+    }
 }
 
 /** The grid's posters, each opening its page. */
-private fun LazyGridScope.posters(titles: List<Title>, watch: CatalogWatch, actions: CatalogActions, focus: TabFocus) {
+private fun LazyGridScope.posters(titles: List<Title>, watch: CatalogWatch, actions: CatalogActions, focus: TabFocus, onHold: (Title) -> Unit) {
     items(titles, key = { it.id }) { title ->
         val key = "search/${title.id}"
         PosterCard(
@@ -395,6 +454,10 @@ private fun LazyGridScope.posters(titles: List<Title>, watch: CatalogWatch, acti
             onClick = {
                 focus.onOpened(key)
                 actions.onOpenTitle(title.id)
+            },
+            onHold = {
+                focus.onOpened(key)
+                onHold(title)
             },
             modifier = if (key == focus.opened) Modifier.focusRequester(focus.returnTo) else Modifier,
         )

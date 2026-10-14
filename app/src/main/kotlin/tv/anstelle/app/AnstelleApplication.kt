@@ -7,11 +7,14 @@ import androidx.work.Configuration
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
 import okhttp3.OkHttpClient
+import okio.Path.Companion.toOkioPath
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.LogLevel
 import javax.inject.Inject
@@ -48,6 +51,22 @@ class AnstelleApplication : Application(), Configuration.Provider, SingletonImag
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
             .components { add(OkHttpNetworkFetcherFactory(callFactory = { okHttpClient.get() })) }
+            .memoryCache { MemoryCache.Builder().maxSizePercent(context, IMAGE_MEMORY_PERCENT).build() }
+            .diskCache {
+                DiskCache.Builder()
+                    // Coil's own folder, so what an older install cached there is trimmed to the new size.
+                    .directory(cacheDir.resolve("coil3_disk_cache").toOkioPath())
+                    .maxSizeBytes(IMAGE_DISK_BYTES)
+                    .build()
+            }
             .crossfade(true)
             .build()
+
+    private companion object {
+        /** Artwork shown at once is a few screens of posters; Coil's default is a quarter of the heap. */
+        const val IMAGE_MEMORY_PERCENT = 0.12
+
+        /** About a thousand backdrops, logos and posters; Coil's default grows to 2% of the disk (250 MB). */
+        const val IMAGE_DISK_BYTES = 64L * 1024 * 1024
+    }
 }

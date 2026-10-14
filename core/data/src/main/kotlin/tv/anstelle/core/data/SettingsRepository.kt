@@ -104,8 +104,14 @@ object Settings {
     /** When this device's backup was last taken (saved to a file, by a browser or by another device); 0 for never. */
     val BackupSaved = SettingKey.LongKey("backup.saved", 0L)
 
+    /** When the app installed here was last updated as the built-in themes were last copied from it; 0 for never. */
+    val ThemesSeeded = SettingKey.LongKey("themes.seeded", 0L)
+
+    /** The app install and time zone the last full schedule run was made for (`ScheduleWorker`); empty for none. */
+    val SchedulesMadeFor = SettingKey.StringKey("schedules.made", "")
+
     /** This device's own settings: a backup leaves them out and a restore keeps them. */
-    val DeviceOnly = listOf(WebServerEnabled.name, WebServerPort.name, ActiveProfileId.name, BackupSaved.name)
+    val DeviceOnly = listOf(WebServerEnabled.name, WebServerPort.name, ActiveProfileId.name, BackupSaved.name, ThemesSeeded.name, SchedulesMadeFor.name)
 }
 
 @Singleton

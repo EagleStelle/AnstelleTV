@@ -59,7 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -71,7 +71,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.DatabaseChanges
@@ -149,16 +151,30 @@ class OnDemandViewModel @Inject constructor(
     /** The banner's deal, fixed for this visit so a refresh never reshuffles it. */
     private val seed = Random.nextLong()
 
+    /**
+     * True while the Channels tab is on screen. Only then do the tiles follow the clock and the
+     * schedule; out of view nothing is read, and the tiles are read afresh when it shows again.
+     */
+    private val visible = MutableStateFlow(false)
+
+    fun setVisible(visible: Boolean) {
+        this.visible.value = visible
+        if (!visible) refreshJob?.cancel()
+    }
+
     init {
         viewModelScope.launch {
             val profile = profiles.activeProfile()
-            combine(
-                channels.observeChannels(),
-                channels.observeGroups(),
-                settings.observe(Settings.OnDemandBanner),
-                profiles.observeAccess(profile.id),
-                tick,
-            ) { list, groups, bannerSize, access, _ -> Deal(list, groups, bannerSize, access) }
+            visible.flatMapLatest { shown ->
+                if (!shown) return@flatMapLatest emptyFlow()
+                combine(
+                    channels.observeChannels(),
+                    channels.observeGroups(),
+                    settings.observe(Settings.OnDemandBanner),
+                    profiles.observeAccess(profile.id),
+                    tick,
+                ) { list, groups, bannerSize, access, _ -> Deal(list, groups, bannerSize, access) }
+            }
                 .collect { (list, groups, bannerSize, access) ->
                     val tunable = profiles.tunable(list, access)
                     val now = repository.nowOn(tunable, time.nowUtcMs(), access)
@@ -177,7 +193,7 @@ class OnDemandViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
-            changes.tables
+            visible.flatMapLatest { shown -> if (shown) changes.tables else emptyFlow() }
                 .filter { tables -> tables.any { it in OnDemandTables } }
                 .debounce(RELOAD_DEBOUNCE_MS)
                 .collect { tick.value++ }
@@ -275,13 +291,31 @@ fun OnDemandScreen(
             Unit
         }
     }
-    val actions = remember(openTitle, onPlay, onAddToChannel) { CatalogActions(openTitle, onPlay, onAddToChannel) }
+    val actions = remember(openTitle, onPlay, onAddToChannel, catalog) {
+        CatalogActions(
+            onOpenTitle = openTitle,
+            onPlay = onPlay,
+            onPlaySeries = { titleId, positionMs ->
+                scope.launch {
+                    catalog.firstEpisodeId(titleId)?.let { onPlay(it, positionMs) }
+                }
+            },
+            onAddToChannel = onAddToChannel,
+        )
+    }
     val searching = open == SEARCH
     val tab = Tabs.firstOrNull { it.key == open } ?: Tabs[0]
     if (tab.kind != null || searching) LaunchedEffect(Unit) { catalog.start() }
-    LifecycleResumeEffect(catalog) {
-        catalog.refreshWatch()
-        onPauseOrDispose {}
+    // Only the part of the page on screen keeps itself up to date; the rest catches up when it shows.
+    val homeShown = !searching && tab.key == HOME
+    LifecycleStartEffect(home, catalog, open) {
+        catalog.select(if (searching) null else tab.kind)
+        home.setVisible(homeShown)
+        catalog.setVisible(!homeShown)
+        onStopOrDispose {
+            home.setVisible(false)
+            catalog.setVisible(false)
+        }
     }
     // Each tab keeps its own scroll while another is open.
     val saved = rememberSaveableStateHolder()

@@ -31,7 +31,14 @@ enum class WatchKind { LIVE, RESTART, PLAY, ADD_TO_CHANNEL }
  * [WatchKind.PLAY] where on-demand playback starts. [leavesChannel] marks *Watch on Demand* and
  * *Resume on Demand*, the program on now leaving its channel, so they wear On Demand's icon.
  */
-data class WatchChoice(val kind: WatchKind, val title: String, val detail: String, val positionMs: Long = 0, val leavesChannel: Boolean = false)
+data class WatchChoice(
+    val kind: WatchKind,
+    val title: String,
+    val detail: String,
+    val positionMs: Long = 0,
+    val leavesChannel: Boolean = false,
+    val startsOver: Boolean = false,
+)
 
 /**
  * The words for every way to watch, shared by the guide's program actions and a channel's
@@ -86,8 +93,38 @@ object WatchChoices {
     /** Plays from Jellyfin's resume point. */
     fun resume(positionMs: Long) = WatchChoice(WatchKind.PLAY, "Resume from ${span(positionMs)} in", "Where you stopped last time.", positionMs)
 
+    /** Resumes a named episode, keeping episode identity and time together in the action. */
+    fun resumeEpisode(number: String?, positionMs: Long) = WatchChoice(
+        WatchKind.PLAY,
+        "Resume ${number ?: "episode"} from ${span(positionMs)} in",
+        "Where you stopped last time.",
+        positionMs,
+    )
+
+    /** Plays a named episode that has no saved progress. */
+    fun playEpisode(number: String?) = WatchChoice(
+        WatchKind.PLAY,
+        "Play ${number ?: "episode"}",
+        "On Demand from 0:00.",
+    )
+
+    /** Plays a series from a named first episode. */
+    fun playSeries(firstNumber: String = "S1E1") = WatchChoice(
+        WatchKind.PLAY,
+        "Play",
+        "On Demand from $firstNumber.",
+    )
+
+    /** Starts a series at its first episode, rather than at the current episode's 0:00. */
+    fun playSeriesFromStart(firstNumber: String = "S1E1") = WatchChoice(
+        WatchKind.PLAY,
+        "Play from the start",
+        "On Demand from $firstNumber.",
+        startsOver = true,
+    )
+
     /** An episode, from its start on demand. */
-    val playFromStart = WatchChoice(WatchKind.PLAY, "Play from the start", "On Demand from 0:00.")
+    val playFromStart = WatchChoice(WatchKind.PLAY, "Play from the start", "On Demand from 0:00.", startsOver = true)
 
     fun addToChannel(isMovie: Boolean) = WatchChoice(
         WatchKind.ADD_TO_CHANNEL,

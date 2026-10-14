@@ -220,6 +220,18 @@ interface ScheduleDao {
     @Query("SELECT MAX(generatedUntilUtcMs) FROM schedule_state")
     fun observeGeneratedUntil(): Flow<Long?>
 
+    /**
+     * Visible channels whose schedule needs work without anything having changed: none stored
+     * yet, marked stale, or generated only until before [extendBeforeUtcMs].
+     */
+    @Query(
+        """
+        SELECT c.id FROM channel c LEFT JOIN schedule_state s ON s.channelId = c.id
+        WHERE c.isHidden = 0 AND (s.channelId IS NULL OR s.inputsHash = 0 OR s.generatedUntilUtcMs < :extendBeforeUtcMs)
+        """,
+    )
+    suspend fun dueChannels(extendBeforeUtcMs: Long): List<Long>
+
     @Query("SELECT * FROM schedule_slot WHERE channelId = :channelId AND endUtcMs = :endUtcMs LIMIT 1")
     suspend fun slotEndingAt(channelId: Long, endUtcMs: Long): ScheduleSlotEntity?
 

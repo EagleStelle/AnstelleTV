@@ -208,4 +208,11 @@ class FakeScheduleDao : ScheduleDao {
     override suspend fun invalidateForItems(mediaItemIds: List<Long>, nowUtcMs: Long): Int = error("unused")
 
     override fun observeGeneratedUntil(): Flow<Long?> = flowOf(null)
+
+    /** The visible channels' ids, which [dueChannels] picks from. */
+    var visibleChannels: () -> Collection<Long> = { emptyList() }
+
+    override suspend fun dueChannels(extendBeforeUtcMs: Long): List<Long> = visibleChannels().filter { id ->
+        states[id]?.let { it.inputsHash == 0L || it.generatedUntilUtcMs < extendBeforeUtcMs } ?: true
+    }
 }

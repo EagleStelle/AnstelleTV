@@ -42,12 +42,13 @@ class GuideRepository @Inject constructor(
     private val scheduleDao: ScheduleDao,
     private val itemDao: MediaItemDao,
     private val serverDao: MediaServerDao,
+    private val longestSlot: LongestSlot,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
     /** Every channel's cells overlapping `[fromUtcMs, toUtcMs)`, keyed by channel id. */
     suspend fun window(channelIds: List<Long>, fromUtcMs: Long, toUtcMs: Long): Map<Long, ProgramStrip> = withContext(io) {
         if (channelIds.isEmpty()) return@withContext emptyMap()
-        val maxSlot = scheduleDao.maxSlotMs()
+        val maxSlot = longestSlot.ms()
         // SQLite on older Android allows 999 bound values per statement.
         val rows = channelIds.chunked(MAX_IDS_PER_QUERY).flatMap { scheduleDao.guideWindow(it, fromUtcMs, toUtcMs, maxSlot) }
         ProgramStrip.fromRows(rows, OFF_AIR_TITLE)

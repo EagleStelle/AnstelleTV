@@ -52,6 +52,10 @@ class PlayClock {
             return total
         }
 
+    /** Includes the current playing stretch, without counting pauses or buffering. */
+    fun playedMsAt(atUtcMs: Long): Long = playedMs +
+        if (since == NOT_PLAYING) 0L else (atUtcMs - since).coerceAtLeast(0)
+
     /** The time played on each local day in [zone], split at each local midnight. */
     fun byDay(zone: ZoneId): List<DayShare> {
         val shares = ArrayList<DayShare>(1)

@@ -293,31 +293,79 @@ internal fun UnwatchedCount(count: Int, modifier: Modifier = Modifier) {
  * series being watched carries how many episodes are left in its top-end corner.
  */
 @Composable
-internal fun PosterCard(title: Title, watch: CatalogWatch, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val theme = LocalAnstelleTheme.current
-    val typography = androidx.compose.material3.MaterialTheme.typography
+internal fun PosterCard(title: Title, watch: CatalogWatch, onClick: () -> Unit, onHold: () -> Unit, modifier: Modifier = Modifier) {
     val watched = watch.watched(title)
     val fraction = watch.fraction(title)
     val unwatched = watch.unwatched(title)
-    FocusSurface(onClick = onClick, color = Color.Transparent, modifier = modifier) { focused ->
+    PosterCardSurface(
+        posterUrl = title.posterUrl,
+        title = title.title,
+        rating = title.rating,
+        fraction = fraction,
+        watched = watched,
+        unwatched = unwatched,
+        onClick = onClick,
+        onHold = onHold,
+        modifier = modifier,
+    )
+}
+
+/** Movie Continue Watching card, using same poster surface as catalog titles. */
+@Composable
+internal fun PosterCard(card: WatchCard, onClick: () -> Unit, onHold: () -> Unit, modifier: Modifier = Modifier) {
+    PosterCardSurface(
+        posterUrl = card.imageUrl,
+        title = card.title,
+        rating = card.rating,
+        fraction = if (card.durationMs > 0) card.positionMs.toFloat() / card.durationMs else 0f,
+        watched = false,
+        unwatched = null,
+        onClick = onClick,
+        onHold = onHold,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun PosterCardSurface(
+    posterUrl: String?,
+    title: String,
+    rating: String?,
+    fraction: Float,
+    watched: Boolean,
+    unwatched: Int?,
+    onClick: () -> Unit,
+    onHold: () -> Unit,
+    modifier: Modifier,
+) {
+    val theme = LocalAnstelleTheme.current
+    val typography = androidx.compose.material3.MaterialTheme.typography
+    FocusSurface(
+        onClick = onClick,
+        onLongClick = onHold,
+        color = Color.Transparent,
+        modifier = modifier.onPreviewKeyEvent { event ->
+            if (event.key == Key.Menu && event.type == KeyEventType.KeyUp) onHold().let { true } else event.key == Key.Menu
+        },
+    ) { focused ->
         Column(Modifier.padding(TILE_FRAME)) {
             Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(ControlShape)) {
-                Poster(title.posterUrl, title.title, Modifier.fillMaxWidth().aspectRatio(2f / 3f))
+                Poster(posterUrl, title, Modifier.fillMaxWidth().aspectRatio(2f / 3f))
                 if (watched) Box(Modifier.matchParentSize().background(PastShade))
                 if (fraction > 0f || watched) WatchStrip(fraction, watched, Modifier.align(Alignment.BottomStart), segments = 10)
                 if (!watched && unwatched != null && unwatched > 0) UnwatchedCount(unwatched, Modifier.align(Alignment.TopEnd).padding(6.dp))
             }
             Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 androidx.compose.material3.Text(
-                    title.title,
+                    title,
                     style = typography.titleSmall,
                     color = if (watched && !focused) theme.textMuted else Color.Unspecified,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // The rating's line holds its height when there is none, so every row of the grid lines up.
+                // The rating's line holds its height when there is none, so every row lines up.
                 Box(Modifier.height(16.dp), contentAlignment = Alignment.CenterStart) {
-                    title.rating?.let { RatingBadge(it, if (focused) theme.onAccent else theme.textMuted) }
+                    rating?.let { RatingBadge(it, if (focused) theme.onAccent else theme.textMuted) }
                 }
             }
         }
@@ -325,41 +373,26 @@ internal fun PosterCard(title: Title, watch: CatalogWatch, onClick: () -> Unit, 
 }
 
 /**
- * A movie or episode on Continue watching or Next up, the way a channel tile reads: the still
- * (a movie's backdrop) with the watch strip at its foot, then the title, and for an episode its
- * number and title. The strip says what is left, so no line repeats it. OK plays it; holding it
- * (or Menu) offers the rest.
+ * An episode on Continue watching or Next up: its still with the watch strip at its foot, then
+ * the title and episode label. OK plays it; holding it (or Menu) offers the rest.
  */
 @Composable
 internal fun WatchCardTile(card: WatchCard, onClick: () -> Unit, onHold: () -> Unit, modifier: Modifier = Modifier) {
-    val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
-    val tall = !card.kind.episodic
     FocusSurface(
         onClick = onClick,
         onLongClick = onHold,
         color = Color.Transparent,
         modifier = modifier
-            .width(if (tall) (if (isTv) 132.dp else 108.dp) else if (isTv) 214.dp else 172.dp)
+            .width(if (isTv) 214.dp else 172.dp)
             .onPreviewKeyEvent { e -> if (e.key == Key.Menu && e.type == KeyEventType.KeyUp) onHold().let { true } else e.key == Key.Menu },
     ) { focused ->
         Column(Modifier.padding(TILE_FRAME)) {
-            val ratio = if (tall) 2f / 3f else 16f / 9f
-            Box(Modifier.fillMaxWidth().aspectRatio(ratio).clip(ControlShape)) {
-                Poster(if (tall) card.posterUrl ?: card.imageUrl else card.imageUrl, card.title, Modifier.fillMaxWidth().aspectRatio(ratio))
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(ControlShape)) {
+                Poster(card.imageUrl, card.title, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                 val fraction = if (card.durationMs > 0) card.positionMs.toFloat() / card.durationMs else 0f
                 if (fraction > 0f) WatchStrip(fraction, false, Modifier.align(Alignment.BottomStart))
-            }
-            if (tall) {
-                // A poster tile reads like the grid's: title, then its rating, on a line that holds its height.
-                Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    androidx.compose.material3.Text(card.title, style = typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Box(Modifier.height(16.dp), contentAlignment = Alignment.CenterStart) {
-                        card.rating?.let { RatingBadge(it, if (focused) theme.onAccent else theme.textMuted) }
-                    }
-                }
-                return@FocusSurface
             }
             Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 androidx.compose.material3.Text(card.title, style = typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

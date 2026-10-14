@@ -456,8 +456,8 @@ class OnDemandPlayer @Inject constructor(
     private fun endSession(atEnd: Boolean, entry: Entry? = queue.firstOrNull(), positionMs: Long? = null) {
         val ended = session ?: return
         session = null
-        val position = if (atEnd) entry?.item?.durationMs ?: 0 else positionMs ?: exo?.currentPosition ?: 0
-        reporter.stop(ended, position)
+        val position = positionMs ?: exo?.currentPosition ?: if (atEnd) entry?.item?.durationMs ?: 0 else 0
+        reporter.stop(ended, position, ended = atEnd)
     }
 
     private suspend fun retryAsHls(failed: Entry) {
@@ -484,7 +484,8 @@ class OnDemandPlayer @Inject constructor(
             if (player.currentMediaItemIndex == 0) return
             val finished = queue.removeFirstOrNull()
             // Next skips on from where it was (an outro skipped this way still counts past 90%).
-            endSession(atEnd = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO, entry = finished, positionMs = leftAtMs)
+            endSession(atEnd = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO, entry = finished,
+                positionMs = leftAtMs ?: finished?.item?.durationMs)
             leftAtMs = null
             player.removeMediaItems(0, player.currentMediaItemIndex)
             val entry = queue.firstOrNull() ?: return

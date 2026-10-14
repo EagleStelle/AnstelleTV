@@ -39,7 +39,9 @@ enum class ScheduleOutcome {
  *   the same as one generated at once.
  * - **Regeneration:** when a channel's inputs change (rules, settings, matched items, zone)
  *   or sync marks it stale, the airing on now and the one after it stay; everything later is
- *   regenerated. An airing whose item was deleted, or an off-air stretch, is not kept.
+ *   regenerated. An airing whose item was deleted, or an off-air stretch, is not kept. A
+ *   schedule stored further ahead than the horizon (made when it was longer) is cut back the
+ *   same way.
  */
 @Singleton
 class ScheduleUpdater @Inject constructor(
@@ -55,22 +57,42 @@ class ScheduleUpdater @Inject constructor(
     /** Runs [block] while no schedule is written; none is until it ends. */
     suspend fun <T> paused(block: suspend () -> T): T = mutex.withLock { block() }
 
-    /** Updates every channel of every profile. */
-    suspend fun updateAll(zone: ZoneId = ZoneId.systemDefault()): Map<ScheduleOutcome, Int> = mutex.withLock {
+    /** The whole library as channel rules see it, read in one query. */
+    suspend fun catalog(): Catalog = Catalog(itemDao.catalog(), words.words().types)
+
+    /** Updates every channel of every profile; [catalog] is the library as the caller just read it. */
+    suspend fun updateAll(zone: ZoneId = ZoneId.systemDefault(), catalog: Catalog? = null): Map<ScheduleOutcome, Int> = mutex.withLock {
         val started = time.nowUtcMs()
         val channels = channelDao.all()
         if (channels.isEmpty()) return@withLock emptyMap()
-        val catalog = Catalog(itemDao.catalog(), words.words().types)
-        val outcomes = channels.map { channel -> updateLocked(channel, catalog, zone) }
+        val library = catalog ?: catalog()
+        val outcomes = channels.map { channel -> updateLocked(channel, library, zone) }
         val summary = outcomes.groupingBy { it }.eachCount()
         AppLog.i(TAG, "${channels.size} channels in ${time.nowUtcMs() - started} ms: $summary")
+        summary
+    }
+
+    /**
+     * Updates only the channels whose schedule needs it with nothing changed: none yet, marked
+     * stale, or short of the horizon. Every change to a channel or the library updates its own
+     * schedules, so this is all an app start or a quiet day needs; the library isn't even read
+     * when no schedule is due.
+     */
+    suspend fun updateDue(zone: ZoneId = ZoneId.systemDefault()): Map<ScheduleOutcome, Int> = mutex.withLock {
+        val started = time.nowUtcMs()
+        val due = scheduleDao.dueChannels(started + HORIZON_MS - EXTEND_MARGIN_MS)
+        if (due.isEmpty()) return@withLock emptyMap()
+        val library = catalog()
+        val outcomes = due.mapNotNull { id -> channelDao.byId(id)?.let { updateLocked(it, library, zone) } }
+        val summary = outcomes.groupingBy { it }.eachCount()
+        AppLog.i(TAG, "${due.size} due channels in ${time.nowUtcMs() - started} ms: $summary")
         summary
     }
 
     /** Updates one channel, e.g. right after its rules changed. */
     suspend fun update(channelId: Long, zone: ZoneId = ZoneId.systemDefault()): ScheduleOutcome? = mutex.withLock {
         val channel = channelDao.byId(channelId) ?: return@withLock null
-        updateLocked(channel, Catalog(itemDao.catalog(), words.words().types), zone)
+        updateLocked(channel, catalog(), zone)
     }
 
     private suspend fun updateLocked(channel: ChannelEntity, catalog: Catalog, zone: ZoneId): ScheduleOutcome {
@@ -88,7 +110,7 @@ class ScheduleUpdater @Inject constructor(
                 schedules.save(channel.id, state.nextStartUtcMs, ScheduleEngine.generate(inputs, state, horizon), hash)
                 return ScheduleOutcome.CREATED
             }
-            stored.inputsHash != hash -> {
+            stored.inputsHash != hash || stored.generatedUntilUtcMs > horizon + TRIM_MARGIN_MS -> {
                 val kept = keepUntil(channel.id, now, catalog)
                 val cursor = kept ?: now
                 val removed = scheduleDao.programItemIdsFrom(channel.id, cursor).toLongArray()
@@ -131,10 +153,13 @@ class ScheduleUpdater @Inject constructor(
         private const val TAG = "Schedules"
         private const val DAY_MS = 24 * 60 * 60 * 1000L
 
-        /** How far ahead schedules are generated. */
-        const val HORIZON_MS = 30 * DAY_MS
+        /** How far ahead schedules are generated: the guide's 7 days, and a day to spare. */
+        const val HORIZON_MS = 8 * DAY_MS
 
         /** A schedule is only extended once it is this much short of the horizon. */
         const val EXTEND_MARGIN_MS = DAY_MS / 2
+
+        /** A schedule stored this much past the horizon is cut back to it. */
+        private const val TRIM_MARGIN_MS = DAY_MS
     }
 }

@@ -2,6 +2,7 @@ package tv.anstelle.core.data.di
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
+import androidx.room.InvalidationTracker
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -12,12 +13,14 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.ApplicationScope
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.channels.AssetChannelWords
 import tv.anstelle.core.data.channels.ChannelWordsSource
+import tv.anstelle.core.data.guide.LongestSlot
 import tv.anstelle.core.database.AnstelleDatabase
 import tv.anstelle.core.database.dao.BackupDao
 import tv.anstelle.core.database.dao.ChannelDao
@@ -31,6 +34,7 @@ import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.database.dao.SettingDao
 import tv.anstelle.core.database.dao.ThemeDao
 import tv.anstelle.core.database.dao.WatchEventDao
+import java.util.concurrent.Executors
 import javax.inject.Singleton
 
 @Module
@@ -43,6 +47,19 @@ object CoroutinesModule {
     @Provides
     @Dispatcher(AnstelleDispatchers.Default)
     fun defaultDispatcher(): CoroutineDispatcher = Dispatchers.Default
+
+    @Provides
+    @Singleton
+    @Dispatcher(AnstelleDispatchers.Background)
+    fun backgroundDispatcher(): CoroutineDispatcher = Executors.newFixedThreadPool(BACKGROUND_THREADS) { task ->
+        // Android maps the lowest Java priority to the lowest nice level.
+        Thread(task, "Background").apply {
+            isDaemon = true
+            priority = Thread.MIN_PRIORITY
+        }
+    }.asCoroutineDispatcher()
+
+    private const val BACKGROUND_THREADS = 2
 
     @Provides
     @Singleton
@@ -72,6 +89,16 @@ object DatabaseModule {
         // phases. Release builds must ship migrations.
         val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         return AnstelleDatabase.build(context, allowDestructiveMigration = debuggable)
+    }
+
+    @Provides
+    @Singleton
+    fun longestSlot(db: AnstelleDatabase): LongestSlot = LongestSlot(db.scheduleDao()).also { longest ->
+        db.invalidationTracker.addObserver(
+            object : InvalidationTracker.Observer(arrayOf("schedule_slot")) {
+                override fun onInvalidated(tables: Set<String>) = longest.invalidate()
+            },
+        )
     }
 
     @Provides fun mediaServerDao(db: AnstelleDatabase): MediaServerDao = db.mediaServerDao()

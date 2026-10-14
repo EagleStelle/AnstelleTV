@@ -202,7 +202,7 @@ class GuideTest {
                 ScheduleSlotEntity(channelId = 2, kind = SlotKind.PROGRAM, mediaItemId = 8, startUtcMs = 0, endUtcMs = hour),
             ),
         )
-        val repository = GuideRepository(dao, stub<MediaItemDao>(), stub<MediaServerDao>(), Dispatchers.Unconfined)
+        val repository = GuideRepository(dao, stub<MediaItemDao>(), stub<MediaServerDao>(), LongestSlot(dao), Dispatchers.Unconfined)
         val window = repository.window(listOf(1, 2), fromUtcMs = hour, toUtcMs = 7 * hour)
         assertContentEquals(longArrayOf(0, 2 * hour), window.getValue(1).starts)
         assertEquals("Item 7", window.getValue(1).titles[0])

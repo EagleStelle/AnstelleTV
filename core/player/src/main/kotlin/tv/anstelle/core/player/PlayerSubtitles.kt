@@ -42,8 +42,16 @@ class PlayerSubtitles internal constructor() {
     /** Fonts libass has. */
     private val added = HashSet<String>()
 
-    /** Fonts waiting for the item's first ASS track; dropped if the item changes before that. */
-    private val pending = HashSet<String>()
+    /** Fonts waiting for the item's first ASS track, with their sizes; dropped if the item changes before that. */
+    private val pending = HashMap<String, Int>()
+
+    /**
+     * Bytes of font data libass holds. It keeps a copy of every font until the player is
+     * released, so a channel airing show after show gathers them ([PlayerPool] renews the player).
+     */
+    @Volatile
+    var fontBytes = 0L
+        private set
 
     /** Matroska extraction that hands the file's font attachments to libass. */
     internal val extractorsFactory = ExtractorsFactory {
@@ -73,13 +81,21 @@ class PlayerSubtitles internal constructor() {
         if (key in added || key in pending) return
         val direct = handler.hasTracks()
         handler.addFont(name, data)
-        if (direct) added += key else pending += key
+        if (direct) {
+            added += key
+            fontBytes += data.size
+        } else {
+            pending[key] = data.size
+        }
     }
 
     @Synchronized
     private fun settlePending() {
         // With a track, libass took the pending fonts; without one, they are dropped.
-        if (handler.hasTracks()) added += pending
+        if (handler.hasTracks()) {
+            added += pending.keys
+            fontBytes += pending.values.sum()
+        }
         pending.clear()
     }
 

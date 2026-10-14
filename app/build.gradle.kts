@@ -17,6 +17,9 @@ val keystoreProperties = Properties().apply {
     if (file.exists()) file.inputStream().use(::load)
 }
 
+/** True when a release build is asked for; debug builds stay one APK. */
+val releaseBuild = gradle.startParameter.taskNames.any { "release" in it.lowercase() }
+
 android {
     namespace = "tv.anstelle.app"
 
@@ -24,6 +27,18 @@ android {
         applicationId = "tv.anstelle.app"
         versionCode = 1
         versionName = "0.1.0"
+    }
+
+    splits {
+        abi {
+            // Release builds come as one APK per ABI, so a device stores only the native code it
+            // runs (FFmpeg, libass and the C++ runtime, 4.3 to 5.8 MB each); a universal one too.
+            isEnable = releaseBuild
+            reset()
+            // No 32-bit x86 device ships; the emulators are x86_64.
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
     }
 
     signingConfigs {
@@ -46,6 +61,13 @@ android {
                 "proguard-rules.pro",
             )
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+            optimization {
+                keepRules {
+                    // The Jellyfin SDK keeps every API model whole, about 21,000 methods and a fifth
+                    // of the code; kotlinx.serialization's own rules keep what the app reads.
+                    ignoreFrom("org.jellyfin.sdk:jellyfin-core-android")
+                }
+            }
         }
     }
 
@@ -56,9 +78,13 @@ android {
     androidResources {
         // Web UI files are already gzipped by the copyWebUi task; don't deflate them again.
         noCompress += "gzip"
+        // The app is in English; the libraries' translations of their own few strings would only mix languages.
+        localeFilters += "en"
     }
 
     packaging {
+        // Keeps 32-bit x86 out of debug and universal APKs too.
+        jniLibs.excludes += "lib/x86/**"
         resources {
             excludes += setOf(
                 "/META-INF/{AL2.0,LGPL2.1}",
@@ -79,6 +105,13 @@ baselineProfile {
     automaticGenerationDuringBuild = false
     saveInSrc = true
     dexLayoutOptimization = true
+}
+
+androidComponents {
+    // The profile and benchmark builds are signed like debug ones, so they install over a debug
+    // install on a test device and keep its sign-ins and library.
+    onVariants(selector().withBuildType("benchmarkRelease")) { it.signingConfig.setConfig(android.signingConfigs.getByName("debug")) }
+    onVariants(selector().withBuildType("nonMinifiedRelease")) { it.signingConfig.setConfig(android.signingConfigs.getByName("debug")) }
 }
 
 dependencies {

@@ -49,6 +49,9 @@ interface Playstate {
     suspend fun progress(item: PlaystateItem, positionMs: Long, paused: Boolean)
     suspend fun stopped(item: PlaystateItem, positionMs: Long)
 
+    /** Saves a resume point without session reports changing Played or PlayCount. */
+    suspend fun saveProgress(itemId: String, positionMs: Long, atUtcMs: Long)
+
     /** Whether the server has the item marked played for this user. */
     suspend fun isPlayed(itemId: String): Boolean
 
@@ -71,7 +74,7 @@ interface Playstate {
      * Every movie the user has started or played, and every series with its unplayed count, by
      * item id: what the catalog's posters say about each.
      */
-    suspend fun titleWatch(): Map<String, TitleWatch>
+    suspend fun titleWatch(episodic: Boolean? = null): Map<String, TitleWatch>
 
     /** Movies, or episodes when [episodes], the user stopped part-way through, last played first. */
     suspend fun resumeItems(episodes: Boolean, limit: Int): List<ResumePoint>
@@ -89,7 +92,7 @@ class PlaystateFactory @Inject constructor(
         JellyfinPlaystate(clients.api(baseUrl, accessToken, device), userId)
 }
 
-private class JellyfinPlaystate(
+internal class JellyfinPlaystate(
     private val api: org.jellyfin.sdk.api.client.ApiClient,
     userId: String,
 ) : Playstate {
@@ -148,6 +151,17 @@ private class JellyfinPlaystate(
         api.userDataApi.getItemUserData(itemId = itemId.toUUID(), userId = user).content.played
     }
 
+    override suspend fun saveProgress(itemId: String, positionMs: Long, atUtcMs: Long) = jellyfinCall("Saving progress") {
+        api.userDataApi.updateItemUserData(
+            itemId = itemId.toUUID(), userId = user,
+            data = UpdateUserItemDataDto(
+                playbackPositionTicks = positionMs.coerceAtLeast(0) * TICKS_PER_MS,
+                lastPlayedDate = sdkDateTime(atUtcMs),
+            ),
+        )
+        Unit
+    }
+
     override suspend fun markWatched(itemId: String, atUtcMs: Long) = jellyfinCall("Marking watched") {
         api.userDataApi.markPlayedItem(itemId = itemId.toUUID(), userId = user, datePlayed = sdkDateTime(atUtcMs))
         Unit
@@ -178,16 +192,16 @@ private class JellyfinPlaystate(
             .toMap()
     }
 
-    override suspend fun titleWatch(): Map<String, TitleWatch> = jellyfinCall("Reading what was watched") {
+    override suspend fun titleWatch(episodic: Boolean?): Map<String, TitleWatch> = jellyfinCall("Reading what was watched") {
         val watch = HashMap<String, TitleWatch>()
         // Movies only matter once started or played; every series carries its unplayed count.
-        for (filter in listOf(ItemFilter.IS_RESUMABLE, ItemFilter.IS_PLAYED)) {
+        for (filter in if (episodic != true) listOf(ItemFilter.IS_RESUMABLE, ItemFilter.IS_PLAYED) else emptyList()) {
             for (movie in pagedItems(setOf(BaseItemKind.MOVIE), listOf(filter))) {
                 val data = movie.userData ?: continue
                 watch[movie.id.toJellyfinId()] = TitleWatch(data.playbackPositionTicks / TICKS_PER_MS, data.played, null)
             }
         }
-        for (series in pagedItems(setOf(BaseItemKind.SERIES), emptyList())) {
+        for (series in if (episodic != false) pagedItems(setOf(BaseItemKind.SERIES), emptyList()) else emptyList()) {
             val data = series.userData ?: continue
             watch[series.id.toJellyfinId()] = TitleWatch(0, data.played, data.unplayedItemCount)
         }

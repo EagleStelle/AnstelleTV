@@ -5,6 +5,9 @@ import javax.inject.Qualifier
 enum class AnstelleDispatchers {
     Default,
     IO,
+
+    /** Lowest-priority threads for long work nobody waits on (library channels, schedules), so the screen and playback keep the CPU. */
+    Background,
 }
 
 /** Qualifies an injected `CoroutineDispatcher`. */

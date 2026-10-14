@@ -345,17 +345,16 @@ class ChannelRepository @Inject constructor(
      * Brings the library channels in line with the whole library (they are every profile's):
      * adds the channels it newly has content for, updates the rest, removes the ones that lost
      * their content and renumbers every channel. Returns how many channels were added, updated or
-     * removed; the caller schedules them.
+     * removed; the caller schedules them. [catalog] is the library as the caller just read it.
      */
-    suspend fun syncGenerated(): Int = syncLock.withLock {
-        withContext(io) {
-            val catalog = Catalog(itemDao.catalog(), words.words().types)
-            val generator = ChannelGenerator(words.words())
-            val keepable = ChannelGenerator(words.words(), scale = ChannelGenerator.KEEP_SCALE).generate(catalog).mapTo(HashSet()) { it.key }
-            // A library still on its first fetch (new, turned on again, or restored) may hold what a channel needs.
-            val settled = libraryDao.unsynced().none { LibraryRules.itemKinds(it.collectionType).isNotEmpty() }
-            sync(generator.generate(catalog), keepable, settled)
-        }
+    suspend fun syncGenerated(catalog: Catalog? = null): Int = syncLock.withLock {
+        // Generating is plain computation: it runs on the caller's threads (the schedule worker's low-priority ones).
+        val library = catalog ?: Catalog(itemDao.catalog(), words.words().types)
+        val generator = ChannelGenerator(words.words())
+        val keepable = ChannelGenerator(words.words(), scale = ChannelGenerator.KEEP_SCALE).generate(library).mapTo(HashSet()) { it.key }
+        // A library still on its first fetch (new, turned on again, or restored) may hold what a channel needs.
+        val settled = libraryDao.unsynced().none { LibraryRules.itemKinds(it.collectionType).isNotEmpty() }
+        sync(generator.generate(library), keepable, settled)
     }
 
     /** Runs [block] while the library channels can't change; a sync of them waits until it ends. */

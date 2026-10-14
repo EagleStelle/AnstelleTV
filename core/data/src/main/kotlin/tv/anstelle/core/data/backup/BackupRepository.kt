@@ -132,6 +132,10 @@ class BackupRepository @Inject constructor(
             backupAccounts = backup.profiles.flatMap { profile -> profile.accounts.mapNotNull { account -> backupServers[account.serverId]?.let { it to account.device } } }.toSet(),
         )
         store.write(backup, plan.kept)
+        // The database was replaced: the next process must reconcile this install's built-in
+        // themes and schedules even if the queued post-restore work is interrupted by the restart.
+        settings.set(Settings.ThemesSeeded, 0L)
+        settings.set(Settings.SchedulesMadeFor, "")
         // Only once the restore holds: the tokens are read, then forgotten.
         val dropped = plan.dropServers.map { SignOut(it.jellyfinServerId, it.baseUrl, null) } +
             plan.dropAccounts.map { SignOut(tokenKey(it.jellyfinServerId, it.device), it.baseUrl, it.device) }

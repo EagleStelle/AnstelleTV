@@ -95,7 +95,7 @@
 							</a>
 						{/each}
 					</div>
-					<div class="my-2 hidden w-56 shrink-0 items-center min-[840px]:flex"><SessionBar /></div>
+					<div class="my-2 hidden w-56 shrink-0 items-center justify-end min-[840px]:flex"><SessionBar /></div>
 				</nav>
 			</header>
 			<main>

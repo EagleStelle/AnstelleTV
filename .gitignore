@@ -45,5 +45,6 @@ Thumbs.db
 # IDE
 .vscode/
 .impeccable/
+/.claude/
 CLAUDE.md
 keystore.properties

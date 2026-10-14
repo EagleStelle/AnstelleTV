@@ -65,8 +65,9 @@ class StartupViewModel @Inject constructor(
     val theme: StateFlow<ResolvedTheme> = _theme.asStateFlow()
 
     init {
+        // Only after an install or update is there anything to copy; the first frame never waits for it.
+        viewModelScope.launch { themes.seedBuiltIns() }
         viewModelScope.launch {
-            themes.seedBuiltIns()
             if (!profiles.hasProfiles()) {
                 _needsServer.value = true
                 profiles.observeProfiles().first { it.isNotEmpty() }

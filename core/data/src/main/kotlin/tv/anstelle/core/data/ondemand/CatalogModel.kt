@@ -86,17 +86,29 @@ data class Title(
  */
 data class TitleProgress(val resumeMs: Long, val played: Boolean, val unwatched: Int?)
 
+/** The next or resumable episode represented by a series catalog card. */
+data class SeriesProgress(
+    val itemId: Long,
+    val number: String?,
+    val episodeTitle: String?,
+    val positionMs: Long,
+)
+
 /**
  * What the profile's Jellyfin user watched, by local title id. [known] is false when the server
  * can't be reached or the profile keeps no watch history there: then posters say nothing.
  */
-data class CatalogWatch(val byId: Map<Long, TitleProgress> = emptyMap(), val known: Boolean = false) {
+data class CatalogWatch(
+    val byId: Map<Long, TitleProgress> = emptyMap(),
+    val known: Boolean = false,
+    val seriesProgress: Map<Long, SeriesProgress> = emptyMap(),
+) {
     operator fun get(id: Long): TitleProgress? = byId[id]
 
-    /** Watched through: a movie marked played (or left at its very end), a series with every episode played. */
+    /** Only the server's played flag counts; progress alone never implies watched. */
     fun watched(title: Title): Boolean {
         val progress = byId[title.id] ?: return false
-        return progress.played || (title.durationMs > 0 && progress.resumeMs >= title.durationMs * WATCHED_PERCENT / 100)
+        return progress.played
     }
 
     /** How far into a movie, 0 to 1; 0 for a series or one not started. */
@@ -108,10 +120,6 @@ data class CatalogWatch(val byId: Map<Long, TitleProgress> = emptyMap(), val kno
     /** How many of a series' episodes are still to watch; null for a movie or when unknown. */
     fun unwatched(title: Title): Int? = byId[title.id]?.unwatched?.takeIf { title.kind.episodic && known }
 
-    private companion object {
-        /** Like an episode's: a resume point this close to the end counts as watched through. */
-        const val WATCHED_PERCENT = 95
-    }
 }
 
 /** A movie or episode on Continue watching or Next up: what plays, and the page it belongs to. */
@@ -129,8 +137,6 @@ data class WatchCard(
     val episodeTitle: String?,
     /** The episode's still, else the backdrop. */
     val imageUrl: String?,
-    /** A movie's tall poster; null for an episode. */
-    val posterUrl: String? = null,
     /** A movie's official rating; null for an episode or when it has none. */
     val rating: String? = null,
     val durationMs: Long,

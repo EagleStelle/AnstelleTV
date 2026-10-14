@@ -1,7 +1,6 @@
 package tv.anstelle.core.data.playback
 
 import tv.anstelle.core.model.WatchSync
-import java.util.BitSet
 
 /** What to do about the item's played state once playback stops. */
 enum class AfterStop {
@@ -11,8 +10,8 @@ enum class AfterStop {
     MARK_WATCHED,
 
     /**
-     * Playback was reported for its progress only, but Jellyfin moves the played mark on
-     * its own (off at the start, on past 90%): put back the mark the item had before.
+     * Both mode reported an incomplete Live TV view, but Jellyfin moves the played mark on
+     * its own: put back the mark the item had before.
      */
     RESTORE_PLAYED,
 }
@@ -20,16 +19,15 @@ enum class AfterStop {
 /**
  * When a view counts as watching an item, and what that means for Jellyfin's played mark.
  *
- * A channel joins programs mid-way and lets the viewer seek, so only what actually played on
- * screen counts there: a program is watched when [WatchCoverage] covers 90% of it. On demand
- * the viewer picked the item and the spot, so stopping past 90% counts, as in Jellyfin's apps.
+ * Completion follows the ending position, not how much of the beginning was seen. Live TV
+ * additionally requires 30 seconds of actual playing time, including for short programs.
  */
 object WatchRules {
-    fun watchedThrough(coveredMs: Long, durationMs: Long): Boolean =
-        durationMs > 0 && coveredMs * 10 >= durationMs * 9
-
     fun reachedEnd(stoppedAtMs: Long, durationMs: Long): Boolean =
-        durationMs > 0 && stoppedAtMs * 10 >= durationMs * 9
+        durationMs > 0 && stoppedAtMs >= durationMs - durationMs / 10
+
+    fun completed(positionMs: Long, durationMs: Long, ended: Boolean, onDemand: Boolean, playedMs: Long): Boolean =
+        (onDemand || channelWatching(playedMs)) && (ended || reachedEnd(positionMs, durationMs))
 
     fun afterStop(sync: WatchSync, watched: Boolean, onDemand: Boolean): AfterStop = when {
         sync == WatchSync.OFF -> AfterStop.NOTHING
@@ -38,44 +36,20 @@ object WatchRules {
         sync.marksWatched && watched -> AfterStop.MARK_WATCHED
         // Like Jellyfin's own apps: otherwise its marks stand.
         onDemand && sync == WatchSync.BOTH -> AfterStop.NOTHING
-        sync.savesProgress -> AfterStop.RESTORE_PLAYED
+        sync == WatchSync.BOTH -> AfterStop.RESTORE_PLAYED
         else -> AfterStop.NOTHING
     }
 
     /** Whether the played mark before playback is needed when it stops. */
     fun needsPlayedBefore(sync: WatchSync, onDemand: Boolean): Boolean =
-        sync.savesProgress && !(onDemand && sync == WatchSync.BOTH)
+        sync == WatchSync.BOTH && !onDemand
 
     /**
-     * Whether a channel has played long enough on screen ([coveredMs], see [WatchCoverage]) to
+     * Whether a channel has played long enough on screen ([playedMs], excluding pauses and buffering) to
      * count as watching its program, so Jellyfin hears of it: surfing past one doesn't.
      */
-    fun channelWatching(coveredMs: Long): Boolean = coveredMs >= CHANNEL_WATCHING_MS
+    fun channelWatching(playedMs: Long): Boolean = playedMs >= CHANNEL_WATCHING_MS
 
     /** How long a channel's program plays before it counts as watched at all. */
     const val CHANNEL_WATCHING_MS = 30_000L
-}
-
-/**
- * The seconds of an item that actually played, so joining late or seeking past a part never
- * counts as watching it. The player samples its position about once a second while playing;
- * two samples close together mean the stretch between them played.
- */
-class WatchCoverage(private val durationMs: Long) {
-    private val seconds = BitSet()
-    private var lastMs = -1L
-
-    fun sample(positionMs: Long) {
-        val position = positionMs.coerceIn(0, durationMs)
-        val from = if (lastMs >= 0 && position - lastMs in 0..MAX_STEP_MS) lastMs else position
-        seconds.set((from / 1000).toInt(), (position / 1000).toInt() + 1)
-        lastMs = position
-    }
-
-    val coveredMs: Long get() = minOf(seconds.cardinality() * 1000L, durationMs)
-
-    private companion object {
-        /** Longer than a tick and its jitter, shorter than the players' 10 s skips. */
-        const val MAX_STEP_MS = 3_000L
-    }
 }

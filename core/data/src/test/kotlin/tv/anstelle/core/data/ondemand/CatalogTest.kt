@@ -66,8 +66,8 @@ class CatalogTest {
     @Test
     fun `a series goes on after the last episode watched through`() {
         assertEquals(3, NextEpisode.of(show, WatchMarks(played = setOf(1, 2)))?.id)
-        // Left near its end counts as watched through.
-        assertEquals(2, NextEpisode.of(show, WatchMarks(resume = mapOf(1L to 990_000L)))?.id)
+        // Progress alone never marks the episode watched, even near its end.
+        assertEquals(1, NextEpisode.of(show, WatchMarks(resume = mapOf(1L to 990_000L)))?.id)
     }
 
     @Test
@@ -160,10 +160,9 @@ class CatalogTest {
     fun `watched filter reads the profile's marks`() {
         val watch = CatalogWatch(mapOf(1L to TitleProgress(0, played = true, unwatched = null), 3L to TitleProgress(5_900_000, played = false, unwatched = null)), known = true)
         val watched = CatalogSearch.search(library, "night", SearchFilters(watch = WatchFilter.WATCHED), watch).titles.map { it.id }
-        // A movie left this close to its end counts as watched through.
-        assertEquals(setOf(1L, 3L), watched.toSet())
+        assertEquals(setOf(1L), watched.toSet())
         val unwatched = CatalogSearch.search(library, "night", SearchFilters(watch = WatchFilter.UNWATCHED), watch).titles.map { it.id }
-        assertEquals(setOf(2L, 4L), unwatched.toSet())
+        assertEquals(setOf(2L, 3L, 4L), unwatched.toSet())
     }
 
     @Test

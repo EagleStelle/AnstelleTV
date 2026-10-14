@@ -9,7 +9,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,10 +17,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.shareIn
@@ -29,6 +31,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import tv.anstelle.core.common.AnstelleDispatchers
+import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.data.DatabaseChanges
 import tv.anstelle.core.data.ProfileRepository
@@ -40,6 +43,7 @@ import tv.anstelle.core.data.ondemand.CatalogSearch
 import tv.anstelle.core.data.ondemand.CatalogWatch
 import tv.anstelle.core.data.ondemand.SearchFilters
 import tv.anstelle.core.data.ondemand.SearchResults
+import tv.anstelle.core.data.ondemand.SeriesProgress
 import tv.anstelle.core.data.ondemand.Shelf
 import tv.anstelle.core.data.ondemand.ShelfOrder
 import tv.anstelle.core.data.ondemand.ShelfType
@@ -49,6 +53,7 @@ import tv.anstelle.core.data.playback.PlaybackReporter
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.ProfileAccess
 import javax.inject.Inject
+import java.time.LocalDate
 import kotlin.random.Random
 
 /** One row of a catalog tab with what it holds: cards for Continue watching and Next up, else titles. */
@@ -81,6 +86,7 @@ data class CatalogUiState(
  * them first opens ([start]): the library from SQLite, then what the profile watched from the
  * server, which fills in Continue watching, Next up and the posters' marks once it answers. Each
  * visit deals its banners and shuffles every channel's row once, so they hold while it lasts.
+ * Library changes and finished views are read again only while a tab or Search is on screen.
  */
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
@@ -102,8 +108,6 @@ class CatalogViewModel @Inject constructor(
         val watch: CatalogWatch = CatalogWatch(),
         val resume: Map<CatalogKind, List<WatchCard>> = emptyMap(),
         val nextUp: Map<CatalogKind, List<WatchCard>> = emptyMap(),
-        /** False until the servers' first answer is in, or they couldn't give one. */
-        val settled: Boolean = false,
     )
 
     /** This visit's deal: banners and channel rows shuffle by it. */
@@ -113,28 +117,76 @@ class CatalogViewModel @Inject constructor(
     private val libraryTick = MutableStateFlow(0)
     private val watchTick = MutableStateFlow(0)
 
+    /** True while a catalog tab or Search is on screen; out of view nothing is read again. */
+    private val visible = MutableStateFlow(false)
+
+    /** Only Search reads both kinds. */
+    private val selected = MutableStateFlow<List<CatalogKind>>(listOf(CatalogKind.MOVIES))
+    private val libraries = HashMap<Pair<ProfileAccess, List<CatalogKind>>, Pair<Int, Library>>()
+    private var libraryDay = LocalDate.now()
+
     private val access: Flow<ProfileAccess> = started.filter { it }.take(1)
         .flatMapLatest { profiles.observeAccess(profiles.activeProfile().id) }
         .shareIn(viewModelScope, SharingStarted.Eagerly, replay = 1)
 
-    private val library: StateFlow<Library?> = combine(access, libraryTick) { access, _ -> access }
-        .mapLatest { access ->
-            Library(
-                titles = repository.titles(access),
-                channels = CatalogKind.entries.associateWith { repository.channelTitles(it) },
-            )
+    private val library: StateFlow<Library?> = visible.flatMapLatest { shown ->
+        if (!shown) return@flatMapLatest emptyFlow()
+        combine(access, libraryTick, selected) { access, tick, kinds -> Triple(access, tick, kinds) }
+            .flatMapLatest { (access, tick, kinds) -> flow {
+                val startedAt = System.nanoTime()
+                val today = LocalDate.now()
+                if (today != libraryDay) { libraries.clear(); libraryDay = today }
+                val key = access to kinds
+                libraries[key]?.takeIf { it.first == tick }?.let {
+                    emit(it.second)
+                    AppLog.i("Catalog", "${kinds.joinToString { it.key }} cached")
+                    return@flow
+                }
+                // Publish the open tab's local titles first. Network and channel matching cannot
+                // delay the banner or Recently added; the other tab stays unloaded until opened.
+                val titles = kinds.associateWith { repository.titles(it, access) }
+                emit(Library(titles, emptyMap()))
+                AppLog.i("Catalog", "${kinds.joinToString { it.key }} local titles in ${(System.nanoTime() - startedAt) / 1_000_000} ms")
+                val complete = Library(titles, kinds.associateWith { repository.channelTitles(it) })
+                // Bound this cache to the current access rules, with Movies, Series and Search.
+                libraries.keys.removeAll { it.first != access }
+                libraries[key] = tick to complete
+                emit(complete)
+            } }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    private val watching: StateFlow<Watching> = combine(access, watchTick) { access, _ -> access }
-        .mapLatest { access ->
-            coroutineScope {
-                val id = access.profileId
-                val watch = async { repository.watch(id) }
-                val resume = CatalogKind.entries.associateWith { kind -> async { repository.continueWatching(kind, id, access) } }
-                val nextUp = CatalogKind.entries.filter { ShelfType.NEXT_UP in it.fixedShelves }
-                    .associateWith { async { repository.nextUp(id, access) } }
-                Watching(watch.await(), resume.mapValues { it.value.await() }, nextUp.mapValues { it.value.await() }, settled = true)
+    private val watchCache = HashMap<Pair<ProfileAccess, List<CatalogKind>>, Pair<Long, Watching>>()
+    private var watchRevision = 0
+    private val watching: StateFlow<Watching> = visible.flatMapLatest { shown ->
+        if (!shown) return@flatMapLatest emptyFlow()
+        combine(access, watchTick, selected) { access, tick, kinds -> Triple(access, tick, kinds) }
+            .mapLatest { (access, tick, kinds) ->
+                if (watchRevision != tick) { watchCache.clear(); watchRevision = tick }
+                watchCache.keys.removeAll { it.first != access }
+                val key = access to kinds
+                val now = System.nanoTime()
+                watchCache[key]?.takeIf { now - it.first < WATCH_CACHE_NS }?.let { return@mapLatest it.second }
+                coroutineScope {
+                    val id = access.profileId
+                    val watch = async { repository.watch(id, kinds.singleOrNull()) }
+                    val resume = kinds.associateWith { kind -> async { repository.continueWatching(kind, id, access) } }
+                    val nextUp = kinds.filter { ShelfType.NEXT_UP in it.fixedShelves }
+                        .associateWith { async { repository.nextUp(id, access) } }
+                    val resumeCards = resume.mapValues { it.value.await() }
+                    val nextUpCards = nextUp.mapValues { it.value.await() }
+                    val seriesProgress = (nextUpCards.values.flatten() + resumeCards.values.flatten())
+                        .filter { it.kind.episodic }
+                        .associate { card ->
+                            card.titleId to SeriesProgress(card.itemId, card.number, card.episodeTitle, card.positionMs)
+                        }
+                    Watching(watch.await().copy(seriesProgress = seriesProgress), resumeCards, nextUpCards)
+                        .also {
+                            // A rejected/unavailable sign-in is not a successful empty history.
+                            // Retry on the next visit instead of caching missing rows and badges.
+                            if (it.watch.known) watchCache[key] = System.nanoTime() to it
+                        }
+                }
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, Watching())
@@ -145,17 +197,12 @@ class CatalogViewModel @Inject constructor(
     private val bannerSizes: Flow<Map<CatalogKind, Int>> =
         combine(CatalogKind.entries.map { kind -> settings.observe(Settings.catalogBanner(kind)).map { kind to it } }) { it.toMap() }
 
-    /** Set once the tabs have waited [WATCH_WAIT_MS] for what was watched; from then on they open without it. */
-    private val waited = MutableStateFlow(false)
-
-    val state: StateFlow<CatalogUiState> = combine(library, watching, orders, bannerSizes, waited) { library, watching, orders, sizes, waited ->
-        // The tabs wait a moment for the server, so a banner never deals a title watched through
-        // before its marks are in, and Continue watching and Next up don't push the rows down late.
-        if (library == null || !(watching.settled || waited)) {
+    val state: StateFlow<CatalogUiState> = combine(library, watching, orders, bannerSizes) { library, watching, orders, sizes ->
+        if (library == null) {
             CatalogUiState(watch = watching.watch)
         } else {
             CatalogUiState(
-                tabs = CatalogKind.entries.associateWith { tab(it, library, watching, orders[it].orEmpty(), sizes[it] ?: 0) },
+                tabs = library.titles.keys.associateWith { tab(it, library, watching, orders[it].orEmpty(), sizes[it] ?: 0) },
                 watch = watching.watch,
             )
         }
@@ -188,11 +235,6 @@ class CatalogViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             started.first { it }
-            delay(WATCH_WAIT_MS)
-            waited.value = true
-        }
-        viewModelScope.launch {
-            started.first { it }
             changes.tables
                 .filter { tables -> tables.any { it in LibraryTables } }
                 .debounce(RELOAD_DEBOUNCE_MS)
@@ -202,6 +244,13 @@ class CatalogViewModel @Inject constructor(
         viewModelScope.launch {
             reporter.reported.debounce(RELOAD_DEBOUNCE_MS).collect { watchTick.value++ }
         }
+        // Reconnecting a profile can leave its visible access rules unchanged. Its account
+        // table still emits, so discard history collected under the previous credentials.
+        viewModelScope.launch {
+            access.flatMapLatest { profiles.observeAccounts(it.profileId) }
+                .drop(1)
+                .collect { watchTick.value++ }
+        }
     }
 
     /** Starts reading, the first time a catalog tab or Search opens. */
@@ -209,9 +258,15 @@ class CatalogViewModel @Inject constructor(
         started.value = true
     }
 
-    /** Reads what was watched again, e.g. coming back to the screen. */
-    fun refreshWatch() {
-        if (started.value) watchTick.value++
+    suspend fun firstEpisodeId(titleId: Long): Long? = repository.firstEpisodeId(titleId, access.first())
+
+    fun setVisible(visible: Boolean) {
+        this.visible.value = visible
+    }
+
+    /** Null selects Search, the only screen that needs both kinds together. */
+    fun select(kind: CatalogKind?) {
+        selected.value = kind?.let(::listOf) ?: CatalogKind.entries
     }
 
     fun setQuery(query: String) {
@@ -265,13 +320,12 @@ class CatalogViewModel @Inject constructor(
         const val RELOAD_DEBOUNCE_MS = 1_500L
         const val SEARCH_DEBOUNCE_MS = 150L
 
-        /** How long a tab waits for what was watched before it opens without it. */
-        const val WATCH_WAIT_MS = 1_500L
+        const val WATCH_CACHE_NS = 60_000_000_000L
 
         /** How many titles Recently added holds; Search has all of them, newest first. */
         const val RECENT_COUNT = 24
 
         /** Tables whose changes read the library again. */
-        val LibraryTables = setOf("media_item", "channel", "channel_rule", "channel_daypart", "channel_season")
+        val LibraryTables = setOf("media_item", "media_server", "channel", "channel_group", "channel_rule", "channel_daypart", "channel_season")
     }
 }

@@ -43,6 +43,7 @@ class ThemeRepository @Inject constructor(
     private val dao: ThemeDao,
     private val profileDao: ProfileDao,
     private val profiles: ProfileRepository,
+    private val settings: SettingsRepository,
     private val time: TimeSource,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
@@ -59,10 +60,15 @@ class ThemeRepository @Inject constructor(
             if (id == null) flowOf(null) else dao.observe(id).map { it?.toSummary()?.spec }
         }.distinctUntilChanged()
 
-    /** Copies the shipped themes into the table, once per process, keeping their ids. */
+    /**
+     * Copies the shipped themes into the table, keeping their ids. They only change with the app,
+     * so once they are copied for this install nothing is read again until it is updated.
+     */
     suspend fun seedBuiltIns() = seedLock.withLock {
         if (seeded) return@withLock
         withContext(io) {
+            val installed = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
+            if (installed != 0L && settings.get(Settings.ThemesSeeded) == installed && dao.builtIns().isNotEmpty()) return@withContext
             val shipped = context.assets.list(ASSET_DIR).orEmpty().filter { it.endsWith(".json") }.mapNotNull { file ->
                 try {
                     val text = context.assets.open("$ASSET_DIR/$file").bufferedReader().use { it.readText() }
@@ -83,6 +89,7 @@ class ThemeRepository @Inject constructor(
                 profileDao.clearTheme(gone.id)
                 dao.delete(gone.id)
             }
+            settings.set(Settings.ThemesSeeded, installed)
         }
         seeded = true
     }

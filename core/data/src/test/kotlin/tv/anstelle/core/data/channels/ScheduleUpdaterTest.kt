@@ -163,7 +163,7 @@ class ScheduleUpdaterTest {
     private fun at(utcMs: Long) = slots().last { it.startUtcMs <= utcMs }
 
     @Test
-    fun `schedules are created, kept and extended 30 days ahead`() = runTest {
+    fun `schedules are created, kept and extended a horizon ahead`() = runTest {
         channels[1] = channel()
         rules[1] = genres(1, "Comedy")
 
@@ -187,6 +187,38 @@ class ScheduleUpdaterTest {
     }
 
     @Test
+    fun `only due schedules are topped up without reading the library otherwise`() = runTest {
+        scheduleDao.visibleChannels = { channels.values.filter { !it.isHidden }.map { it.id } }
+        var reads = 0
+        val counting = ScheduleUpdater(
+            channelDao, scheduleDao,
+            object : MediaItemDao by stub() {
+                override suspend fun catalog(): List<CatalogRow> {
+                    reads++
+                    return rows
+                }
+            },
+            ScheduleRepository(scheduleDao, time), { ChannelWords.EMPTY }, time,
+        )
+        channels[1] = channel()
+        rules[1] = genres(1, "Comedy")
+        assertEquals(mapOf(ScheduleOutcome.CREATED to 1), counting.updateDue(ZoneOffset.UTC))
+        assertEquals(1, reads)
+
+        // Nothing due: the library isn't read.
+        assertEquals(emptyMap(), counting.updateDue(ZoneOffset.UTC))
+        assertEquals(1, reads)
+
+        // A new channel and, a day on, the first one's extension.
+        channels[2] = channel(2)
+        rules[2] = genres(2, "Drama")
+        now += DAY
+        assertEquals(mapOf(ScheduleOutcome.CREATED to 1, ScheduleOutcome.EXTENDED to 1), counting.updateDue(ZoneOffset.UTC))
+        assertTrue(slots(1).last().endUtcMs >= now + ScheduleUpdater.HORIZON_MS)
+        assertContiguous(slots(1))
+    }
+
+    @Test
     fun `a new lineup keeps the current and next airings`() = runTest {
         channels[1] = channel()
         rules[1] = genres(1, "Comedy")
@@ -201,6 +233,25 @@ class ScheduleUpdaterTest {
         assertEquals(next, slots().first { it.startUtcMs == current.endUtcMs })
         val after = slots().filter { it.startUtcMs >= next.endUtcMs }
         assertTrue(after.isNotEmpty() && after.all { it.mediaItemId in 101L..140L })
+        assertContiguous(slots())
+        assertEquals(ScheduleOutcome.UP_TO_DATE, updater.update(1, ZoneOffset.UTC))
+    }
+
+    @Test
+    fun `a schedule stored past the horizon is cut back to it, keeping the current and next airings`() = runTest {
+        channels[1] = channel()
+        rules[1] = genres(1, "Comedy")
+        // Stored when schedules went 30 days ahead.
+        val inputs = ChannelInputs.build(ChannelSetup(channels.getValue(1), rules.getValue(1), emptyList(), emptyList()), Catalog(rows), ZoneOffset.UTC)
+        val state = ScheduleEngine.initialState(inputs, now - HOUR)
+        ScheduleRepository(scheduleDao, time).save(1, state.nextStartUtcMs, ScheduleEngine.generate(inputs, state, now + 30 * DAY), inputs.fingerprint())
+        val current = at(now)
+        val next = slots().first { it.startUtcMs == current.endUtcMs }
+
+        assertEquals(ScheduleOutcome.REGENERATED, updater.update(1, ZoneOffset.UTC))
+        assertEquals(current, at(now))
+        assertEquals(next, slots().first { it.startUtcMs == current.endUtcMs })
+        assertTrue(slots().last().endUtcMs in now + ScheduleUpdater.HORIZON_MS..now + ScheduleUpdater.HORIZON_MS + DAY)
         assertContiguous(slots())
         assertEquals(ScheduleOutcome.UP_TO_DATE, updater.update(1, ZoneOffset.UTC))
     }

@@ -31,7 +31,9 @@ class PooledPlayer(
  * Two ExoPlayers: the one on screen and a standby pre-warmed for the next likely channel.
  * Tuning to the standby's channel swaps the two instead of preparing from scratch, so the
  * connection, container parsing and (when the device can run two video decoders) the first
- * video frames are already done. Main thread only.
+ * video frames are already done. A player whose libass holds more than [FONT_BUDGET_BYTES] of
+ * fonts is replaced by a new one the next time it stops, since libass never lets a font go.
+ * Main thread only.
  */
 @Singleton
 @OptIn(UnstableApi::class)
@@ -63,16 +65,18 @@ class PlayerPool @Inject constructor(
     }
 
     /**
-     * Prepares the standby without decoding: audio stays off, and video too unless the
+     * Prepares a muted standby: video stays off unless the
      * device can run a second video decoder (Fire TV sticks can't).
      */
     @MainThread
     fun quiet(player: PooledPlayer, concurrentVideoDecoders: Boolean) {
         player.player.playWhenReady = false
+        player.player.volume = 0f
         player.player.trackSelectionParameters = player.player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !concurrentVideoDecoders)
-            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            // Audio keeps the demuxer loading even on a stick with one video decoder.
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
             .build()
     }
 
@@ -81,6 +85,23 @@ class PlayerPool @Inject constructor(
         player.player.stop()
         player.player.clearMediaItems()
         player.channelId = null
+        renewIfFull(player)
+    }
+
+    /**
+     * The player to load a new channel into in [player]'s place: [player] itself, or a new one
+     * once its libass holds more fonts than [FONT_BUDGET_BYTES] (the old one is released).
+     */
+    @MainThread
+    fun renewIfFull(player: PooledPlayer): PooledPlayer {
+        val pair = players ?: return player
+        val index = pair.indexOf(player)
+        if (index < 0 || player.subtitles.fontBytes <= FONT_BUDGET_BYTES) return player
+        player.release()
+        return factory.create().also {
+            it.loadControl.standby = index == 1
+            pair[index] = it
+        }
     }
 
     /** Stops both players; they are kept for the next time something plays. */
@@ -93,5 +114,10 @@ class PlayerPool @Inject constructor(
     fun release() {
         players?.forEach(PooledPlayer::release)
         players = null
+    }
+
+    private companion object {
+        /** A few shows' embedded fonts (anime often carries 10–30 MB of them). */
+        const val FONT_BUDGET_BYTES = 48L * 1024 * 1024
     }
 }

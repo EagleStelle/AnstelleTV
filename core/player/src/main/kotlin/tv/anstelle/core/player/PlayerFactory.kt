@@ -56,6 +56,8 @@ class PlayerFactory @Inject constructor(
         val loadControl = PoolLoadControl(
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, START_BUFFER_MS, REBUFFER_MS)
+                // The default target is about 125 MB of heap per player; a stick's heap is 256 MB.
+                .setTargetBufferBytes(TARGET_BUFFER_BYTES)
                 .build(),
         )
         val player = ExoPlayer.Builder(context, renderersFactory)
@@ -67,6 +69,9 @@ class PlayerFactory @Inject constructor(
             )
             .setLoadControl(loadControl)
             .build()
+        // Buffer the next playlist item while the current item's buffer is healthy. ASS
+        // programs use a separate standby instead, because libass owns one item at a time.
+        player.preloadConfiguration = ExoPlayer.PreloadConfiguration(4_000_000L)
         subtitles.attach(player)
         SubtitleOverlays.register(player, subtitles)
         return PooledPlayer(player, loadControl, trackSelector, subtitles)
@@ -74,7 +79,8 @@ class PlayerFactory @Inject constructor(
 
     private companion object {
         const val MIN_BUFFER_MS = 15_000
-        const val MAX_BUFFER_MS = 50_000
+        const val MAX_BUFFER_MS = 30_000
+        const val TARGET_BUFFER_BYTES = 64 * 1024 * 1024
         const val START_BUFFER_MS = 1_000
         const val REBUFFER_MS = 2_000
     }
@@ -90,7 +96,8 @@ class PoolLoadControl(private val base: DefaultLoadControl) : LoadControl {
     @Volatile var standby: Boolean = false
 
     override fun shouldContinueLoading(parameters: LoadControl.Parameters): Boolean {
-        if (standby && parameters.bufferedDurationUs >= STANDBY_BUFFER_US) return false
+        if (standby && (parameters.bufferedDurationUs >= STANDBY_BUFFER_US ||
+            base.getAllocator(parameters.playerId).totalBytesAllocated >= STANDBY_BUFFER_BYTES)) return false
         return base.shouldContinueLoading(parameters)
     }
 
@@ -119,9 +126,12 @@ class PoolLoadControl(private val base: DefaultLoadControl) : LoadControl {
         timeline: Timeline,
         mediaPeriodId: MediaSource.MediaPeriodId,
         bufferedDurationUs: Long,
-    ): Boolean = base.shouldContinuePreloading(playerId, timeline, mediaPeriodId, bufferedDurationUs)
+    ): Boolean = !standby && bufferedDurationUs < STANDBY_BUFFER_US &&
+        base.getAllocator(playerId).totalBytesAllocated < 64 * 1024 * 1024 &&
+        base.shouldContinuePreloading(playerId, timeline, mediaPeriodId, bufferedDurationUs)
 
     private companion object {
         const val STANDBY_BUFFER_US = 4_000_000L
+        const val STANDBY_BUFFER_BYTES = 8 * 1024 * 1024
     }
 }

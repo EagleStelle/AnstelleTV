@@ -72,14 +72,13 @@ class WatchChoicesTest {
     }
 
     @Test
-    fun `a resume point near the end counts as watched through`() {
+    fun `a resume point near the end stays progress without a watched flag`() {
         val minutes24 = 24 * 60_000L
         val marks = WatchMarks(resume = mapOf(1L to 6 * 60_000L, 2L to 23 * 60_000L), played = setOf(3L))
         assertEquals(6 * 60_000L, marks.resumeMs(1, minutes24))
         assertEquals(false, marks.watched(1, minutes24))
-        // 23 of 24 minutes is past 95%: no resume point, watched instead.
-        assertEquals(0L, marks.resumeMs(2, minutes24))
-        assertEquals(true, marks.watched(2, minutes24))
+        assertEquals(23 * 60_000L, marks.resumeMs(2, minutes24))
+        assertEquals(false, marks.watched(2, minutes24))
         assertEquals(true, marks.watched(3, minutes24))
         assertEquals(false, marks.watched(4, minutes24))
         // With no known length, a resume point is neither kept nor taken as watched.

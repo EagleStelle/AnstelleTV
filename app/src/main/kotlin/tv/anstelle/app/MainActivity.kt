@@ -77,8 +77,8 @@ class MainActivity : ComponentActivity() {
         ScheduleCleanupWorker.enqueue(workManager)
         LibrarySyncWorker.schedulePeriodic(workManager)
         ScheduleWorker.schedulePeriodic(workManager)
-        // Schedules may have run short while the app was closed.
-        ScheduleWorker.runNow(workManager)
+        // Schedules may have run short while the app was closed; only those are topped up.
+        ScheduleWorker.runNow(workManager, full = false)
 
         val missing = buildList {
             // Android 17+: reaching Jellyfin on the LAN and serving the web UI need this.

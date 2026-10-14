@@ -347,11 +347,14 @@ private fun channelReadout(page: ChannelPage, tense: AiringTense, nowMs: Long): 
     )
 }
 
-internal fun WatchChoice.icon() = when (kind) {
+internal fun WatchChoice.icon() = when {
+    startsOver -> WatchIcons.StartOver
+    else -> when (kind) {
     WatchKind.LIVE -> WatchIcons.Live
     WatchKind.RESTART -> WatchIcons.StartOver
     WatchKind.ADD_TO_CHANNEL -> WatchIcons.AddToChannel
     WatchKind.PLAY -> WatchIcons.play(positionMs, leavesChannel)
+    }
 }
 
 /** The header of a held episode's choices: the show, then the episode with its length. */

@@ -26,7 +26,7 @@ interface PairingGate {
     /** The profile approving a pairing now: the active one when it is the owner or an admin, else null. */
     suspend fun approver(): Long?
 
-    /** The owner and admins by profile id, read on every request. */
+    /** The owner and admins by profile id, cached and kept current from the first request on. */
     suspend fun managers(): Map<Long, Manager>
 
     /** The same, each time it changes, so open sockets can check their pairing again. */
@@ -38,10 +38,13 @@ internal class ProfilePairingGate @Inject constructor(
     private val profiles: ProfileRepository,
     @param:ApplicationScope scope: CoroutineScope,
 ) : PairingGate {
-    /** Null until the profiles are first read, so nothing is refused before they are known. */
+    /**
+     * Null until the profiles are first read, so nothing is refused before they are known. Read
+     * from the first request on, so the profiles aren't watched while web control is off.
+     */
     private val current: StateFlow<Map<Long, Manager>?> = profiles.observeProfiles()
         .map { list -> list.filter { ProfileRights.canManageApp(it) }.associate { it.id to Manager(it.id, it.name, it.role) } }
-        .stateIn(scope, SharingStarted.Eagerly, null)
+        .stateIn(scope, SharingStarted.Lazily, null)
 
     override suspend fun approver(): Long? {
         if (!profiles.hasProfiles()) return null

@@ -10,6 +10,7 @@ import tv.anstelle.core.data.Artwork
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.channels.toModel
 import tv.anstelle.core.data.guide.GuideRepository
+import tv.anstelle.core.data.guide.LongestSlot
 import tv.anstelle.core.data.guide.ProgramBadges
 import tv.anstelle.core.data.jellyfinImageUrl
 import tv.anstelle.core.data.programDetail
@@ -82,17 +83,10 @@ data class EpisodeEntry(
  */
 data class WatchMarks(val resume: Map<Long, Long> = emptyMap(), val played: Set<Long> = emptySet()) {
     /** Where to pick item [id] up again, or 0 to play it from the start. */
-    fun resumeMs(id: Long, durationMs: Long): Long = resume[id]?.takeIf { it < nearEnd(durationMs) } ?: 0
+    fun resumeMs(id: Long, durationMs: Long): Long = resume[id]?.takeIf { it > 0 && it < durationMs } ?: 0
 
-    /** Whether item [id] was watched through: marked played, or left this close to its end. */
-    fun watched(id: Long, durationMs: Long): Boolean = id in played || (durationMs > 0 && (resume[id] ?: 0) >= nearEnd(durationMs))
-
-    private fun nearEnd(durationMs: Long) = durationMs * RESUME_LIMIT_PERCENT / 100
-
-    private companion object {
-        /** A resume point this close to the end counts as watched through. */
-        const val RESUME_LIMIT_PERCENT = 95
-    }
+    /** Progress-only playback must not create a watched badge or advance the watched episode. */
+    fun watched(id: Long, durationMs: Long): Boolean = id in played
 }
 
 /** A movie or episode, ready to play. */
@@ -156,6 +150,7 @@ class OnDemandRepository @Inject constructor(
     private val tokens: TokenStore,
     private val profiles: ProfileRepository,
     private val playstates: PlaystateFactory,
+    private val longestSlot: LongestSlot,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
     /** What each of [channels] airs at [atUtcMs], in one read; a channel with no schedule is left out. */
@@ -163,7 +158,7 @@ class OnDemandRepository @Inject constructor(
         if (channels.isEmpty()) return@withContext emptyMap()
         val byId = channels.associateBy { it.id }
         val bases = baseUrls()
-        val maxSlot = scheduleDao.maxSlotMs()
+        val maxSlot = longestSlot.ms()
         // SQLite on older Android allows 999 bound values per statement.
         val rows = channels.map { it.id }.chunked(MAX_IDS_PER_QUERY).flatMap { scheduleDao.airingsAt(it, atUtcMs, maxSlot) }
         rows
@@ -237,7 +232,7 @@ class OnDemandRepository @Inject constructor(
     suspend fun airingChannel(itemId: Long, atUtcMs: Long, access: ProfileAccess): Long? = withContext(io) {
         val channels = channelDao.all().map { it.toModel() }.filter { !it.isHidden }
         val numbers = channels.associate { it.id to it.number }
-        val maxSlot = scheduleDao.maxSlotMs()
+        val maxSlot = longestSlot.ms()
         channels.map { it.id }.chunked(MAX_IDS_PER_QUERY)
             .flatMap { scheduleDao.airingsAt(it, atUtcMs, maxSlot) }
             .filter { row ->

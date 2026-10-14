@@ -42,10 +42,11 @@ class ReportSession internal constructor(
     /** The stream as Jellyfin knows it; it changes when direct play falls back to HLS. */
     @Volatile internal var playstateItem: PlaystateItem = playstateItem
     internal val onDemand get() = channelId == null
-    internal val coverage = WatchCoverage(item.durationMs)
 
     /** When it actually played, for the dashboard. */
     internal val clock = PlayClock()
+    /** Eligibility uses monotonic time, so a device clock adjustment cannot qualify a hop. */
+    internal val watchClock = PlayClock()
     internal var sync = WatchSync.OFF
     internal var playstate: Playstate? = null
 
@@ -65,25 +66,36 @@ class ReportSession internal constructor(
  * the user the profile plays as ([ProfileRepository.watchAccount]); nothing goes to a user that
  * keeps no history for the profile. Live TV and On demand each have their own [WatchSync]
  * setting, read before anything goes to Jellyfin: Off sends nothing, Watched only sends only
- * the watched mark once a view counts, and only a setting that saves progress reports playback
- * (start, progress every 10 s and at each pause and seek, stop).
+ * the watched mark once a view counts. Progress writes only the resume fields, every 10 s and
+ * at pauses, seeks and stop; Both uses Jellyfin's playback session reports.
  *
  * On demand Jellyfin hears from the first frame, as from its own apps: the viewer picked the
  * item. A channel only once [WatchRules.channelWatching] (surfing past one sends nothing),
- * or when it stops having been watched through. Jellyfin clears an item's played mark at a
- * start report; where the setting keeps marks apart from progress it is put back at once and
- * again after the stop. Calls run one at a time in order, and a failed one is logged and
+ * including when it ends: a program shorter than 30 seconds never bypasses the rule.
+ * Jellyfin clears an item's played mark at a start report; Live TV's Both mode restores it
+ * at start and when an incomplete view stops. Calls run one at a time in order, a failed one logged and
  * dropped. Every view is also handed to the profile's dashboard ([DashboardHistory]) when it
  * stops, and announced on [reported] once Jellyfin has it.
  */
 @Singleton
-class PlaybackReporter @Inject constructor(
-    @ApplicationScope scope: CoroutineScope,
+class PlaybackReporter internal constructor(
+    scope: CoroutineScope,
     private val settings: SettingsRepository,
-    private val playstates: PlaystateFactory,
+    private val createPlaystate: (MediaServerEntity, WatchAccount) -> Playstate,
     private val history: DashboardHistory,
     private val time: TimeSource,
+    private val elapsed: TimeSource = time,
 ) {
+    @Inject constructor(
+        @ApplicationScope scope: CoroutineScope,
+        settings: SettingsRepository,
+        playstates: PlaystateFactory,
+        history: DashboardHistory,
+        time: TimeSource,
+    ) : this(scope, settings, { server, account ->
+        playstates.create(server.baseUrl, account.accessToken, account.userId, account.device)
+    }, history, time, TimeSource { System.nanoTime() / 1_000_000 })
+
     private val calls = Channel<suspend () -> Unit>(Channel.UNLIMITED)
 
     private val _reported = MutableSharedFlow<Long>(extraBufferCapacity = 16)
@@ -133,6 +145,7 @@ class PlaybackReporter @Inject constructor(
             profileId = profileId,
         )
         session.clock.set(playing, time.nowUtcMs())
+        session.watchClock.set(playing, elapsed.nowUtcMs())
         if (session.onDemand) announce(session, positionMs, startReport = true)
         return session
     }
@@ -140,7 +153,8 @@ class PlaybackReporter @Inject constructor(
     /**
      * Lets Jellyfin hear of [session], as far as the account and the place's watch history
      * setting allow: the setting is read here, before anything is sent. [startReport] sends the
-     * start (when the setting saves progress); without it, only marks follow at the stop.
+     * start for Both or the first resume write for Progress; without it, only marks follow
+     * at the stop.
      */
     private fun announce(session: ReportSession, positionMs: Long, startReport: Boolean) {
         session.announced = true
@@ -158,11 +172,12 @@ class PlaybackReporter @Inject constructor(
                 AppLog.i(TAG, "Not reporting ${describe(item)}: ${if (session.onDemand) "On Demand" else "Live TV"} watch history is off")
                 return@trySend
             }
-            val server = session.server
-            val playstate = playstates.create(server.baseUrl, account.accessToken, account.userId, account.device).also { session.playstate = it }
+            val playstate = createPlaystate(session.server, account).also { session.playstate = it }
             // Read before the start report, which can change it.
             if (WatchRules.needsPlayedBefore(sync, session.onDemand)) session.playedBefore = playstate.isPlayed(item.remoteId)
-            if (sync.savesProgress && startReport) {
+            if (sync == WatchSync.PROGRESS && startReport) {
+                playstate.saveProgress(item.remoteId, positionMs, time.nowUtcMs())
+            } else if (sync == WatchSync.BOTH && startReport) {
                 playstate.started(session.playstateItem, positionMs)
                 session.startReported = true
                 // Jellyfin clears the mark at a start: put it back now, so a stop that never
@@ -174,7 +189,10 @@ class PlaybackReporter @Inject constructor(
 
     /** The player started or stopped playing (a pause, buffering). Main thread. */
     fun playingChanged(session: ReportSession, playing: Boolean) {
-        if (!session.stopped) session.clock.set(playing, time.nowUtcMs())
+        if (!session.stopped) {
+            session.clock.set(playing, time.nowUtcMs())
+            session.watchClock.set(playing, elapsed.nowUtcMs())
+        }
     }
 
     /**
@@ -183,8 +201,9 @@ class PlaybackReporter @Inject constructor(
      */
     fun playing(session: ReportSession, positionMs: Long) {
         if (session.stopped) return
-        session.coverage.sample(positionMs)
-        if (!session.announced && WatchRules.channelWatching(session.coverage.coveredMs)) announce(session, positionMs, startReport = true)
+        if (!session.announced && WatchRules.channelWatching(session.watchClock.playedMsAt(elapsed.nowUtcMs()))) {
+            announce(session, positionMs, startReport = true)
+        }
     }
 
     /** The same view goes on from another stream: direct play fell back to HLS. Main thread. */
@@ -194,23 +213,25 @@ class PlaybackReporter @Inject constructor(
 
     fun progress(session: ReportSession, positionMs: Long, paused: Boolean) {
         if (session.stopped || !session.announced) return
+        val atUtcMs = time.nowUtcMs()
         calls.trySend {
-            if (session.sync.savesProgress && session.startReported) session.playstate?.progress(session.playstateItem, positionMs, paused)
+            if (session.sync == WatchSync.PROGRESS) {
+                session.playstate?.saveProgress(session.item.remoteId, positionMs, atUtcMs)
+            } else if (session.sync == WatchSync.BOTH && session.startReported) {
+                session.playstate?.progress(session.playstateItem, positionMs, paused)
+            }
         }
     }
 
-    fun stop(session: ReportSession, positionMs: Long) {
+    fun stop(session: ReportSession, positionMs: Long, ended: Boolean = false) {
         if (session.stopped) return
         session.stopped = true
         val stoppedUtcMs = time.nowUtcMs()
-        val coveredMs = session.coverage.coveredMs
         val item = session.item
-        val watched = if (session.onDemand) {
-            WatchRules.reachedEnd(positionMs, item.durationMs)
-        } else {
-            WatchRules.watchedThrough(coveredMs, item.durationMs)
-        }
         session.clock.stop(stoppedUtcMs)
+        session.watchClock.stop(elapsed.nowUtcMs())
+        val playedMs = session.watchClock.playedMs
+        val watched = WatchRules.completed(positionMs, item.durationMs, ended, session.onDemand, playedMs)
         val view = FinishedView(
             profileId = session.profileId,
             source = if (session.onDemand) WatchSource.ON_DEMAND else WatchSource.CHANNEL,
@@ -224,16 +245,17 @@ class PlaybackReporter @Inject constructor(
         )
         calls.trySend { history.record(view) }
         if (!session.announced) {
-            // A channel left before it counted as watching sends Jellyfin nothing. One watched
-            // through all the same (a program shorter than that) gets only its mark.
-            if (!watched) return
-            announce(session, positionMs, startReport = false)
+            // Exactly 30 seconds is required, even for a short program or a late join at its end.
+            if (!session.onDemand && !WatchRules.channelWatching(playedMs)) return
+            announce(session, positionMs, startReport = true)
         }
         calls.trySend {
             val playstate = session.playstate ?: return@trySend
             val sync = session.sync
             try {
-                if (sync.savesProgress && session.startReported) {
+                if (sync == WatchSync.PROGRESS) {
+                    playstate.saveProgress(item.remoteId, positionMs, stoppedUtcMs)
+                } else if (sync == WatchSync.BOTH && session.startReported) {
                     playstate.stopped(session.playstateItem, positionMs)
                     AppLog.i(TAG, "Saved ${describe(item)} at ${positionMs / 1000} s of ${item.durationMs / 1000} s")
                 }
@@ -242,7 +264,7 @@ class PlaybackReporter @Inject constructor(
                     // After a reported stop, Jellyfin may have marked it already.
                     AfterStop.MARK_WATCHED -> if (!session.startReported || !playstate.isPlayed(item.remoteId)) {
                         playstate.markWatched(item.remoteId, stoppedUtcMs)
-                        val how = if (session.onDemand) "stopped at ${positionMs / 1000} s" else "${coveredMs / 1000} s played"
+                        val how = "stopped at ${positionMs / 1000} s after ${playedMs / 1000} s played"
                         AppLog.i(TAG, "Marked ${describe(item)} watched: $how of ${item.durationMs / 1000} s")
                     }
                     AfterStop.RESTORE_PLAYED -> {

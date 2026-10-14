@@ -110,8 +110,12 @@ class GuideViewModel @Inject constructor(
     /** What the profile may watch: back-to-back programs beyond it show as one cell. */
     private var access = ProfileAccess.OPEN
     private var tunable: List<Channel> = emptyList()
+    /** True while the guide is on screen. */
     private var previewWanted = false
     private var previewStarted = false
+
+    /** The schedule, library or lineup changed while the guide was out of view: its windows load again when it shows. */
+    private var stale = false
 
     /** The channel in the preview when the guide last went out of view; null before it was first shown. */
     private var hiddenOn: Long? = null
@@ -169,7 +173,7 @@ class GuideViewModel @Inject constructor(
                 )
                 // New or changed channels: their cells load with the next window read.
                 if (windows.isNotEmpty() && windows.values.first().keys != tunable.mapTo(HashSet()) { it.id }) {
-                    reload()
+                    reloadWhenShown()
                 } else if (accessChanged && windows.isNotEmpty()) {
                     publish()
                 }
@@ -180,8 +184,13 @@ class GuideViewModel @Inject constructor(
             changes.tables
                 .filter { tables -> tables.any { it in GuideTables } }
                 .debounce(RELOAD_DEBOUNCE_MS)
-                .collect { reload() }
+                .collect { reloadWhenShown() }
         }
+    }
+
+    /** Reads the visible windows again now, or once the guide is back on screen (seeks and syncs under the player, say). */
+    private fun reloadWhenShown() {
+        if (previewWanted) reload() else stale = true
     }
 
     fun selectTab(key: String) {
@@ -271,6 +280,10 @@ class GuideViewModel @Inject constructor(
     /** The guide is on screen: the preview window plays the channel on now, or the last one watched. */
     fun startPreview() {
         previewWanted = true
+        if (stale) {
+            stale = false
+            reload()
+        }
         if (previewStarted || tunable.isEmpty()) return
         previewStarted = true
         playback.acquire()
