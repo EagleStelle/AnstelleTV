@@ -664,8 +664,8 @@ private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode:
 
 /**
  * One episode in the strip, a channel tile's way: its still in a small inset, what was watched
- * at its foot ([WatchStrip]), its number and title, then PLAYING behind the on-air square or
- * its length (the time left once started). One watched through reads as aired, as on a
+ * and remaining time at its foot ([WatchStrip]), its number and title, then PLAYING behind
+ * the on-air square. One watched through reads as aired, as on a
  * channel's page: the still under the past shade and the title quiet, except the one playing.
  * Focus fills the whole card rose, so the still sits in a rose frame.
  */
@@ -684,7 +684,10 @@ private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long,
                 val aired = watched && !playing
                 if (aired) Box(Modifier.matchParentSize().background(PastShade))
                 val fraction = if (episode.durationMs > 0) resumeMs.toFloat() / episode.durationMs else 0f
-                if (fraction > 0f || watched) WatchStrip(fraction, watched, Modifier.align(Alignment.BottomStart))
+                if (episode.durationMs > 0 || watched) WatchStrip(
+                    fraction, watched, Modifier.align(Alignment.BottomStart),
+                    remaining = episode.durationMs.takeIf { it > 0 }?.let { WatchChoices.span((it - resumeMs).coerceAtLeast(0L), roundUp = true).uppercase() },
+                )
             }
             Column(Modifier.padding(start = 3.dp, end = 3.dp, bottom = 3.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 androidx.compose.material3.Text(
@@ -699,8 +702,8 @@ private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long,
                         AirMarker(onAir = true, color = ink)
                         androidx.compose.material3.Text("PLAYING", style = typography.labelMedium, color = ink)
                     }
-                } else {
-                    (WatchChoices.timeLeft(episode.durationMs, resumeMs) ?: episode.facts)?.let {
+                } else if (episode.durationMs <= 0) {
+                    episode.facts?.let {
                         androidx.compose.material3.Text(
                             it,
                             style = typography.bodySmall,

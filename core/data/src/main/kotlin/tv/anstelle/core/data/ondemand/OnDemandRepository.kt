@@ -3,9 +3,12 @@ package tv.anstelle.core.data.ondemand
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
+import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.Artwork
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.channels.toModel
@@ -51,6 +54,8 @@ data class ChannelNow(
      * the whole run of restricted programs.
      */
     val restriction: Restriction? = null,
+    /** Actual media runtime, independent of airing progress or slot length. */
+    val durationMs: Long = 0L,
 ) {
     val offAir: Boolean get() = mediaItemId == 0L
 }
@@ -81,12 +86,18 @@ data class EpisodeEntry(
  * What the profile's Jellyfin user has watched of a program and its show's episodes, by local
  * item id: where it stopped in each, and which it has marked played.
  */
-data class WatchMarks(val resume: Map<Long, Long> = emptyMap(), val played: Set<Long> = emptySet()) {
+data class WatchMarks(val resume: Map<Long, Long> = emptyMap(), val played: Set<Long> = emptySet(), val known: Boolean = false) {
     /** Where to pick item [id] up again, or 0 to play it from the start. */
     fun resumeMs(id: Long, durationMs: Long): Long = resume[id]?.takeIf { it > 0 && it < durationMs } ?: 0
 
     /** Progress-only playback must not create a watched badge or advance the watched episode. */
     fun watched(id: Long, durationMs: Long): Boolean = id in played
+
+    /** Apply a confirmed manual change without changing any other item's history. */
+    fun withPlayed(ids: Set<Long>, watched: Boolean): WatchMarks = copy(
+        resume = if (watched) resume - ids else resume,
+        played = if (watched) played + ids else played - ids,
+    )
 }
 
 /** A movie or episode, ready to play. */
@@ -151,8 +162,32 @@ class OnDemandRepository @Inject constructor(
     private val profiles: ProfileRepository,
     private val playstates: PlaystateFactory,
     private val longestSlot: LongestSlot,
+    private val time: TimeSource,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
+    private val _watchChanges = MutableSharedFlow<Long>(extraBufferCapacity = 16)
+    /** Manual watched changes invalidate catalog history even while the catalog is offscreen. */
+    val watchChanges = _watchChanges.asSharedFlow()
+
+    /** Mark a movie/episode, or every accessible episode of a series, for this profile's own account. */
+    suspend fun setWatched(itemId: Long, profileId: Long, watched: Boolean): Set<Long> = withContext(io) {
+        val item = checkNotNull(itemDao.byId(itemId)) { "This item is no longer available." }
+        val access = profiles.access(profileId)
+        check(access.allows(item.id, item.ratingScore)) { "This profile cannot change this item's history." }
+        val playstate = checkNotNull(playstate(item.serverId, profileId)) { "Sign in with a Jellyfin profile to change watched status." }
+        val items = if (item.type == MediaType.SERIES) showEpisodes(item, access) else listOf(item)
+        check(items.isNotEmpty()) { "No accessible episodes are available." }
+        try {
+            for (entry in items) {
+                if (watched) playstate.markWatched(entry.remoteId, time.nowUtcMs()) else playstate.setPlayed(entry.remoteId, false)
+            }
+            items.mapTo(HashSet()) { it.id }
+        } finally {
+            // A series update can partly succeed before a connection fails; reload the server's truth too.
+            _watchChanges.tryEmit(itemId)
+        }
+    }
+
     /** What each of [channels] airs at [atUtcMs], in one read; a channel with no schedule is left out. */
     suspend fun nowOn(channels: List<Channel>, atUtcMs: Long, access: ProfileAccess): Map<Long, ChannelNow> = withContext(io) {
         if (channels.isEmpty()) return@withContext emptyMap()
@@ -187,6 +222,7 @@ class OnDemandRepository @Inject constructor(
                         overview = row.overview?.takeIf { it.isNotBlank() && restriction == null },
                         artwork = if (restriction != null) artwork.copy(backdropUrl = null) else artwork,
                         restriction = restriction,
+                        durationMs = row.durationMs?.takeIf { restriction == null } ?: 0L,
                     )
                 }
                 row.channelId to now
@@ -277,6 +313,7 @@ class OnDemandRepository @Inject constructor(
                 WatchMarks(
                     resume = mapOf(item.id to watch.positionMs).filterValues { it > 0 },
                     played = if (watch.played) setOf(item.id) else emptySet(),
+                    known = true,
                 )
             } else {
                 val ids = episodes.associate { it.remoteId to it.id }
@@ -284,6 +321,7 @@ class OnDemandRepository @Inject constructor(
                 WatchMarks(
                     resume = watched.filter { it.second.positionMs > 0 }.associate { (id, watch) -> id to watch.positionMs },
                     played = watched.filter { it.second.played }.map { it.first }.toSet(),
+                    known = true,
                 )
             }
         } catch (e: CancellationException) {
@@ -327,7 +365,7 @@ class OnDemandRepository @Inject constructor(
 
     /** Every episode of [item]'s show the profile may watch, in order, [item] among them when allowed; empty for a movie. */
     suspend fun showEpisodes(item: MediaItemEntity, access: ProfileAccess): List<MediaItemEntity> = withContext(io) {
-        val series = item.seriesRemoteId ?: return@withContext emptyList()
+        val series = item.seriesRemoteId ?: item.remoteId.takeIf { item.type == MediaType.SERIES } ?: return@withContext emptyList()
         itemDao.episodes(item.serverId, series, MediaType.EPISODE, access.limit).filter { !access.isHidden(it.id) }
     }
 

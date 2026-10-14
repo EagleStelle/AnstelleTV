@@ -11,7 +11,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
@@ -39,7 +38,9 @@ import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.DialogAction
 import tv.anstelle.core.theme.components.WatchIcons
+import tv.anstelle.core.theme.components.requestWhenReady
 import tv.anstelle.core.theme.components.WatchStrip
+import tv.anstelle.core.theme.components.Notice
 import javax.inject.Inject
 
 @Immutable
@@ -65,6 +66,14 @@ class EpisodeViewModel @Inject constructor(
     val state: StateFlow<EpisodeUiState> = _state.asStateFlow()
 
     private var profileId = 0L
+    val watchEditor = WatchedEditor(repository, viewModelScope)
+
+    fun setWatched(watched: Boolean) {
+        val page = _state.value.page ?: return
+        watchEditor.setWatched(page.item.id, profileId, watched, ::refreshWatch) { ids ->
+            _state.update { it.copy(watch = it.watch.withPlayed(ids, watched)) }
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -89,9 +98,12 @@ class EpisodeViewModel @Inject constructor(
     /** Reads what was watched again, e.g. after watching some of it. */
     fun refreshWatch() {
         val page = _state.value.page ?: return
+        val revision = watchEditor.revision
         viewModelScope.launch {
             val watch = repository.watchMarks(page.item.id, page.episodes, profileId)
-            _state.update { it.copy(watch = watch) }
+            if (revision == watchEditor.revision && !watchEditor.state.value.saving) {
+                _state.update { it.copy(watch = if (watch.known) watch else it.watch.copy(known = false)) }
+            }
         }
     }
 }
@@ -136,6 +148,7 @@ fun EpisodeScreen(
         Unit
     }
     val watch = state.watch
+    val edit by viewModel.watchEditor.state.collectAsStateWithLifecycle()
     val item = page.item
     val listState = rememberLazyListState()
     val firstFocus = remember { FocusRequester() }
@@ -144,15 +157,16 @@ fun EpisodeScreen(
     var lastTouched by rememberSaveable { mutableStateOf<Long?>(null) }
     var holding by remember { mutableStateOf<EpisodeEntry?>(null) }
     if (isTv) {
-        LaunchedEffect(Unit) {
-            withFrameNanos { }
-            runCatching { firstFocus.requestFocus() }
+        LaunchedEffect(item.id) {
+            listState.scrollToItem(0)
+            firstFocus.requestWhenReady()
         }
     }
 
     val self = page.episodes.firstOrNull { it.id == item.id }
     val seasons = remember(page) { page.episodes.groupBy { it.seasonLabel } }
-    var season by rememberSaveable { mutableStateOf(self?.seasonLabel ?: seasons.keys.firstOrNull()) }
+    val navigation = rememberEpisodeNavigation(listState, item.overview != null || edit.error != null, seasons.size, firstFocus)
+    var season by rememberSaveable(item.id) { mutableStateOf(self?.seasonLabel ?: seasons.keys.firstOrNull()) }
     val resume = watch.resumeMs(item.id, item.durationMs)
     val watched = watch.watched(item.id, item.durationMs)
     val actions = listOfNotNull(
@@ -162,6 +176,7 @@ fun EpisodeScreen(
             SheetAction("Play", WatchIcons.play(0, false)) { onPlay(item.id, 0) }
         },
         SheetAction("From the start", WatchIcons.StartOver) { onPlay(item.id, 0) }.takeIf { resume > 0 },
+        watchedAction(watched, edit.saving, watch.known) { viewModel.setWatched(!watched) },
         SheetAction("Add to a channel", WatchIcons.AddToChannel) { onAddToChannel?.invoke(item.id) }.takeIf { onAddToChannel != null },
     )
 
@@ -171,33 +186,43 @@ fun EpisodeScreen(
             ProgrammeSheet(
                 shape = PictureShape.STILL,
                 picture = { slot ->
-                    val fraction = if (item.durationMs > 0) resume.toFloat() / item.durationMs else 0f
                     SheetPicture(
                         item.imageUrl,
                         item.title,
                         slot,
                         shaded = watched,
-                        foot = if (fraction > 0f || watched) ({ WatchStrip(fraction, watched) }) else null,
+                        foot = if (watched || resume > 0L) ({
+                            WatchStrip(
+                                if (item.durationMs > 0) resume.toFloat() / item.durationMs else 0f,
+                                watched,
+                                remaining = item.durationMs.takeIf { it > 0 }?.let { remainingTime(it - resume) },
+                            )
+                        }) else null,
                     )
                 },
                 title = {
                     SheetLogo(item.artwork.logoUrl, item.title)
+                    SheetTitle(item.title)
                     item.detail?.let { EpisodeLine(it) }
                 },
-                readout = { Readout(episodeReadout(page)) },
-                timeLeft = WatchChoices.timeLeft(item.durationMs, resume),
-                bars = { WatchKeys(actions, listState, firstFocus) },
+                readout = { MediaFacts(item.year, item.rating, item.genres, item.durationMs) },
+                bars = { WatchKeys(actions, listState, firstFocus, navigation = navigation) },
             )
         },
         modifier = modifier,
         listState = listState,
     ) {
-        item.overview?.let { overview ->
-            item(key = "synopsis") { Synopsis(overview, Modifier.padding(top = if (isTv) 12.dp else 8.dp)) }
+        if (item.overview != null || edit.error != null) {
+            item(key = "synopsis") {
+                androidx.compose.foundation.layout.Column(Modifier.padding(top = if (isTv) 12.dp else 8.dp)) {
+                    edit.error?.let { Notice(it, isError = true) }
+                    item.overview?.let { Synopsis(it) }
+                }
+            }
         }
         if (page.episodes.isNotEmpty()) {
             item(key = "episodes-heading") {
-                EpisodesHeading(seasons, season, watch, Modifier.padding(top = if (isTv) 20.dp else 14.dp)) { season = it }
+                EpisodesHeading(seasons, season, watch, Modifier.padding(top = if (isTv) 20.dp else 14.dp), navigation) { season = it }
             }
             item(key = "episodes") {
                 EpisodeCarousel(
@@ -222,6 +247,7 @@ fun EpisodeScreen(
                     },
                     returnTo = lastTouched,
                     returnFocus = returnFocus,
+                    navigation = navigation,
                 )
             }
         }

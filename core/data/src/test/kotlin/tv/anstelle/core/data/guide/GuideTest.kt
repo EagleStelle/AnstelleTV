@@ -214,7 +214,7 @@ class GuideTest {
     @Test
     fun `badges name the picture and the sound`() {
         assertEquals(listOf("4K", "DV", "Atmos", "7.1"), ProgramBadges.of(HdrType.DOLBY_VISION, 3840, 2160, "Atmos", 8))
-        assertEquals(listOf("HD", "HDR10", "DTS", "5.1"), ProgramBadges.of(HdrType.HDR10, 1920, 1080, "DTS", 6))
+        assertEquals(listOf("HDR10", "DTS", "5.1"), ProgramBadges.of(HdrType.HDR10, 1920, 1080, "DTS", 6))
         assertEquals(listOf("HLG"), ProgramBadges.of(HdrType.HLG, 720, 480, "AAC", 2))
         assertEquals(emptyList(), ProgramBadges.of(HdrType.SDR, null, null, null, null))
     }

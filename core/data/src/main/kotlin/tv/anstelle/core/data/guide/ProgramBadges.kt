@@ -12,7 +12,6 @@ object ProgramBadges {
         val h = height ?: 0
         when {
             w >= 3200 || h >= 2000 -> add("4K")
-            w >= 1200 || h >= 700 -> add("HD")
         }
         when (hdrType) {
             HdrType.SDR -> Unit

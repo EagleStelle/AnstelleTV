@@ -12,7 +12,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -50,10 +49,13 @@ import tv.anstelle.core.theme.components.ChannelLogo
 import tv.anstelle.core.theme.components.DialogAction
 import tv.anstelle.core.theme.components.NumberBlock
 import tv.anstelle.core.theme.components.RestrictedMark
-import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.StandInSize
 import tv.anstelle.core.theme.components.WatchIcons
 import tv.anstelle.core.theme.components.obscured
+import tv.anstelle.core.theme.components.requestWhenReady
+import tv.anstelle.core.theme.components.Notice
+import tv.anstelle.core.theme.components.StatusLine
+import tv.anstelle.core.theme.components.WatchStrip
 import javax.inject.Inject
 
 @Immutable
@@ -84,6 +86,15 @@ class ChannelViewModel @Inject constructor(
     val state: StateFlow<ChannelUiState> = _state.asStateFlow()
 
     private var profileId = 0L
+    val watchEditor = WatchedEditor(repository, viewModelScope)
+
+    fun setWatched(watched: Boolean) {
+        val page = _state.value.page ?: return
+        if (page.restriction != null) return
+        watchEditor.setWatched(page.item.id, profileId, watched, ::refreshWatch) { ids ->
+            _state.update { it.copy(watch = it.watch.withPlayed(ids, watched)) }
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -107,9 +118,12 @@ class ChannelViewModel @Inject constructor(
     /** Reads what was watched again, e.g. after watching some of it. */
     fun refreshWatch() {
         val page = _state.value.page ?: return
+        val revision = watchEditor.revision
         viewModelScope.launch {
             val watch = repository.watchMarks(page, profileId)
-            _state.update { it.copy(watch = watch) }
+            if (revision == watchEditor.revision && !watchEditor.state.value.saving) {
+                _state.update { it.copy(watch = if (watch.known) watch else it.watch.copy(known = false)) }
+            }
         }
     }
 }
@@ -145,6 +159,7 @@ fun ChannelScreen(
         return
     }
     val isTv = LocalIsTv.current
+    val edit by viewModel.watchEditor.state.collectAsStateWithLifecycle()
     val clock = rememberClock()
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val firstFocus = remember { FocusRequester() }
@@ -153,10 +168,9 @@ fun ChannelScreen(
     var lastTouched by rememberSaveable { mutableStateOf<Long?>(null) }
     var holding by remember { mutableStateOf<EpisodeEntry?>(null) }
     if (isTv) {
-        LaunchedEffect(Unit) {
-            withFrameNanos { }
-            val returned = lastTouched != null && runCatching { returnFocus.requestFocus() }.isSuccess
-            if (!returned) runCatching { firstFocus.requestFocus() }
+        LaunchedEffect(page.channel.id, page.startUtcMs) {
+            listState.scrollToItem(0)
+            firstFocus.requestWhenReady()
         }
     }
 
@@ -164,6 +178,7 @@ fun ChannelScreen(
     val restricted = page.restriction != null
     val topicEpisode = page.episodes.firstOrNull { it.id == item.id }
     val seasons = remember(page) { page.episodes.groupBy { it.seasonLabel } }
+    val navigation = rememberEpisodeNavigation(listState, restricted || item.overview != null || edit.error != null, seasons.size, firstFocus)
     var season by rememberSaveable { mutableStateOf(topicEpisode?.seasonLabel ?: seasons.keys.firstOrNull()) }
     val choices = topicChoices(page, state.openedAtMs)
 
@@ -178,7 +193,7 @@ fun ChannelScreen(
 
     // The ways to watch, then adding the show to a channel, as one row of keys.
     val actions = choices.map { choice ->
-        SheetAction(choice.title, choice.icon()) {
+        SheetAction(choice.title, choice.icon(), pinned = choice.leavesChannel && choice.positionMs > 0) {
             lastTouched = null
             act(choice, item.id)
         }
@@ -194,30 +209,46 @@ fun ChannelScreen(
             ProgrammeSheet(
                 shape = shape,
                 // A restricted program's placeholder shows no letter of its title.
-                picture = { SheetPicture(item.imageUrl, item.title.takeUnless { restricted }.orEmpty(), it) },
-                underPicture = if (tense == AiringTense.ON_NOW) {
-                    { SegmentLadder(progress(page.startUtcMs, page.endUtcMs, clock.value), segments = if (shape == PictureShape.STILL) 24 else 10) }
-                } else {
-                    null
+                picture = { slot ->
+                    SheetPicture(
+                        item.imageUrl, item.title.takeUnless { restricted }.orEmpty(), slot,
+                        foot = if (!restricted && tense == AiringTense.ON_NOW) ({
+                            WatchStrip(
+                                progress(page.startUtcMs, page.endUtcMs, clock.value),
+                                watched = false,
+                                remaining = remainingTime(page.endUtcMs - clock.value),
+                            )
+                        }) else null,
+                    )
                 },
-                timeLeft = if (tense == AiringTense.ON_NOW) "${WatchChoices.span(page.endUtcMs - clock.value, roundUp = true)} left" else null,
                 title = {
                     ChannelIdent(page.channel)
                     // A restricted program's title, logo and episode are blurred.
                     val theme = LocalAnstelleTheme.current
                     SheetLogo(item.artwork.logoUrl, item.title, Modifier.obscured(restricted, theme.textMuted, radius = 12.dp))
+                    SheetTitle(item.title, Modifier.obscured(restricted, theme.textMuted, radius = 12.dp))
                     if (item.isEpisode) item.detail?.let { EpisodeLine(it, Modifier.obscured(restricted, theme.textMuted, radius = 6.dp)) }
                 },
-                readout = { Readout(channelReadout(page, tense, clock.value)) },
-                bars = { WatchKeys(actions, listState, firstFocus) },
+                readout = {
+                    androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        StatusLine(
+                            onAir = when (tense) { AiringTense.ON_NOW -> true; AiringTense.LATER -> false; AiringTense.AIRED -> null },
+                            label = when (tense) { AiringTense.ON_NOW -> "On now"; AiringTense.LATER -> if (page.onNow) "Later" else "Up next"; AiringTense.AIRED -> "Aired" },
+                            text = WatchChoices.clockRange(page.startUtcMs, page.endUtcMs),
+                        )
+                        if (!restricted) MediaFacts(item.year, item.rating, item.genres, item.durationMs)
+                    }
+                },
+                bars = { WatchKeys(actions, listState, firstFocus, navigation = navigation) },
             )
         },
         modifier = modifier,
         listState = listState,
     ) {
-        if (restricted || item.overview != null) {
+        if (restricted || item.overview != null || edit.error != null) {
             item(key = "synopsis") {
                 Column(Modifier.padding(top = if (isTv) 12.dp else 8.dp)) {
+                    edit.error?.let { Notice(it, isError = true) }
                     // For a program the profile may not watch, the synopsis is blacked out with the pictures.
                     page.restriction?.let { RestrictedMark(it.title, size = StandInSize.LINE, alignStart = true) }
                     item.overview?.let { Synopsis(it) }
@@ -226,12 +257,13 @@ fun ChannelScreen(
         }
         if (page.episodes.isNotEmpty()) {
             item(key = "episodes-heading") {
-                EpisodesHeading(seasons, season, state.watch, Modifier.padding(top = if (isTv) 20.dp else 14.dp)) { season = it }
+                EpisodesHeading(seasons, season, WatchMarks(), Modifier.padding(top = if (isTv) 20.dp else 14.dp), navigation) { season = it }
             }
             item(key = "episodes") {
                 EpisodeCarousel(
                     episodes = seasons[season].orEmpty(),
                     watch = state.watch,
+                    showWatched = false,
                     target = lastTouched ?: topicEpisode?.id,
                     onOpen = {
                         lastTouched = it.id
@@ -243,6 +275,7 @@ fun ChannelScreen(
                     },
                     returnTo = lastTouched,
                     returnFocus = returnFocus,
+                    navigation = navigation,
                 )
             }
         }

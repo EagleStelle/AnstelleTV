@@ -53,6 +53,7 @@ import tv.anstelle.core.data.ondemand.SearchResults
 import tv.anstelle.core.data.ondemand.SearchSort
 import tv.anstelle.core.data.ondemand.Title
 import tv.anstelle.core.data.ondemand.WatchCard
+import tv.anstelle.core.data.ondemand.ShelfType
 import tv.anstelle.core.data.ondemand.WatchChoice
 import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.data.ondemand.WatchFilter
@@ -69,6 +70,7 @@ import tv.anstelle.core.theme.components.screenSide
 /** Where a catalog tab's picks lead: a title's page, the player, Add to channel. */
 internal class CatalogActions(
     val onOpenTitle: (titleId: Long) -> Unit,
+    val onOpenEpisode: (itemId: Long) -> Unit,
     val onPlay: (itemId: Long, positionMs: Long) -> Unit,
     val onPlaySeries: (titleId: Long, positionMs: Long) -> Unit,
     /** Null for a member: adding to a channel is the owner's and admins'. */
@@ -168,6 +170,7 @@ internal fun CatalogTab(
                         .let { if (focus.opened == "${kind.key}/banner") it.focusRequester(focus.returnTo) else it }
                         .focusRequester(bannerFocus)
                         .onFocusChanged { if (it.isFocused) current = -1 },
+                    footer = { i -> TitleProgress(state.banner[i], watch, Modifier.weight(1f)) },
                 ) { i -> TitleSlide(state.banner[i], watch) }
             }
         }
@@ -176,7 +179,7 @@ internal fun CatalogTab(
             item(key = shelfKey) {
                 Column(verticalArrangement = Arrangement.spacedBy(screenGap - TILE_FRAME)) {
                     // A heading takes a gap more above it than under it, so it reads with its own row.
-                    ShelfHeader(content.shelf, content.count, Modifier.padding(start = screenSide, end = screenSide, top = screenGap))
+                    ShelfHeader(content.shelf, Modifier.padding(start = screenSide, end = screenSide, top = screenGap))
                     // Pictures sit the guide's gap apart: the spacing plus each card's focus inset.
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = screenSide - TILE_FRAME),
@@ -205,9 +208,10 @@ internal fun CatalogTab(
                                 } else {
                                     WatchCardTile(
                                         card = card,
+                                        showProgress = content.shelf.type != ShelfType.NEXT_UP,
                                         onClick = {
                                             focus.onOpened(key)
-                                            actions.onOpenTitle(card.titleId)
+                                            actions.onOpenEpisode(card.itemId)
                                         },
                                         onHold = {
                                             focus.onOpened(key)

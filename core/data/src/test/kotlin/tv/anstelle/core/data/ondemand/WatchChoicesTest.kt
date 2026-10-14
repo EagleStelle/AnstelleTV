@@ -85,4 +85,15 @@ class WatchChoicesTest {
         assertEquals(0L, marks.resumeMs(1, 0))
         assertEquals(false, marks.watched(1, 0))
     }
+
+    @Test
+    fun `manual marks clear only their resume points and can be undone`() {
+        val marks = WatchMarks(resume = mapOf(1L to 120_000L, 2L to 240_000L), played = setOf(3L))
+        val marked = marks.withPlayed(setOf(1L), true)
+        assertEquals(setOf(1L, 3L), marked.played)
+        assertEquals(mapOf(2L to 240_000L), marked.resume)
+        val undone = marked.withPlayed(setOf(1L), false)
+        assertEquals(setOf(3L), undone.played)
+        assertEquals(mapOf(2L to 240_000L), undone.resume)
+    }
 }

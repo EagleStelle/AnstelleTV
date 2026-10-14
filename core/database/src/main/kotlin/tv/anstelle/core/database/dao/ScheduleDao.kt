@@ -52,6 +52,8 @@ data class ChannelAiring(
     val seriesRemoteId: String?,
     val seriesBackdropImageTag: String?,
     val seriesLogoImageTag: String?,
+    /** Actual media length; the scheduled slot can differ after seeking a channel. */
+    val durationMs: Long? = null,
 )
 
 /** A program's item and when it starts. */
@@ -135,7 +137,7 @@ interface ScheduleDao {
     @Query(
         """
         SELECT s.channelId, s.mediaItemId, s.startUtcMs, s.endUtcMs, m.serverId, m.remoteId,
-               m.title, m.showTitle, m.season, m.episode, m.year, m.overview, m.ratingScore,
+               m.title, m.showTitle, m.season, m.episode, m.year, m.overview, m.ratingScore, m.durationMs,
                m.backdropImageTag, m.logoImageTag, series.remoteId AS seriesRemoteId,
                series.backdropImageTag AS seriesBackdropImageTag, series.logoImageTag AS seriesLogoImageTag
         FROM schedule_slot s LEFT JOIN media_item m ON m.id = s.mediaItemId

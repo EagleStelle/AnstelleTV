@@ -49,12 +49,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -82,7 +80,6 @@ import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.channels.ChannelRepository
 import tv.anstelle.core.data.channels.ChannelSummary
-import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.data.ondemand.CatalogKind
 import tv.anstelle.core.data.ondemand.ChannelNow
 import tv.anstelle.core.data.ondemand.OnDemandRepository
@@ -97,9 +94,12 @@ import tv.anstelle.core.theme.components.Backdrop
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.NumberBlock
 import tv.anstelle.core.theme.components.OsdTab
+import tv.anstelle.core.theme.components.OsdTabBar
+import tv.anstelle.core.theme.components.osdTabHeight
+import tv.anstelle.core.theme.components.ChannelLogo
 import tv.anstelle.core.theme.components.PlaceholderAction
 import tv.anstelle.core.theme.components.PlaceholderScreen
-import tv.anstelle.core.theme.components.SegmentLadder
+import tv.anstelle.core.theme.components.WatchStrip
 import tv.anstelle.core.theme.components.StatusLine
 import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.screenEdge
@@ -257,6 +257,7 @@ private val Tabs = listOf(OnDemandTab(HOME, "Channels")) + CatalogKind.entries.m
 fun OnDemandScreen(
     onOpenChannel: (channelId: Long) -> Unit,
     onOpenTitle: (titleId: Long) -> Unit,
+    onOpenEpisode: (itemId: Long) -> Unit,
     onPlay: (itemId: Long, positionMs: Long) -> Unit,
     /** Null for a member, who has no channels or servers to set up. */
     onOpenSettings: (() -> Unit)?,
@@ -291,9 +292,10 @@ fun OnDemandScreen(
             Unit
         }
     }
-    val actions = remember(openTitle, onPlay, onAddToChannel, catalog) {
+    val actions = remember(openTitle, onOpenEpisode, onPlay, onAddToChannel, catalog) {
         CatalogActions(
             onOpenTitle = openTitle,
+            onOpenEpisode = onOpenEpisode,
             onPlay = onPlay,
             onPlaySeries = { titleId, positionMs ->
                 scope.launch {
@@ -419,17 +421,18 @@ private fun TabRow(tabs: List<OnDemandTab>, open: String, onSelect: (String) -> 
             return@BoxWithConstraints
         }
         val room = maxWidth - tabPad - TABS_ROOM
-        val width by animateDpAsState(
-            targetValue = if (searching) minOf(SEARCH_OPEN, room) else minOf(if (isTv) SEARCH_CLOSED_TV else SEARCH_CLOSED, room).coerceAtLeast(SEARCH_MIN),
+        val targetWidth = if (searching) minOf(SEARCH_OPEN, room) else osdTabHeight(compact = isTv)
+        // TV changes width in one layout pass, so the input never squeezes the search icon mid-transition.
+        val width = if (isTv) targetWidth else animateDpAsState(
+            targetValue = targetWidth,
             animationSpec = tween(160, easing = FastOutSlowInEasing),
             label = "search width",
-        )
-        Row(
+        ).value
+        OsdTabBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .focusProperties { onEnter = { requesters[open]?.requestFocus() } }
                 .focusGroup(),
-            verticalAlignment = Alignment.Bottom,
         ) {
             Row(
                 modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
@@ -463,15 +466,8 @@ private fun TabRow(tabs: List<OnDemandTab>, open: String, onSelect: (String) -> 
 /** From this wide, Search opens beside the tabs; narrower, it takes the row. */
 private val WIDE_ROW = 640.dp
 
-/** The search field's width while Search is closed, on TV and on touch. */
-private val SEARCH_CLOSED_TV = 280.dp
-private val SEARCH_CLOSED = 200.dp
-
 /** The search field's width while Search is open beside the tabs. */
 private val SEARCH_OPEN = 560.dp
-
-/** The least the search field keeps beside the tabs: its mark and the placeholder. */
-private val SEARCH_MIN = 120.dp
 
 /** What the tabs need beside the search field. */
 private val TABS_ROOM = 240.dp
@@ -539,9 +535,9 @@ private fun HomeTab(
                         .focusRequester(bannerFocus),
                     footer = { i ->
                         val slide = slides[i]
-                        SegmentLadder(progress(slide.startUtcMs, slide.endUtcMs, clock.value), Modifier.width(if (isTv) 320.dp else 180.dp))
+                        ProgressRow(progress(slide.startUtcMs, slide.endUtcMs, clock.value), remainingTime(slide.endUtcMs - clock.value), Modifier.weight(1f))
                     },
-                ) { i -> ChannelSlide(slides[i], clock.value) }
+                ) { i -> ChannelSlide(slides[i]) }
             }
         }
         for (row in state.rows) {
@@ -587,11 +583,12 @@ private fun RowHeader(row: ChannelRow, modifier: Modifier = Modifier) {
  * lines of overview; the banner's foot carries how far the airing has got.
  */
 @Composable
-private fun ChannelSlide(slide: ChannelNow, nowMs: Long) {
+private fun ChannelSlide(slide: ChannelNow) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        slide.channel.logoUri?.let { ChannelLogo(it, height = if (isTv) 30.dp else 24.dp, alignment = Alignment.CenterStart) }
         NumberBlock(
             "${slide.channel.number}",
             style = typography.titleLarge.merge(TextStyle(fontFamily = theme.displayFont, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")),
@@ -613,17 +610,25 @@ private fun ChannelSlide(slide: ChannelNow, nowMs: Long) {
         maxLines = 2,
         modifier = Modifier.padding(top = 4.dp),
     )
-    // An episode's line keeps the episode page's hierarchy, its number quiet; a movie's names it under its logo.
+    // An episode's line keeps the episode page's hierarchy, its number quiet; a movie's year and runtime stand under its logo.
     val line = if (slide.isEpisode) {
         slide.detail?.let { splitEpisodeLabel(it) }?.let { (number, title) -> numbered(number, title, theme.textMuted) }
-    } else {
-        lineUnderLogo(slide.detail, slide.title, false, slide.artwork.logoUrl != null)?.let { AnnotatedString(it) }
-    }
+    } else null
     line?.let { androidx.compose.material3.Text(it, style = typography.bodyLarge, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    if (!slide.isEpisode && (slide.detail != null || slide.durationMs > 0)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            slide.detail?.let {
+                androidx.compose.material3.Text(it, style = typography.bodyMedium.merge(TextStyle(fontFeatureSettings = "tnum")), color = theme.textMuted, maxLines = 1)
+            }
+            if (slide.durationMs > 0) {
+                androidx.compose.material3.Text(WatchChoices.span(slide.durationMs).uppercase(), style = typography.bodyMedium.merge(TextStyle(fontFeatureSettings = "tnum")), color = theme.textMuted, maxLines = 1)
+            }
+        }
+    }
     StatusLine(
         onAir = true,
         label = "On now",
-        text = "${WatchChoices.clockRange(slide.startUtcMs, slide.endUtcMs)}  ${WatchChoices.span(slide.endUtcMs - nowMs, roundUp = true)} left",
+        text = WatchChoices.clockRange(slide.startUtcMs, slide.endUtcMs),
     )
     slide.overview?.let {
         androidx.compose.material3.Text(
@@ -631,7 +636,7 @@ private fun ChannelSlide(slide: ChannelNow, nowMs: Long) {
             style = typography.bodyMedium,
             color = theme.text,
             minLines = 2,
-            maxLines = 2,
+            maxLines = if (isTv) 5 else 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(max = 620.dp),
         )
@@ -662,10 +667,11 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                             OffAirMark(markInset.align(Alignment.TopStart), StandInSize.LINE, alignStart = true, title = "No schedule")
                         } else {
                             OffAirMark(markInset.align(Alignment.TopStart), StandInSize.LINE, alignStart = true)
-                            SegmentLadder(
+                            WatchStrip(
                                 progress(now.startUtcMs, now.endUtcMs, nowMs),
-                                Modifier.align(Alignment.BottomStart).padding(horizontal = 10.dp, vertical = 7.dp),
-                                segments = 16,
+                                watched = false,
+                                modifier = Modifier.align(Alignment.BottomStart),
+                                remaining = remainingTime(now.endUtcMs - nowMs),
                             )
                         }
                     }
@@ -681,12 +687,13 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                             maxLogoWidth = if (isTv) 170.dp else 136.dp,
                             style = typography.titleMedium.merge(TextStyle(fontFamily = theme.displayFont)),
                             maxLines = 2,
-                            modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 16.dp).obscured(true, theme.textMuted),
+                            modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 24.dp).obscured(true, theme.textMuted),
                         )
-                        SegmentLadder(
+                        WatchStrip(
                             progress(now.startUtcMs, now.endUtcMs, nowMs),
-                            Modifier.align(Alignment.BottomStart).padding(horizontal = 10.dp, vertical = 7.dp),
-                            segments = 16,
+                            watched = false,
+                            modifier = Modifier.align(Alignment.BottomStart),
+                            remaining = remainingTime(now.endUtcMs - nowMs),
                         )
                     }
                 } else {
@@ -698,12 +705,13 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                             maxLogoWidth = if (isTv) 170.dp else 136.dp,
                             style = typography.titleMedium.merge(TextStyle(fontFamily = theme.displayFont)),
                             maxLines = 2,
-                            modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 16.dp),
+                            modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 24.dp),
                         )
-                        SegmentLadder(
+                        WatchStrip(
                             progress(now.startUtcMs, now.endUtcMs, nowMs),
-                            Modifier.align(Alignment.BottomStart).padding(horizontal = 10.dp, vertical = 7.dp),
-                            segments = 16,
+                            watched = false,
+                            modifier = Modifier.align(Alignment.BottomStart),
+                            remaining = remainingTime(now.endUtcMs - nowMs),
                         )
                     }
                 }

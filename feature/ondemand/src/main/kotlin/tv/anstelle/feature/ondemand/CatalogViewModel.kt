@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.take
@@ -62,8 +63,6 @@ data class ShelfContent(
     val shelf: Shelf,
     val cards: List<WatchCard> = emptyList(),
     val titles: List<Title> = emptyList(),
-    /** How many titles a channel's row holds, "34 movies"; null for the fixed rows. */
-    val count: String? = null,
 )
 
 @Immutable
@@ -242,7 +241,7 @@ class CatalogViewModel @Inject constructor(
         }
         // Coming back from the player can beat its last report to Jellyfin: read again once that lands.
         viewModelScope.launch {
-            reporter.reported.debounce(RELOAD_DEBOUNCE_MS).collect { watchTick.value++ }
+            merge(reporter.reported, repository.watchChanges).debounce(RELOAD_DEBOUNCE_MS).collect { watchTick.value++ }
         }
         // Reconnecting a profile can leave its visible access rules unchanged. Its account
         // table still emits, so discard history collected under the previous credentials.
@@ -309,7 +308,7 @@ class CatalogViewModel @Inject constructor(
                         .sortedBy { it.id }
                         .shuffled(Random(seed xor channel.id))
                         .takeIf { it.isNotEmpty() }
-                        ?.let { ShelfContent(shelf, titles = it, count = kind.count(it.size)) }
+                        ?.let { ShelfContent(shelf, titles = it) }
                 }
             }
         }

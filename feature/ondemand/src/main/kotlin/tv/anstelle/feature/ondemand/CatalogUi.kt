@@ -59,6 +59,8 @@ import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.Backdrop
+import tv.anstelle.core.theme.components.BANNER_ASPECT
+import tv.anstelle.core.theme.components.TV_BANNER_ASPECT
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.PastShade
 import tv.anstelle.core.theme.components.SegmentLadder
@@ -69,13 +71,6 @@ import kotlin.math.abs
 
 /** The inset that focus fills round a tile's, card's or poster's picture. */
 internal val TILE_FRAME = 3.dp
-
-/**
- * Every banner's height, fixed: the room a slide needs with its logo, facts and two lines of
- * overview, so Channels, Movies and Series stand alike whatever a slide holds or the order
- * the tabs are opened in.
- */
-private val BANNER_HEIGHT @Composable get() = if (LocalIsTv.current) 300.dp else 256.dp
 
 /** How far a swipe has to travel to step a banner. */
 private val SWIPE = 48.dp
@@ -100,7 +95,6 @@ internal fun RotatingBanner(
     content: @Composable ColumnScope.(Int) -> Unit,
 ) {
     val isTv = LocalIsTv.current
-    val height = Modifier.height(BANNER_HEIGHT)
     var index by rememberSaveable { mutableIntStateOf(0) }
     var focused by remember { mutableStateOf(false) }
     val shown = index.coerceIn(0, count - 1)
@@ -143,7 +137,7 @@ internal fun RotatingBanner(
             url = backdropUrl(shown),
             modifier = Modifier
                 .fillMaxWidth()
-                .then(height),
+                .aspectRatio(if (isTv) TV_BANNER_ASPECT else BANNER_ASPECT),
             alignment = Alignment.Center,
         ) {
             // Edge to edge, so focus shows as a frame drawn inside the picture.
@@ -151,6 +145,7 @@ internal fun RotatingBanner(
             Column(
                 Modifier
                     .align(Alignment.BottomStart)
+                    .fillMaxWidth()
                     // The text lines up with the row headers under it.
                     .padding(horizontal = screenSide, vertical = if (isTv) 22.dp else 16.dp),
                 verticalArrangement = Arrangement.spacedBy(if (isTv) 6.dp else 4.dp),
@@ -159,10 +154,10 @@ internal fun RotatingBanner(
                 Row(
                     Modifier.fillMaxWidth().padding(top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.End),
                 ) {
                     footer(shown)
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { Pager(count, shown, isFocused) }
+                    Box(contentAlignment = Alignment.CenterEnd) { Pager(count, shown, isFocused) }
                 }
             }
         }
@@ -206,7 +201,7 @@ internal fun ColumnScope.TitleSlide(title: Title, watch: CatalogWatch) {
             style = typography.bodyMedium,
             color = theme.text,
             minLines = 2,
-            maxLines = 2,
+            maxLines = if (isTv) 5 else 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(max = 620.dp),
         )
@@ -214,42 +209,38 @@ internal fun ColumnScope.TitleSlide(title: Title, watch: CatalogWatch) {
 }
 
 /**
- * What was watched of a title, in the watch strip's words: a movie part-way through as its
- * ladder alone, a series as how many episodes are left. Nothing when nothing is known; the
- * banner never deals one watched through.
+ * A series' watch status as how many episodes are left; movie progress belongs in the banner
+ * footer beside its pager. Nothing when nothing is known; the banner never deals one watched through.
  */
 @Composable
 private fun WatchLine(title: Title, watch: CatalogWatch) {
     val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
     val label = androidx.compose.material3.MaterialTheme.typography.labelMedium
-    val fraction = watch.fraction(title)
     val unwatched = watch.unwatched(title)
-    when {
-        fraction > 0f -> SegmentLadder(fraction, Modifier.width(if (isTv) 180.dp else 120.dp), segments = if (isTv) 18 else 12)
-        unwatched != null && unwatched > 0 -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    if (unwatched != null && unwatched > 0) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             UnwatchedCount(unwatched)
             androidx.compose.material3.Text(if (unwatched == 1) "EPISODE TO WATCH" else "EPISODES TO WATCH", style = label, color = theme.textMuted)
         }
     }
 }
 
+/** Movie progress fills the banner footer, with remaining time at its trailing edge. */
+@Composable
+internal fun TitleProgress(title: Title, watch: CatalogWatch, modifier: Modifier = Modifier) {
+    val fraction = watch.fraction(title)
+    if (fraction > 0f) ProgressRow(
+        fraction, remainingTime(title.durationMs - (watch[title.id]?.resumeMs ?: 0L)), modifier,
+    )
+}
+
 /**
- * A title's facts on one line, set apart by space rather than dots: the year, the rating as an
- * OSD badge, the genres, then the length (or how many seasons).
+ * A title's facts set apart by space rather than dots: the year, the rating as an OSD badge,
+ * the length (or how many seasons), then the genres, wrapping when the theme needs room.
  */
 @Composable
 internal fun TitleFacts(year: Int?, rating: String?, genres: List<String>, length: String?, modifier: Modifier = Modifier) {
-    val theme = LocalAnstelleTheme.current
-    val body = androidx.compose.material3.MaterialTheme.typography.bodyMedium
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        year?.let { androidx.compose.material3.Text("$it", style = body.merge(TextStyle(fontFeatureSettings = "tnum")), color = theme.text, maxLines = 1) }
-        rating?.let { RatingBadge(it, theme.text) }
-        genres.take(3).takeIf { it.isNotEmpty() }?.let {
-            androidx.compose.material3.Text(it.joinToString(", "), style = body, color = theme.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        }
-        length?.let { androidx.compose.material3.Text(it, style = body, color = theme.textMuted, maxLines = 1) }
-    }
+    MediaFactRow(year, rating, listOfNotNull(length), genres.take(3), modifier)
 }
 
 /** An official rating as an OSD badge, in [color], so it reads on a focus fill too. */
@@ -377,7 +368,7 @@ private fun PosterCardSurface(
  * the title and episode label. OK plays it; holding it (or Menu) offers the rest.
  */
 @Composable
-internal fun WatchCardTile(card: WatchCard, onClick: () -> Unit, onHold: () -> Unit, modifier: Modifier = Modifier) {
+internal fun WatchCardTile(card: WatchCard, onClick: () -> Unit, onHold: () -> Unit, modifier: Modifier = Modifier, showProgress: Boolean = true) {
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     FocusSurface(
@@ -391,8 +382,11 @@ internal fun WatchCardTile(card: WatchCard, onClick: () -> Unit, onHold: () -> U
         Column(Modifier.padding(TILE_FRAME)) {
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(ControlShape)) {
                 Poster(card.imageUrl, card.title, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
-                val fraction = if (card.durationMs > 0) card.positionMs.toFloat() / card.durationMs else 0f
-                if (fraction > 0f) WatchStrip(fraction, false, Modifier.align(Alignment.BottomStart))
+                if (showProgress && card.durationMs > 0) WatchStrip(
+                    card.positionMs.toFloat() / card.durationMs, watched = false,
+                    modifier = Modifier.align(Alignment.BottomStart),
+                    remaining = remainingTime(card.durationMs - card.positionMs),
+                )
             }
             Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 androidx.compose.material3.Text(card.title, style = typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -403,18 +397,17 @@ internal fun WatchCardTile(card: WatchCard, onClick: () -> Unit, onHold: () -> U
 }
 
 /**
- * A row's heading in the OSD's field voice: a channel's number block before its name, then how
- * many titles it holds in muted; a fixed row is its name alone.
+ * A row's heading in the OSD's field voice: a channel's number block before its name;
+ * a fixed row is its name alone.
  */
 @Composable
-internal fun ShelfHeader(shelf: Shelf, count: String?, modifier: Modifier = Modifier) {
+internal fun ShelfHeader(shelf: Shelf, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val style = androidx.compose.material3.MaterialTheme.typography.labelMedium.copy(fontSize = if (isTv) 15.sp else 13.sp, lineHeight = 18.sp)
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         shelf.channel?.let { ChannelNumber(it.number, focused = false, style = androidx.compose.material3.MaterialTheme.typography.labelLarge) }
         androidx.compose.material3.Text(shelf.label.uppercase(), style = style, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        count?.let { androidx.compose.material3.Text(it.uppercase(), style = style, color = theme.textMuted, maxLines = 1) }
     }
 }
 

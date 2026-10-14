@@ -52,6 +52,8 @@ class CatalogRepository @Inject constructor(
     @ApplicationScope scope: CoroutineScope,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
+    val watchChanges = onDemand.watchChanges
+
     private val revision = AtomicLong()
     private val titleLock = Mutex()
     private val channelLock = Mutex()

@@ -4,8 +4,10 @@ import android.text.format.DateFormat
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -39,10 +42,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
@@ -54,13 +59,21 @@ import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.Backdrop
+import tv.anstelle.core.theme.components.BANNER_ASPECT
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdTab
+import tv.anstelle.core.theme.components.OsdTabBar
+import tv.anstelle.core.theme.components.TAB_INDICATOR_HEIGHT
+import tv.anstelle.core.theme.components.osdTabContentHeight
+import tv.anstelle.core.theme.components.osdTabLabel
 import tv.anstelle.core.theme.components.PlaceholderScreen
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.pagePadding
 import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.screenSide
+import tv.anstelle.core.theme.components.screenEdge
+import tv.anstelle.core.theme.components.screenGap
 
 /** What the ranked list ranks, in the tabs' order (user decision): channels first. */
 internal enum class Ranking(val label: String) {
@@ -111,11 +124,11 @@ fun DashboardScreen(
                     Modifier
                         .weight(RANKS_SHARE)
                         .fillMaxHeight()
-                        .verticalScroll(rememberScrollState())
-                        .padding(start = pagePadding, end = 24.dp, top = PANE_EDGE, bottom = PANE_EDGE),
+                        .then(if (isTv) Modifier else Modifier.verticalScroll(rememberScrollState()))
+                        .padding(top = if (isTv) screenEdge else 4.dp, bottom = screenEdge),
                 ) {
                     RankingHeader(ranking, { ranking = it }, spanName(state, screen))
-                    Ranks(ranking, state.lists, Modifier.padding(top = 12.dp))
+                    Ranks(ranking, state.lists, Modifier.then(if (isTv) Modifier.weight(1f) else Modifier).padding(top = screenGap))
                 }
                 Box(Modifier.width(1.dp).fillMaxHeight().background(theme.line))
                 Meter(
@@ -124,15 +137,15 @@ fun DashboardScreen(
                         .weight(1f - RANKS_SHARE)
                         .fillMaxHeight()
                         .background(theme.surface)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 24.dp, vertical = PANE_EDGE),
+                        .then(if (isTv) Modifier else Modifier.verticalScroll(rememberScrollState()))
+                        .padding(horizontal = 24.dp, vertical = if (isTv) screenEdge else PANE_EDGE),
                 )
             }
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 item(key = "ranking") {
-                    Column(Modifier.padding(start = pagePadding, end = pagePadding, top = 12.dp, bottom = 20.dp)) {
+                    Column(Modifier.padding(top = 4.dp, bottom = screenEdge)) {
                         RankingHeader(ranking, { ranking = it }, spanName(state, screen))
-                        Ranks(ranking, state.lists, Modifier.padding(top = 12.dp))
+                        Ranks(ranking, state.lists, Modifier.padding(top = screenGap))
                     }
                 }
                 item(key = "meter") {
@@ -162,26 +175,31 @@ private fun spanName(state: DashboardUiState, screen: ScreenTime): String {
 private fun RankingHeader(ranking: Ranking, onRanking: (Ranking) -> Unit, span: String) {
     val theme = LocalAnstelleTheme.current
     val firstFocus = rememberInitialFocus()
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            for (option in Ranking.entries) {
-                val open = option == ranking
-                OsdTab(
-                    option.label,
-                    selected = open,
-                    onClick = { onRanking(option) },
-                    compact = true,
-                    modifier = if (open) Modifier.focusRequester(firstFocus) else Modifier,
-                )
+    val isTv = LocalIsTv.current
+    val tabPad = if (isTv) 14.dp else 0.dp
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(start = screenSide - tabPad, end = screenSide)) {
+        val captionWidth = maxWidth * 0.45f
+        OsdTabBar {
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (option in Ranking.entries) {
+                    val open = option == ranking
+                    OsdTab(
+                        option.label,
+                        selected = open,
+                        onClick = { onRanking(option) },
+                        compact = isTv,
+                        modifier = if (open) Modifier.focusRequester(firstFocus) else Modifier,
+                    )
+                }
+            }
+            // The opaque period caption stays fixed above the scrolling tabs on every device.
+            Column(Modifier.widthIn(max = captionWidth).zIndex(1f).background(theme.background).padding(start = 12.dp)) {
+                Box(Modifier.height(osdTabContentHeight(compact = isTv)), contentAlignment = Alignment.Center) {
+                    androidx.compose.material3.Text(span.uppercase(), style = osdTabLabel(compact = isTv), color = theme.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Spacer(Modifier.height(TAB_INDICATOR_HEIGHT))
             }
         }
-        androidx.compose.material3.Text(
-            span.uppercase(),
-            style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-            color = theme.textMuted,
-            maxLines = 1,
-            modifier = Modifier.padding(start = 12.dp),
-        )
     }
 }
 
@@ -191,17 +209,21 @@ private fun RankingHeader(ranking: Ranking, onRanking: (Ranking) -> Unit, span: 
  */
 @Composable
 private fun Ranks(ranking: Ranking, lists: TopLists?, modifier: Modifier) {
+    val isTv = LocalIsTv.current
     val shown = lists?.of(ranking)
     val total = lists?.totalMs ?: 0L
     Crossfade(targetState = shown, animationSpec = tween(RE_DEAL_MS), label = "ranks", modifier = modifier) { entries ->
         when {
             entries == null -> Spacer(Modifier.height(1.dp))
             entries.isEmpty() -> NothingRanked(ranking)
-            else -> Column {
-                LeadRank(entries.first(), share(entries.first(), total), ranking)
-                entries.drop(1).forEachIndexed { i, entry ->
-                    if (i > 0) Hairline(Modifier.padding(start = 8.dp))
-                    RankRow(rank = i + 2, entry = entry, share = share(entry, total), ranking = ranking)
+            else -> Column(if (isTv) Modifier.fillMaxSize() else Modifier) {
+                // Measure supporting ranks first; number one's banner consumes the actual remainder.
+                LeadRank(entries.first(), share(entries.first(), total), ranking, if (isTv) Modifier.weight(1f) else Modifier)
+                Column(Modifier.padding(horizontal = screenSide, vertical = screenGap)) {
+                    entries.drop(1).forEachIndexed { i, entry ->
+                        if (i > 0) Hairline(Modifier.padding(start = 8.dp))
+                        RankRow(rank = i + 2, entry = entry, share = share(entry, total), ranking = ranking)
+                    }
                 }
             }
         }
@@ -215,38 +237,44 @@ private fun share(entry: TopEntry, totalMs: Long) = if (totalMs > 0) entry.playe
  * block, the logo (a channel's number block and name, a genre's name), the time and its share.
  */
 @Composable
-private fun LeadRank(entry: TopEntry, share: Float, ranking: Ranking) {
+private fun LeadRank(entry: TopEntry, share: Float, ranking: Ranking, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
-    FocusSurface(onClick = {}, color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
-        Backdrop(entry.artwork.backdropUrl, Modifier.padding(3.dp).fillMaxWidth().height(if (isTv) 164.dp else 184.dp), alignment = Alignment.Center) {
-            Row(
-                Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(if (isTv) 18.dp else 14.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(if (isTv) 18.dp else 14.dp),
-            ) {
-                RankBlock(1)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val number = entry.number
-                    if (number != null) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            ChannelNumber(number, focused = false)
-                            androidx.compose.material3.Text(entry.title, style = typography.headlineMedium, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    FocusSurface(onClick = {}, color = Color.Transparent, modifier = modifier.fillMaxWidth()) { focused ->
+        Backdrop(entry.artwork.backdropUrl, Modifier.fillMaxWidth().then(if (isTv) Modifier.fillMaxHeight() else Modifier.aspectRatio(BANNER_ASPECT)), alignment = Alignment.Center) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val verticalInset = if (isTv) minOf(22.dp, maxHeight / 8) else 16.dp
+                val timeHeight = with(LocalDensity.current) { typography.titleLarge.lineHeight.toDp() }
+                val logoHeight = if (isTv) minOf(72.dp, (maxHeight - verticalInset * 2 - timeHeight - 8.dp).coerceAtLeast(0.dp)) else 48.dp
+                if (isTv && focused) Box(Modifier.matchParentSize().border(3.dp, theme.accent))
+                Row(
+                    Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = screenSide, vertical = verticalInset),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(if (isTv) 18.dp else 14.dp),
+                ) {
+                    RankBlock(1)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val number = entry.number
+                        if (number != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                ChannelNumber(number, focused = false)
+                                androidx.compose.material3.Text(entry.title, style = typography.headlineMedium, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        } else {
+                            TitleLogo(
+                                logoUrl = entry.artwork.logoUrl.takeIf { ranking != Ranking.GENRES },
+                                title = entry.title,
+                                height = logoHeight,
+                                maxLogoWidth = if (isTv) 420.dp else 260.dp,
+                                style = if (isTv) typography.headlineLarge else typography.headlineMedium,
+                            )
                         }
-                    } else {
-                        TitleLogo(
-                            logoUrl = entry.artwork.logoUrl.takeIf { ranking != Ranking.GENRES },
-                            title = entry.title,
-                            height = if (isTv) 48.dp else 40.dp,
-                            maxLogoWidth = 280.dp,
-                            style = typography.headlineMedium,
-                        )
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        androidx.compose.material3.Text(duration(entry.playedMs), style = typography.titleLarge.figures(), color = theme.text, maxLines = 1)
-                        SegmentLadder(share, segments = 24, modifier = Modifier.weight(1f))
-                        androidx.compose.material3.Text(percent(share), style = typography.labelMedium, color = theme.textMuted, maxLines = 1)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            androidx.compose.material3.Text(duration(entry.playedMs), style = typography.titleLarge.figures(), color = theme.text, maxLines = 1)
+                            SegmentLadder(share, segments = 24, modifier = Modifier.weight(1f))
+                            androidx.compose.material3.Text(percent(share), style = typography.labelMedium, color = theme.textMuted, maxLines = 1)
+                        }
                     }
                 }
             }
@@ -353,15 +381,18 @@ private fun ChannelNumber(number: Int, focused: Boolean) {
 private fun Meter(state: DashboardUiState, screen: ScreenTime, viewModel: DashboardViewModel, modifier: Modifier) {
     val theme = LocalAnstelleTheme.current
     val typography = androidx.compose.material3.MaterialTheme.typography
+    val isTv = LocalIsTv.current
     val is24Hour = DateFormat.is24HourFormat(LocalContext.current)
     val window = screen.window
     val bar = state.pick.bar?.takeIf { state.pick.window == window }
     val live = bar?.let { screen.live[it] } ?: screen.live.sum()
     val onDemand = bar?.let { screen.onDemand[it] } ?: screen.onDemand.sum()
 
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Today(screen.todayMs, screen.weekAverageMs)
-        Hairline()
+    Column(modifier, verticalArrangement = if (isTv) METER_BANDS else Arrangement.spacedBy(12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Today(screen.todayMs, screen.weekAverageMs)
+            Hairline()
+        }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 for (period in StatsPeriod.entries) {
@@ -376,7 +407,8 @@ private fun Meter(state: DashboardUiState, screen: ScreenTime, viewModel: Dashbo
                 androidx.compose.material3.Text(duration(live + onDemand), style = typography.headlineSmall.figures(), color = theme.text, maxLines = 1)
             }
         }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Reserve text, controls and habits before giving the plot its preferred height.
+        Column(Modifier.then(if (isTv) Modifier.weight(1f, fill = false) else Modifier), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ScreenTimeChart(
                 live = screen.live,
                 onDemand = screen.onDemand,
@@ -386,7 +418,7 @@ private fun Meter(state: DashboardUiState, screen: ScreenTime, viewModel: Dashbo
                 description = "${periodName(window.period)} chart, ${duration(live + onDemand)} watched",
                 onMove = viewModel::moveBar,
                 onPick = viewModel::pickBar,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().then(if (isTv) Modifier.weight(1f, fill = false) else Modifier),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 Key(theme.accent, "Live TV", duration(live))
@@ -517,6 +549,11 @@ private const val RANKS_SHARE = 0.52f
 
 /** Each split pane's top and bottom margin: on a TV the meter fills the height to within it. */
 private val PANE_EDGE = 20.dp
+
+/** Keep at least one screen gap, then distribute any surplus between the meter's four bands. */
+private val METER_BANDS = object : Arrangement.Vertical by Arrangement.SpaceBetween {
+    override val spacing = 8.dp
+}
 
 /** The space on either side of the line between paired readings. */
 private val READING_GUTTER = 12.dp

@@ -1,6 +1,7 @@
 package tv.anstelle.feature.ondemand
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
@@ -12,6 +13,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.ripple
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.semantics.Role
@@ -32,13 +35,21 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -49,6 +60,10 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -57,6 +72,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import tv.anstelle.core.data.ondemand.EpisodeEntry
 import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.data.ondemand.WatchMarks
@@ -67,12 +84,16 @@ import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdBadge
 import tv.anstelle.core.theme.components.OsdTab
+import tv.anstelle.core.theme.components.OsdTabIndicator
 import tv.anstelle.core.theme.components.PastShade
 import tv.anstelle.core.theme.components.SectionLabel
-import tv.anstelle.core.theme.components.TitleLogo
-import tv.anstelle.core.theme.components.WatchStrip
 import tv.anstelle.core.theme.components.WatchedMarker
+import tv.anstelle.core.theme.components.WatchStrip
 import tv.anstelle.core.theme.components.screenSide
+import tv.anstelle.core.theme.components.ActionDialog
+import tv.anstelle.core.theme.components.DialogAction
+import tv.anstelle.core.theme.components.requestWhenReady
+import kotlinx.coroutines.launch
 
 /*
  * An item page (a channel's, a movie's or series', an episode's) as a programme's listing card:
@@ -103,7 +124,7 @@ private fun pictureWidth(shape: PictureShape): Dp = if (LocalIsTv.current) shape
 
 /**
  * The page's top on its backdrop. TV: the picture group at the start (the picture, [underPicture]
- * under it, the airing's ladder, then [timeLeft] centered under both), beside it the [title] block
+ * under it), beside it the [title] block, with the watch strip on the picture's foot,
  * (channel ident, logo, episode line), then the [readout] and the [bars]. Phones stack them: a
  * still across the width (a poster beside the title block), the readout, the bars.
  */
@@ -115,25 +136,22 @@ internal fun ProgrammeSheet(
     readout: @Composable () -> Unit,
     bars: @Composable () -> Unit,
     underPicture: (@Composable () -> Unit)? = null,
-    /** What is left of the airing, or of the movie or episode once started: "23 min left". */
-    timeLeft: String? = null,
 ) {
     val isTv = LocalIsTv.current
     Column(verticalArrangement = Arrangement.spacedBy(if (isTv) 20.dp else 14.dp)) {
         if (isTv) {
             // Two groups centered on each other, each keeping one gap between its parts: the picture
-            // with its time left, and beside it the ident, logo, episode line, readout and keys.
+            // and beside it the ident, logo, media title, episode line, facts and keys.
             Row(horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
                 val width = pictureWidth(shape)
-                Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(SHEET_GAP)) {
+                Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         picture(Modifier.width(width).height(shape.tvHeight()))
                         underPicture?.invoke()
                     }
-                    timeLeft?.let { TimeLeft(it) }
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(SHEET_GAP)) {
-                    title()
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp), content = title)
                     readout()
                     bars()
                 }
@@ -143,7 +161,6 @@ internal fun ProgrammeSheet(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     picture(Modifier.fillMaxWidth().aspectRatio(shape.aspect))
                     underPicture?.invoke()
-                    timeLeft?.let { TimeLeft(it) }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp), content = title)
             } else {
@@ -152,7 +169,6 @@ internal fun ProgrammeSheet(
                     Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         picture(Modifier.width(width).aspectRatio(shape.aspect))
                         underPicture?.invoke()
-                        timeLeft?.let { TimeLeft(it) }
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp), content = title)
                 }
@@ -161,19 +177,6 @@ internal fun ProgrammeSheet(
             bars()
         }
     }
-}
-
-/** The time left under the picture, centered on it, in the status line's voice. */
-@Composable
-private fun TimeLeft(text: String) {
-    androidx.compose.material3.Text(
-        text.uppercase(),
-        style = androidx.compose.material3.MaterialTheme.typography.labelMedium.merge(TextStyle(fontFeatureSettings = "tnum")),
-        color = LocalAnstelleTheme.current.textMuted,
-        textAlign = TextAlign.Center,
-        maxLines = 1,
-        modifier = Modifier.fillMaxWidth(),
-    )
 }
 
 /**
@@ -190,19 +193,16 @@ internal fun SheetPicture(url: String?, title: String, modifier: Modifier, shade
     }
 }
 
-/** The logo, or the title when there is none, sized for the sheet; long titles take two lines. */
+/** A graphical logo sized for the sheet; [SheetTitle] supplies its readable fallback and media name. */
 @Composable
 internal fun SheetLogo(logoUrl: String?, title: String, modifier: Modifier = Modifier) {
     val isTv = LocalIsTv.current
-    val typography = androidx.compose.material3.MaterialTheme.typography
-    TitleLogo(
-        logoUrl = logoUrl,
-        title = title,
-        height = if (isTv) 72.dp else 48.dp,
-        maxLogoWidth = if (isTv) 360.dp else 240.dp,
-        style = if (isTv) typography.headlineLarge else typography.headlineMedium,
-        maxLines = 2,
-        modifier = modifier,
+    var failed by remember(logoUrl) { mutableStateOf(false) }
+    if (logoUrl != null && !LocalAnstelleTheme.current.spec.isLight && !failed) AsyncImage(
+        model = logoUrl, contentDescription = null,
+        contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
+        onError = { failed = true },
+        modifier = modifier.height(if (isTv) 56.dp else 48.dp).widthIn(max = if (isTv) 360.dp else 240.dp),
     )
 }
 
@@ -231,16 +231,16 @@ internal fun EpisodeLine(label: String, modifier: Modifier = Modifier) {
     val (number, title) = splitEpisodeLabel(label)
     androidx.compose.material3.Text(
         numbered(number, title, theme.textMuted),
-        style = if (LocalIsTv.current) typography.titleLarge else typography.titleMedium,
+        style = if (LocalIsTv.current) typography.bodyLarge else typography.bodyMedium,
         color = theme.text,
-        maxLines = 2,
+        maxLines = if (LocalIsTv.current) 1 else 2,
         overflow = TextOverflow.Ellipsis,
         modifier = modifier,
     )
 }
 
 /**
- * A tile's or card's line under its name, with the episode line's hierarchy in body-small: the
+ * A tile's or card's line under its name, with the episode line's hierarchy in body-medium: the
  * episode's number quiet, then its title in bone (a movie's year, then its title). Focus turns
  * both to the fill's ink; on TV the focused line runs as a marquee when it doesn't fit.
  */
@@ -250,7 +250,7 @@ internal fun CaptionLine(number: String?, title: String?, focused: Boolean, modi
     val marquee = focused && LocalIsTv.current
     androidx.compose.material3.Text(
         numbered(number, title, if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted),
-        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
         color = if (focused) theme.onAccent else theme.text,
         maxLines = 1,
         overflow = if (marquee) TextOverflow.Clip else TextOverflow.Ellipsis,
@@ -374,12 +374,17 @@ private fun RuledFlow(count: Int, modifier: Modifier, gap: Dp, lineGap: Dp, cont
 }
 
 /** One way to watch, or Add to a channel: its words, its icon, what it does. */
-internal class SheetAction(val label: String, val icon: ImageVector, val onClick: () -> Unit)
+internal class SheetAction(
+    val label: String,
+    val icon: ImageVector,
+    val enabled: Boolean = true,
+    val saving: Boolean = false,
+    val pinned: Boolean = false,
+    val watched: Boolean? = null,
+    val onClick: () -> Unit,
+)
 
-/** The most keys the row holds; touch keys share the width as if all were there. */
-private const val KEY_COLUMNS = 5
-
-// Keys keep one shape on every device (72 by 44 on TV, 64 by 40 on touch), so TV and phone rows read alike.
+// Keys keep one shape on every device (72 by 44 on TV, up to 64 by 48 on touch), so TV and phone rows read alike.
 private val TV_KEY_WIDTH = 72.dp
 private val TOUCH_KEY_WIDTH = 64.dp
 
@@ -389,22 +394,62 @@ private val TOUCH_KEY_WIDTH = 64.dp
  * top, the whole sheet in sight.
  */
 @Composable
-internal fun WatchKeys(actions: List<SheetAction>, listState: LazyListState, firstFocus: FocusRequester, modifier: Modifier = Modifier) {
+internal fun WatchKeys(actions: List<SheetAction>, listState: LazyListState, firstFocus: FocusRequester, modifier: Modifier = Modifier, navigation: EpisodeNavigation? = null) {
     if (actions.isEmpty()) return
     val isTv = LocalIsTv.current
+    var more by remember { mutableStateOf(false) }
+    val moreFocus = remember { FocusRequester() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     BoxWithConstraints(modifier.fillMaxWidth()) {
-        val keyWidth = if (isTv) TV_KEY_WIDTH else minOf(TOUCH_KEY_WIDTH, (maxWidth - screenGap * (KEY_COLUMNS - 1)) / KEY_COLUMNS)
-        Row(Modifier.restsAtTop(listState), horizontalArrangement = Arrangement.spacedBy(screenGap)) {
-            actions.forEachIndexed { i, action ->
+        val minimum = if (isTv) TV_KEY_WIDTH else 48.dp
+        val capacity = ((maxWidth + screenGap) / (minimum + screenGap)).toInt().coerceAtLeast(2)
+        val overflow = actions.size > capacity
+        val visible = if (overflow) actions.take(capacity - 1).toMutableList().also { shown ->
+            actions.firstOrNull { it.pinned }?.takeIf { it !in shown && shown.size > 1 }?.let { shown[shown.lastIndex] = it }
+        } else actions
+        val extras = actions.filter { it !in visible }
+        val shown = visible + if (overflow) listOf(SheetAction("More", Icons.Filled.MoreHoriz) { more = true }) else emptyList()
+        val keyWidth = minOf(if (isTv) TV_KEY_WIDTH else TOUCH_KEY_WIDTH, (maxWidth - screenGap * (shown.size - 1)) / shown.size)
+        Row(
+            Modifier.restsAtTop(listState).onPreviewKeyEvent { event ->
+                if (isTv && navigation != null && event.key == Key.DirectionDown && event.type == KeyEventType.KeyDown) {
+                    navigation.downFromKeys()
+                    true
+                } else false
+            },
+            horizontalArrangement = Arrangement.spacedBy(screenGap),
+        ) {
+            shown.forEachIndexed { i, action ->
                 WatchKey(
                     label = action.label,
                     icon = action.icon,
                     onClick = action.onClick,
+                    enabled = action.enabled,
+                    saving = action.saving,
+                    watched = action.watched,
                     // Touch has no focus to lead with: the first key is the primary instead.
                     primary = i == 0 && !isTv,
-                    modifier = Modifier.width(keyWidth).let { if (i == 0) it.focusRequester(firstFocus) else it },
+                    modifier = Modifier.width(keyWidth)
+                        .let { if (i == 0) it.focusRequester(firstFocus) else it }
+                        .let { if (overflow && i == shown.lastIndex) it.focusRequester(moreFocus) else it },
                 )
             }
+        }
+        if (more && extras.isNotEmpty()) {
+            val dismiss = {
+                more = false
+                scope.launch { moreFocus.requestWhenReady() }
+                Unit
+            }
+            ActionDialog(
+                actions = extras.filter { it.enabled }.map { action ->
+                    DialogAction(action.label, null, action.icon, false, onClick = {
+                        dismiss()
+                        action.onClick()
+                    })
+                },
+                onDismiss = dismiss,
+            ) { androidx.compose.material3.Text("More", style = androidx.compose.material3.MaterialTheme.typography.headlineSmall) }
         }
     }
 }
@@ -415,7 +460,7 @@ internal fun WatchKeys(actions: List<SheetAction>, listState: LazyListState, fir
  * the label rose. A [primary] key is rose with ink, turning bone when focused.
  */
 @Composable
-private fun WatchKey(label: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = false) {
+private fun WatchKey(label: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = false, enabled: Boolean = true, saving: Boolean = false, watched: Boolean? = null) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val interaction = remember { MutableInteractionSource() }
@@ -428,14 +473,22 @@ private fun WatchKey(label: String, icon: ImageVector, onClick: () -> Unit, modi
         else -> theme.surface
     }
     Column(
-        modifier.clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick),
+        modifier.alpha(if (enabled) 1f else 0.45f)
+            .semantics {
+                if (saving) disabled()
+                watched?.let {
+                    stateDescription = if (it) "Watched" else "Unwatched"
+                    contentDescription = if (it) "Mark unwatched" else "Mark watched"
+                }
+            }
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, enabled = enabled, onClick = { if (!saving) onClick() }),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(if (isTv) 8.dp else 6.dp),
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(if (isTv) 44.dp else 40.dp)
+                .height(if (isTv) 44.dp else 48.dp)
                 .clip(ControlShape)
                 .background(fill)
                 .indication(interaction, if (isTv) null else ripple(color = if (primary) theme.onAccent else theme.text)),
@@ -444,7 +497,7 @@ private fun WatchKey(label: String, icon: ImageVector, onClick: () -> Unit, modi
             androidx.compose.material3.Icon(
                 icon,
                 contentDescription = null,
-                tint = if (focused || primary) theme.onAccent else theme.text,
+                tint = if (focused || primary) theme.onAccent else if (watched == true) theme.accent else theme.text,
                 modifier = Modifier.size(if (isTv) 22.dp else 20.dp),
             )
         }
@@ -453,6 +506,7 @@ private fun WatchKey(label: String, icon: ImageVector, onClick: () -> Unit, modi
             style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
             color = if (focused) theme.accent else theme.text,
             textAlign = TextAlign.Center,
+            minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
@@ -475,13 +529,36 @@ internal fun Synopsis(text: String, modifier: Modifier = Modifier) {
  * watched square in place of its count.
  */
 @Composable
-internal fun SeasonTabs(seasons: Map<String, List<EpisodeEntry>>, open: String?, done: Set<String>, onSelect: (String) -> Unit) {
-    val theme = LocalAnstelleTheme.current
+internal fun SeasonTabs(seasons: Map<String, List<EpisodeEntry>>, open: String?, done: Set<String>, onSelect: (String) -> Unit, navigation: EpisodeNavigation? = null) {
     Box {
-        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(1.dp).background(theme.line))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        val isTv = LocalIsTv.current
+        val state = rememberLazyListState(initialFirstVisibleItemIndex = seasons.keys.indexOf(open).coerceAtLeast(0))
+        DisposableEffect(navigation, state, open) {
+            navigation?.seasonRow = state
+            navigation?.selectedSeasonIndex = seasons.keys.indexOf(open).coerceAtLeast(0)
+            onDispose { if (navigation?.seasonRow === state) navigation?.seasonRow = null }
+        }
+        LazyRow(
+            state = state,
+            modifier = Modifier
+                .bleed(if (isTv) 14.dp else 0.dp)
+                .focusProperties { onEnter = { runCatching { navigation?.season?.requestFocus() } } }
+                .focusGroup()
+                .onPreviewKeyEvent { event ->
+                    if (!isTv || navigation == null || event.type != KeyEventType.KeyDown) false else when (event.key) {
+                        Key.DirectionDown -> { navigation.downFromSeasons(); true }
+                        Key.DirectionUp -> { navigation.upFromSeasons(); true }
+                        else -> false
+                    }
+                },
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             items(seasons.keys.toList(), key = { it }) { key ->
-                OsdTab(key, selected = key == open, onClick = { onSelect(key) }, count = seasons.getValue(key).size, done = key in done)
+                OsdTab(
+                    key, selected = key == open, onClick = { onSelect(key) },
+                    count = seasons.getValue(key).size, done = key in done, compact = isTv,
+                    modifier = if (key == open && navigation != null) Modifier.focusRequester(navigation.season) else Modifier,
+                )
             }
         }
     }
@@ -489,11 +566,11 @@ internal fun SeasonTabs(seasons: Map<String, List<EpisodeEntry>>, open: String?,
 
 /** The carousel's heading: the season tabs for a show of several seasons, else its field label. */
 @Composable
-internal fun EpisodesHeading(seasons: Map<String, List<EpisodeEntry>>, open: String?, watch: WatchMarks, modifier: Modifier = Modifier, onSelect: (String) -> Unit) {
+internal fun EpisodesHeading(seasons: Map<String, List<EpisodeEntry>>, open: String?, watch: WatchMarks, modifier: Modifier = Modifier, navigation: EpisodeNavigation? = null, onSelect: (String) -> Unit) {
     Box(modifier) {
         if (seasons.size > 1) {
             val done = seasons.filterValues { list -> list.all { watch.watched(it.id, it.durationMs) } }.keys
-            SeasonTabs(seasons, open, done, onSelect)
+            SeasonTabs(seasons, open, done, onSelect, navigation)
         } else {
             SectionLabel("Episodes", top = 0.dp)
         }
@@ -517,28 +594,55 @@ internal fun EpisodeCarousel(
     current: Long? = null,
     returnTo: Long? = null,
     returnFocus: FocusRequester? = null,
+    navigation: EpisodeNavigation? = null,
+    showWatched: Boolean = true,
 ) {
     val side = screenSide
     val state = rememberLazyListState()
-    LaunchedEffect(episodes, target) {
-        val index = episodes.indexOfFirst { it.id == target }
-        if (index > 0) state.scrollToItem(index)
+    val isTv = LocalIsTv.current
+    var initialized by rememberSaveable(episodes.firstOrNull()?.id, current) { mutableStateOf(false) }
+    // Set the opening position once per season/page, never again merely because watch data changed.
+    LaunchedEffect(episodes.firstOrNull()?.id, current) {
+        if (!initialized) {
+            val index = episodes.indexOfFirst { it.id == target }
+            state.scrollToItem(index.coerceAtLeast(0))
+            initialized = true
+        }
+    }
+    val entryIndex by remember(state) {
+        derivedStateOf {
+            state.layoutInfo.visibleItemsInfo.firstOrNull { it.offset >= 0 }?.index ?: state.firstVisibleItemIndex
+        }
     }
     LazyRow(
         state = state,
-        modifier = modifier.bleed(side),
+        modifier = modifier.bleed(side)
+            .focusProperties {
+                onEnter = {
+                    if (requestedFocusDirection == FocusDirection.Down) runCatching { navigation?.episode?.requestFocus() }
+                }
+            }
+            .focusGroup()
+            .onPreviewKeyEvent { event ->
+                if (isTv && navigation != null && event.key == Key.DirectionUp && event.type == KeyEventType.KeyDown) {
+                    navigation.upFromEpisodes()
+                    true
+                } else false
+            },
         contentPadding = PaddingValues(horizontal = side),
         horizontalArrangement = Arrangement.spacedBy(if (LocalIsTv.current) 8.dp else 6.dp),
     ) {
-        items(episodes, key = { it.id }) { episode ->
+        itemsIndexed(episodes, key = { _, episode -> episode.id }) { index, episode ->
             EpisodeCard(
                 episode = episode,
                 resumeMs = watch.resumeMs(episode.id, episode.durationMs),
-                watched = watch.watched(episode.id, episode.durationMs),
+                watched = showWatched && watch.watched(episode.id, episode.durationMs),
                 current = episode.id == current,
                 onClick = { onOpen(episode) },
                 onHold = { onHold(episode) },
-                modifier = if (returnFocus != null && episode.id == returnTo) Modifier.focusRequester(returnFocus) else Modifier,
+                modifier = Modifier
+                    .let { if (index == entryIndex && navigation != null) it.focusRequester(navigation.episode) else it }
+                    .let { if (returnFocus != null && episode.id == returnTo) it.focusRequester(returnFocus) else it },
             )
         }
     }
@@ -578,18 +682,19 @@ private fun EpisodeCard(
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(ControlShape)) {
                 Poster(episode.stillUrl, episode.label, Modifier.matchParentSize())
                 if (aired) Box(Modifier.matchParentSize().background(PastShade))
-                val fraction = if (episode.durationMs > 0) resumeMs.toFloat() / episode.durationMs else 0f
-                if (fraction > 0f || watched) WatchStrip(fraction, watched, Modifier.align(Alignment.BottomStart))
+                if (episode.durationMs > 0 || watched) WatchStrip(
+                    if (episode.durationMs > 0) resumeMs.toFloat() / episode.durationMs else 0f,
+                    watched,
+                    Modifier.align(Alignment.BottomStart),
+                    remaining = episode.durationMs.takeIf { it > 0 }?.let { remainingTime(it - resumeMs) },
+                )
             }
             // The page's own episode is underlined like an open tab: here.
-            Box(Modifier.fillMaxWidth().height(2.dp).background(if (current && !focused) theme.accent else Color.Transparent))
+            OsdTabIndicator(current, focused)
             Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     androidx.compose.material3.Text(number.orEmpty(), style = typography.labelMedium, color = muted, maxLines = 1)
                     Spacer(Modifier.weight(1f))
-                    (WatchChoices.timeLeft(episode.durationMs, resumeMs) ?: episode.facts)?.let {
-                        androidx.compose.material3.Text(it.uppercase(), style = typography.labelMedium, color = muted, maxLines = 1)
-                    }
                 }
                 androidx.compose.material3.Text(
                     title ?: episode.label,

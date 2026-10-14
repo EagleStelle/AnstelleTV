@@ -27,7 +27,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,7 +43,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.utf16CodePoint
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
@@ -61,24 +59,25 @@ import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.osdTabLabel
+import tv.anstelle.core.theme.components.osdTabContentHeight
+import tv.anstelle.core.theme.components.osdTabHeight
+import tv.anstelle.core.theme.components.OsdTabIndicator
+import tv.anstelle.core.theme.components.requestWhenReady
 
 /** What the search slab says while nothing is typed. */
 private const val PLACEHOLDER = "Search"
-
-/** The slab's foot, the open tab's underline in the same place. */
-private val RULE = 2.dp
 
 /**
  * On Demand's search: a coal slab of its own at the end of the tab row, apart from the tabs
  * (user decision: search is not one of them) and of a kind with the keys on Search's page. It is
  * flat with no outline, a tab's exact height on the tabs' baseline, and its words are set
  * exactly as a tab's label ([osdTabLabel], the theme's display font and scale): the search mark
- * and *Search* muted at rest, like an unopened tab, the words in bone. Its foot is
+ * and *Search* muted in an empty input, like an unopened tab, the words in bone. Its foot is
  * the open tab's rule in the same place, rose while Search is open, so the row still says where
  * you are. On TV it is a stop on the D-pad like any key: focus fills it rose with ink, OK (or any
  * typed key) starts typing and opens the keyboard, up or down leave it; while typing it is coal
  * again with the rose foot and caret. Taking words opens Search's page ([onOpen]), where the
- * caller widens it; closed, it keeps the words last searched for. [startTyping] puts the caret in
+ * caller widens it; closed, it shows only the icon and keeps the last query for its next opening. [startTyping] puts the caret in
  * it at once, as when a phone's row hands it the whole width; [onBack] adds a back key there.
  */
 @Composable
@@ -115,18 +114,16 @@ internal fun SearchField(
         keyboard?.show()
     }
 
-    LaunchedEffect(startTyping) {
-        if (!startTyping) return@LaunchedEffect
-        withFrameNanos { }
-        runCatching { requester.requestFocus() }
-        withFrameNanos { }
-        type()
+    LaunchedEffect(startTyping, open) {
+        if (!startTyping || !open) return@LaunchedEffect
+        if (requester.requestWhenReady()) type()
         onStarted()
     }
     // Closed from outside (a tab tapped, which takes no focus on touch): the caret and keyboard go with it.
     LaunchedEffect(open) {
-        if (!open && !isTv && focused) {
-            focusManager.clearFocus()
+        if (!open) {
+            typing = !isTv
+            if (!isTv && focused) focusManager.clearFocus()
             keyboard?.hide()
         }
     }
@@ -134,12 +131,37 @@ internal fun SearchField(
     // A tab's own label and measures, so the words follow the theme exactly as the tabs do: the compact tab on TV, the full one on touch.
     val words = osdTabLabel(compact = isTv)
     val padH = if (isTv) 14.dp else 12.dp
-    val label = with(LocalDensity.current) { words.lineHeight.toDp() } + (if (isTv) 6.dp else 10.dp) * 2
+    val label = osdTabContentHeight(compact = isTv)
     // Focus is a fill, as on any key; typing, the slab is coal again with a rose caret.
     val lit = isTv && focused && !typing
     val ink = if (lit) theme.onAccent else theme.text
     val quiet = if (lit) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted
     val clearable = open && query.isNotEmpty()
+
+    if (!open) {
+        FocusSurface(
+            onClick = onOpen,
+            color = Color.Transparent,
+            modifier = modifier
+                .height(osdTabHeight(compact = isTv))
+                .focusRequester(requester)
+                .onPreviewKeyEvent { event ->
+                    if (isTv && event.type == KeyEventType.KeyDown && event.nativeKeyEvent.isPrintingKey && event.utf16CodePoint != 0) {
+                        onQuery(buildString { append(query).appendCodePoint(event.utf16CodePoint) })
+                        onOpen()
+                        true
+                    } else false
+                },
+        ) { selected ->
+            androidx.compose.material3.Icon(
+                Icons.Filled.Search,
+                contentDescription = PLACEHOLDER,
+                tint = if (selected) theme.onAccent else theme.textMuted,
+                modifier = Modifier.align(Alignment.Center).size(if (isTv) 18.dp else 20.dp),
+            )
+        }
+        return
+    }
 
     Row(modifier, verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (onBack != null) SlabKey(Icons.AutoMirrored.Filled.ArrowBack, "Leave search", label, ink = theme.text, onClick = onBack)
@@ -235,7 +257,7 @@ internal fun SearchField(
                 }
             }
             // The foot: rose while Search is open, as an open tab's rule; focus fills the slab instead.
-            Box(Modifier.fillMaxWidth().height(RULE).background(if (open && !lit) theme.accent else Color.Transparent))
+            OsdTabIndicator(open, lit)
         }
     }
 }

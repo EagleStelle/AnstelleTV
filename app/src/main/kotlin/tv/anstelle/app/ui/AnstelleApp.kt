@@ -239,6 +239,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                 OnDemandScreen(
                     onOpenChannel = { navController.navigate(OnDemandChannelRoute(it)) },
                     onOpenTitle = { navController.navigate(OnDemandTitleRoute(it)) },
+                    onOpenEpisode = { navController.navigate(OnDemandEpisodeRoute(it)) },
                     onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position)) },
                     onOpenSettings = openSettings,
                     onAddToChannel = addToChannel,

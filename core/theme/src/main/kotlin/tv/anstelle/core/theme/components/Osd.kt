@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -170,7 +172,7 @@ fun OsdTab(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     count: Int? = null,
-    compact: Boolean = false,
+    compact: Boolean = LocalIsTv.current,
     done: Boolean = false,
 ) {
     val theme = LocalAnstelleTheme.current
@@ -184,9 +186,8 @@ fun OsdTab(
                 else -> theme.textMuted
             }
             Row(
-                Modifier.padding(
+                Modifier.height(osdTabContentHeight(compact)).padding(
                     horizontal = if (isTv) (if (compact) 14.dp else 16.dp) else 12.dp,
-                    vertical = if (isTv) (if (compact) 6.dp else 9.dp) else 10.dp,
                 ),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -205,12 +206,7 @@ fun OsdTab(
                 // The square follows the label's ink, its tick cut in whatever the tab sits on.
                 if (done) WatchedMarker(color = color, tick = if (focused) theme.accent else theme.background)
             }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(2.dp)
-                    .background(if (selected && !focused) theme.accent else Color.Transparent),
-            )
+            OsdTabIndicator(selected, focused)
         }
     }
 }
@@ -280,13 +276,15 @@ fun CodeBlocks(code: String?, modifier: Modifier = Modifier, length: Int = 6) {
  * segments carry the accent, the rest the line color, so the reading survives without hue.
  */
 @Composable
-fun SegmentLadder(fraction: Float, modifier: Modifier = Modifier, segments: Int = 24, color: Color = LocalAnstelleTheme.current.accent) {
-    val empty = LocalAnstelleTheme.current.line
+fun SegmentLadder(fraction: Float, modifier: Modifier = Modifier, segments: Int = 24, color: Color = LocalAnstelleTheme.current.accent, emptyColor: Color = LocalAnstelleTheme.current.line) {
+    val empty = emptyColor
     Canvas(modifier.fillMaxWidth().height(6.dp)) {
-        val gap = 2.dp.toPx()
-        val width = (size.width - gap * (segments - 1)) / segments
-        val filled = (fraction.coerceIn(0f, 1f) * segments).roundToInt()
-        for (i in 0 until segments) {
+        val gap = 3.dp.toPx()
+        // A narrow artwork footer keeps the same gap, yielding blocks before their widths turn negative.
+        val count = segments.coerceAtLeast(1).coerceAtMost((size.width / (gap + 2.dp.toPx())).toInt().coerceAtLeast(1))
+        val width = (size.width - gap * (count - 1)) / count
+        val filled = (fraction.coerceIn(0f, 1f) * count).roundToInt()
+        for (i in 0 until count) {
             drawRect(
                 if (i < filled) color else empty,
                 topLeft = Offset(i * (width + gap), 0f),
@@ -418,29 +416,66 @@ fun WatchedMarker(
  * so a list of stills keeps one line. Show it only when [fraction] is above 0 or [watched].
  */
 @Composable
-fun WatchStrip(fraction: Float, watched: Boolean, modifier: Modifier = Modifier, segments: Int = 12) {
+fun WatchStrip(fraction: Float, watched: Boolean, modifier: Modifier = Modifier, segments: Int? = null, remaining: String? = null) {
     val theme = LocalAnstelleTheme.current
+    WatchProgress(
+        fraction = fraction, watched = watched, remaining = remaining,
+        modifier = modifier
+            .fillMaxWidth()
+            .background(theme.background.copy(alpha = 0.8f))
+            .padding(horizontal = 6.dp),
+        segments = segments,
+        compact = true,
+    )
+}
+
+/** One watch row everywhere: themed check at the start, ladder, then remaining time at the end. */
+@Composable
+fun WatchProgress(
+    fraction: Float,
+    watched: Boolean = false,
+    remaining: String? = null,
+    modifier: Modifier = Modifier,
+    focused: Boolean = false,
+    segments: Int? = null,
+    compact: Boolean = false,
+) {
+    val theme = LocalAnstelleTheme.current
+    val spot = fraction > 0f
+    val completed = watched && (!spot || fraction >= 1f)
+    val time = remaining.takeUnless { completed }
+    val ink = if (focused) theme.onAccent else theme.accent
     Row(
         modifier
             .fillMaxWidth()
-            .height(16.dp)
-            .background(theme.background.copy(alpha = 0.8f))
-            .padding(horizontal = 6.dp),
+            .heightIn(min = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 8.dp),
     ) {
-        val spot = fraction > 0f
-        if (watched) WatchedMarker(color = theme.accent, tick = theme.onAccent, description = if (spot) "Watched" else null)
-        if (spot) {
-            SegmentLadder(fraction, Modifier.weight(1f), segments = segments)
+        if (watched) WatchedMarker(color = ink, tick = if (focused) theme.accent else theme.onAccent, description = if (spot) "Watched" else null)
+        if (spot || !watched) {
+            BoxWithConstraints(Modifier.weight(1f)) {
+                if (maxWidth >= 4.dp) SegmentLadder(fraction,
+                    segments = segments ?: (maxWidth / 16.dp).toInt().coerceIn(1, 40),
+                    color = ink,
+                    emptyColor = if (focused) theme.onAccent.copy(alpha = 0.25f) else theme.line)
+            }
         } else if (watched) {
             androidx.compose.material3.Text(
                 "WATCHED",
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                color = theme.accent,
+                color = ink,
                 maxLines = 1,
             )
         }
+        if (time != null) androidx.compose.material3.Text(
+            time,
+            style = (if (compact) androidx.compose.material3.MaterialTheme.typography.labelSmall else androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                .merge(TextStyle(fontFeatureSettings = "tnum")),
+            color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
+            maxLines = 1,
+            modifier = Modifier.semantics { contentDescription = "$time remaining" },
+        )
     }
 }
 

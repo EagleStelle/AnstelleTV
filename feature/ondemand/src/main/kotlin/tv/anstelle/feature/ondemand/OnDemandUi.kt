@@ -49,6 +49,7 @@ import tv.anstelle.core.theme.LocalIsTv
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import tv.anstelle.core.theme.components.BackBar
 import tv.anstelle.core.theme.components.Backdrop
+import tv.anstelle.core.theme.components.TV_BANNER_ASPECT
 import tv.anstelle.core.theme.components.screenEdge
 import tv.anstelle.core.theme.components.screenGap
 import tv.anstelle.core.theme.components.screenSide
@@ -89,7 +90,7 @@ internal fun Page(
     val back = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     // The guide's margins and gaps, so moving between the two never shifts the edges.
     val side = screenSide
-    val top = if (isTv) screenEdge else 0.dp
+    val top = 0.dp
     Box(modifier.fillMaxSize().background(theme.background)) {
         LazyColumn(
             state = listState,
@@ -98,9 +99,12 @@ internal fun Page(
             verticalArrangement = Arrangement.spacedBy(screenGap),
         ) {
             item(key = "hero") {
-                Backdrop(backdropUrl, Modifier.bleed(side, top).fillMaxWidth()) {
+                Backdrop(
+                    backdropUrl,
+                    Modifier.bleed(side, top).fillMaxWidth().then(if (isTv) Modifier.aspectRatio(TV_BANNER_ASPECT) else Modifier),
+                ) {
                     Column(
-                        Modifier.padding(start = side, end = side, top = if (isTv) 24.dp else BAR_HEIGHT + 4.dp, bottom = if (isTv) 20.dp else 16.dp),
+                        Modifier.align(Alignment.CenterStart).padding(start = side, end = side, top = if (isTv) 24.dp else BAR_HEIGHT + 4.dp, bottom = if (isTv) 20.dp else 16.dp),
                         verticalArrangement = Arrangement.spacedBy(screenGap),
                         content = hero,
                     )
