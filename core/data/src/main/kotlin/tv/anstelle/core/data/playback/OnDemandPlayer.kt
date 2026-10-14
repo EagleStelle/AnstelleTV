@@ -63,6 +63,8 @@ data class OnDemandState(
     val status: OnDemandStatus = OnDemandStatus.LOADING,
     /** The item playing, or 0 before one starts. */
     val itemId: Long = 0,
+    /** When viewing this item began; retained across seeks, pauses and stream retries. */
+    val startedAtUtcMs: Long = 0,
     /** The show's title for an episode. */
     val title: String? = null,
     /** "S1E4 - Pilot", a movie's year, or null. */
@@ -79,6 +81,10 @@ data class OnDemandState(
     val next: String? = null,
     /** The episode before this one in its show, or null (a movie, or the first episode). */
     val previous: String? = null,
+    /** Whether Previous restarts this item; otherwise it moves to its predecessor when present. */
+    val restartOnPrevious: Boolean = false,
+    /** Whether Previous can restart this item or move to its predecessor. */
+    val canRestartOrPrevious: Boolean = false,
     /** Why the profile may not watch the item; set with [OnDemandStatus.RESTRICTED]. */
     val restriction: Restriction? = null,
     val message: String? = null,
@@ -212,6 +218,7 @@ class OnDemandPlayer @Inject constructor(
 
     /** Plays [entry] on its own from [positionMs], then queues what follows it. */
     private suspend fun start(entry: Entry, positionMs: Long) {
+        val startedAtUtcMs = System.currentTimeMillis()
         deferred = null
         leftAtMs = null
         queue.clear()
@@ -221,7 +228,7 @@ class OnDemandPlayer @Inject constructor(
         tracks.applyDefaults(pooled, prefs)
         pooled.player.playWhenReady = true
         retried = false
-        show(entry)
+        show(entry, positionMs, startedAtUtcMs)
         queueNext()
     }
 
@@ -270,10 +277,19 @@ class OnDemandPlayer @Inject constructor(
         _state.update { it.copy(skip = null) }
     }
 
-    /** Goes back to the episode before this one, from its start, when there is one. */
-    fun skipToPrevious() {
+    /** Restarts this item unless it is already near its start, then goes to its predecessor. */
+    fun restartOrPrevious() {
         val current = queue.firstOrNull()?.item ?: return
-        val previous = episodeBefore(current) ?: return
+        val player = exo ?: return
+        val previous = episodeBefore(current)
+        if (shouldRestart(player.currentPosition, previous != null)) {
+            val ended = player.playbackState == Player.STATE_ENDED
+            player.seekTo(0)
+            if (ended) player.playWhenReady = true
+            refreshPreviousAction()
+            return
+        }
+        if (previous == null) return
         endSession(atEnd = false)
         scope.launch {
             val entry = resolve(previous, forceTranscode = false) ?: return@launch fail("This can't be played.")
@@ -382,19 +398,24 @@ class OnDemandPlayer @Inject constructor(
         _state.update { it.copy(next = entry?.item?.let(::nextLabel)) }
     }
 
-    private fun show(entry: Entry) {
+    private fun show(entry: Entry, positionMs: Long, startedAtUtcMs: Long = _state.value.startedAtUtcMs) {
         val item = entry.item
+        val previous = episodeBefore(item)
+        val restart = shouldRestart(positionMs, previous != null)
         _state.update {
             it.copy(
                 status = OnDemandStatus.PLAYING,
                 itemId = item.id,
+                startedAtUtcMs = startedAtUtcMs,
                 title = programTitle(item.title, item.showTitle),
                 detail = programDetail(item.title, item.showTitle, item.season, item.episode, item.year),
                 logoUrl = entry.logoUrl,
                 isEpisode = item.showTitle != null,
                 stream = entry.facts,
                 next = (queue.getOrNull(1) ?: deferred)?.item?.let(::nextLabel),
-                previous = episodeBefore(item)?.let(::nextLabel),
+                previous = previous?.let(::nextLabel),
+                restartOnPrevious = restart,
+                canRestartOrPrevious = restart || previous != null,
                 message = null,
                 skip = null,
             )
@@ -414,6 +435,19 @@ class OnDemandPlayer @Inject constructor(
         }
     }
 
+    /** Keeps Previous's label and enabled state aligned with current playback position. */
+    private fun refreshPreviousAction() {
+        val hasPrevious = _state.value.previous != null
+        val restart = shouldRestart(exo?.currentPosition ?: 0, hasPrevious)
+        val enabled = restart || hasPrevious
+        if (restart != _state.value.restartOnPrevious || enabled != _state.value.canRestartOrPrevious) {
+            _state.update { it.copy(restartOnPrevious = restart, canRestartOrPrevious = enabled) }
+        }
+    }
+
+    private fun shouldRestart(positionMs: Long, hasPrevious: Boolean): Boolean =
+        positionMs > PREVIOUS_RESTART_THRESHOLD_MS || !hasPrevious && positionMs > 0
+
     /**
      * Follows the segment playing a few times a second: offers to skip it, or jumps past it the
      * first time it starts while playing when the profile skips that kind on its own.
@@ -424,6 +458,7 @@ class OnDemandPlayer @Inject constructor(
             while (isActive) {
                 delay(SEGMENT_MS)
                 val player = exo ?: break
+                refreshPreviousAction()
                 val active = player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING
                 val entry = queue.firstOrNull()
                 val segment = if (active) entry?.segments?.playingAt(player.currentPosition) else null
@@ -469,7 +504,7 @@ class OnDemandPlayer @Inject constructor(
         session?.let { reporter.restream(it, entry.stream.playSessionId, entry.stream.transcoded) }
         load(pooled, position)
         pooled.player.playWhenReady = true
-        show(entry)
+        show(entry, position)
     }
 
     private fun fail(message: String) {
@@ -492,7 +527,7 @@ class OnDemandPlayer @Inject constructor(
             retried = false
             pooled?.let { tracks.applyDefaults(it, prefs) }
             startSession(entry, 0)
-            show(entry)
+            show(entry, 0, System.currentTimeMillis())
             scope.launch { queueNext() }
         }
 
@@ -507,6 +542,9 @@ class OnDemandPlayer @Inject constructor(
                 }
             } else {
                 val buffering = playbackState == Player.STATE_BUFFERING
+                if (_state.value.status == OnDemandStatus.ENDED && playbackState == Player.STATE_READY) {
+                    _state.update { it.copy(status = OnDemandStatus.PLAYING) }
+                }
                 if (buffering != _state.value.buffering) _state.update { it.copy(buffering = buffering) }
             }
         }
@@ -532,6 +570,7 @@ class OnDemandPlayer @Inject constructor(
             if (reason != Player.DISCONTINUITY_REASON_SEEK) return
             val player = exo ?: return
             session?.let { reporter.progress(it, newPosition.positionMs, paused = !player.playWhenReady) }
+            refreshPreviousAction()
         }
 
         override fun onRenderedFirstFrame() {
@@ -556,5 +595,7 @@ class OnDemandPlayer @Inject constructor(
         const val TAG = "OnDemand"
         const val PROGRESS_MS = 10_000L
         const val SEGMENT_MS = 250L
+        /** A near-start Previous is the common "go back one" action. */
+        const val PREVIOUS_RESTART_THRESHOLD_MS = 5_000L
     }
 }

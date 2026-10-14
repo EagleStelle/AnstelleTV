@@ -312,7 +312,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
             }
             // Registered before the player's own, which wins while its overlay or a panel is open.
             if (openOnDemand != null) BackHandler { openOnDemand() }
-            OnDemandPlayerScreen(onOpenOnDemand = openOnDemand)
+            OnDemandPlayerScreen()
         }
         adminOnly<AddToChannelRoute>(navController) { AddToChannelScreen(onGone = { navController.popBackStack() }) }
         composable<DashboardRoute> { DashboardScreen(onTurnedOff = { navController.navigateTopLevel(TopLevelDestination.Guide) }) }
