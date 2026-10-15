@@ -35,6 +35,7 @@ import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.data.ondemand.WatchKind
 import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.data.playback.PlaybackReporter
+import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.DialogAction
@@ -193,12 +194,12 @@ fun TitleScreen(
                         page.title,
                         slot,
                         shaded = watched,
-                        foot = if (watched || (!page.kind.episodic && resume > 0L)) ({
+                        foot = {
                             WatchStrip(
-                                if (!page.kind.episodic && page.durationMs > 0) resume.toFloat() / page.durationMs else 0f,
-                                watched,
+                                MediaProgress(if (page.kind.episodic) 0 else page.durationMs, resume),
+                                watched, remainingBelow = true,
                             )
-                        }) else null,
+                        },
                     )
                 },
                 title = {

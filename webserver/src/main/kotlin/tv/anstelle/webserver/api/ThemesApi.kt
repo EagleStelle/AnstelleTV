@@ -176,6 +176,7 @@ internal class RoomThemesApi @Inject constructor(
             densities = GuideDensity.entries.map { LabelledName(it.name, it.label) },
             radii = (0..MAX_RADIUS_DP).map { LabelledInt(it, "$it dp") },
             scanlines = Scanlines.map { (name, alpha) -> LabelledFloat(alpha, name) },
+            segmentFrequencies = tv.anstelle.core.model.ProgressStyle.frequencies.map { LabelledInt(it, "$it") },
         )
     }
 }

@@ -3,6 +3,7 @@ package tv.anstelle.feature.ondemand
 import tv.anstelle.core.theme.components.obscured
 import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
+import tv.anstelle.core.theme.components.WatchProgress
 import tv.anstelle.core.theme.components.StandInSize
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -86,6 +87,7 @@ import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.ChannelGroup
+import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
@@ -535,7 +537,7 @@ private fun HomeTab(
                         .focusRequester(bannerFocus),
                     footer = { i ->
                         val slide = slides[i]
-                        ProgressRow(progress(slide.startUtcMs, slide.endUtcMs, clock.value), remainingTime(slide.endUtcMs - clock.value), Modifier.weight(1f))
+                        WatchProgress(MediaProgress(slide.endUtcMs - slide.startUtcMs, clock.value - slide.startUtcMs), modifier = Modifier.weight(1f))
                     },
                 ) { i -> ChannelSlide(slides[i]) }
             }
@@ -621,7 +623,7 @@ private fun ChannelSlide(slide: ChannelNow) {
                 androidx.compose.material3.Text(it, style = typography.bodyMedium.merge(TextStyle(fontFeatureSettings = "tnum")), color = theme.textMuted, maxLines = 1)
             }
             if (slide.durationMs > 0) {
-                androidx.compose.material3.Text(WatchChoices.span(slide.durationMs).uppercase(), style = typography.bodyMedium.merge(TextStyle(fontFeatureSettings = "tnum")), color = theme.textMuted, maxLines = 1)
+                androidx.compose.material3.Text(MediaProgress.span(slide.durationMs).uppercase(), style = typography.bodyMedium.merge(TextStyle(fontFeatureSettings = "tnum")), color = theme.textMuted, maxLines = 1)
             }
         }
     }
@@ -667,12 +669,6 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                             OffAirMark(markInset.align(Alignment.TopStart), StandInSize.LINE, alignStart = true, title = "No schedule")
                         } else {
                             OffAirMark(markInset.align(Alignment.TopStart), StandInSize.LINE, alignStart = true)
-                            WatchStrip(
-                                progress(now.startUtcMs, now.endUtcMs, nowMs),
-                                watched = false,
-                                modifier = Modifier.align(Alignment.BottomStart),
-                                remaining = remainingTime(now.endUtcMs - nowMs),
-                            )
                         }
                     }
                 } else if (restriction != null) {
@@ -689,12 +685,6 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                             maxLines = 2,
                             modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 24.dp).obscured(true, theme.textMuted),
                         )
-                        WatchStrip(
-                            progress(now.startUtcMs, now.endUtcMs, nowMs),
-                            watched = false,
-                            modifier = Modifier.align(Alignment.BottomStart),
-                            remaining = remainingTime(now.endUtcMs - nowMs),
-                        )
                     }
                 } else {
                     Backdrop(now.artwork.backdropUrl, Modifier.fillMaxSize(), alignment = Alignment.Center) {
@@ -707,14 +697,13 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                             maxLines = 2,
                             modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 24.dp),
                         )
-                        WatchStrip(
-                            progress(now.startUtcMs, now.endUtcMs, nowMs),
-                            watched = false,
-                            modifier = Modifier.align(Alignment.BottomStart),
-                            remaining = remainingTime(now.endUtcMs - nowMs),
-                        )
                     }
                 }
+                if (now != null) WatchStrip(
+                    MediaProgress(now.endUtcMs - now.startUtcMs, nowMs - now.startUtcMs),
+                    watched = false,
+                    modifier = Modifier.align(Alignment.BottomStart),
+                )
             }
             Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {

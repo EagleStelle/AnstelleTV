@@ -172,7 +172,7 @@ class CatalogViewModel @Inject constructor(
                     val watch = async { repository.watch(id, kinds.singleOrNull()) }
                     val resume = kinds.associateWith { kind -> async { repository.continueWatching(kind, id, access) } }
                     val nextUp = kinds.filter { ShelfType.NEXT_UP in it.fixedShelves }
-                        .associateWith { async { repository.nextUp(id, access) } }
+                        .associateWith { kind -> async { repository.nextUp(id, access, resume.getValue(kind).await()) } }
                     val resumeCards = resume.mapValues { it.value.await() }
                     val nextUpCards = nextUp.mapValues { it.value.await() }
                     val seriesProgress = (nextUpCards.values.flatten() + resumeCards.values.flatten())

@@ -16,6 +16,7 @@ data class ThemeSpec(
     val typography: ThemeTypography = ThemeTypography(),
     val guide: GuideStyle = GuideStyle(),
     val effects: ThemeEffects = ThemeEffects(),
+    val progress: ProgressStyle = ProgressStyle(),
 ) {
     /** A light ground with dark text, which needs dark system bar icons. */
     val isLight: Boolean get() = ThemeContrast.luminance(colors.background) > 0.5
@@ -40,6 +41,7 @@ data class ThemeSpec(
         require(typography.scale in MIN_SCALE..MAX_SCALE) { "Text size must be ${MIN_SCALE}–${MAX_SCALE}" }
         require(guide.cellRadiusDp in 0..MAX_RADIUS_DP) { "Guide corners must be 0–$MAX_RADIUS_DP" }
         require(effects.scanlineAlpha in 0f..MAX_SCANLINE_ALPHA) { "Scanline strength must be 0–$MAX_SCANLINE_ALPHA" }
+        require(progress.segmentFrequency in MIN_PROGRESS_FREQUENCY..MAX_PROGRESS_FREQUENCY) { "Progress cut frequency must be $MIN_PROGRESS_FREQUENCY–$MAX_PROGRESS_FREQUENCY" }
     }
 }
 
@@ -47,6 +49,20 @@ const val MIN_SCALE = 0.9f
 const val MAX_SCALE = 1.3f
 const val MAX_RADIUS_DP = 4
 const val MAX_SCANLINE_ALPHA = 0.4f
+const val MIN_PROGRESS_FREQUENCY = 4
+const val MAX_PROGRESS_FREQUENCY = 64
+
+/** Cuts per fixed reference length: every bar repeats the same block width and gap width. */
+@Serializable
+data class ProgressStyle(val segmentFrequency: Int = 20) {
+    val blockWidthDp: Float get() = FREQUENCY_REFERENCE_DP / segmentFrequency - GAP_DP
+
+    companion object {
+        const val FREQUENCY_REFERENCE_DP = 320f
+        const val GAP_DP = 3f
+        val frequencies = (MIN_PROGRESS_FREQUENCY..MAX_PROGRESS_FREQUENCY step 4).toList()
+    }
+}
 
 /**
  * Colors as `#RRGGBB` or `#AARRGGBB`. Focus is always [accent] filled with [onAccent] text,

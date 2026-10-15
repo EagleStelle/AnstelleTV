@@ -111,12 +111,6 @@ data class CatalogWatch(
         return progress.played
     }
 
-    /** How far into a movie, 0 to 1; 0 for a series or one not started. */
-    fun fraction(title: Title): Float {
-        val resume = byId[title.id]?.resumeMs ?: return 0f
-        return if (title.durationMs > 0) (resume.toFloat() / title.durationMs).coerceIn(0f, 1f) else 0f
-    }
-
     /** How many of a series' episodes are still to watch; null for a movie or when unknown. */
     fun unwatched(title: Title): Int? = byId[title.id]?.unwatched?.takeIf { title.kind.episodic && known }
 

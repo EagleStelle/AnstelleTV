@@ -285,6 +285,18 @@ private fun EditorMenu(spec: ThemeSpec, inUse: Boolean, viewModel: ThemeEditorVi
                 icon = Icons.Filled.RoundedCorner,
             )
         }
+        section("Progress")
+        item(key = "progress-frequency") {
+            ChoiceRow(
+                title = "Cut frequency",
+                value = spec.progress.segmentFrequency,
+                choices = tv.anstelle.core.model.ProgressStyle.frequencies,
+                label = { "$it" },
+                about = "More cuts per equal length make thinner blocks. Block and gap widths match across bars.",
+                onSelect = { frequency -> viewModel.change { it.copy(progress = it.progress.copy(segmentFrequency = frequency)) } },
+                icon = Icons.Filled.TableRows,
+            )
+        }
         section("Effects")
         item(key = "scanlines") {
             val strength = Scanlines.indexOfFirst { (_, alpha) -> spec.effects.scanlines && alpha == spec.effects.scanlineAlpha }.coerceAtLeast(0)
@@ -442,7 +454,7 @@ private fun LadderRow(title: String, value: String, fraction: Float, onStep: (In
                     .pointerInput(onSet) { detectHorizontalDragGestures { change, _ -> onSet((change.position.x / size.width).coerceIn(0f, 1f)) } },
                 contentAlignment = Alignment.Center,
             ) {
-                SegmentLadder(fraction, segments = 32, color = if (focused) theme.onAccent else theme.accent)
+                SegmentLadder(fraction, color = if (focused) theme.onAccent else theme.accent)
             }
         }
     }

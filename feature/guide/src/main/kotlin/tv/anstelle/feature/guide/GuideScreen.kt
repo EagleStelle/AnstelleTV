@@ -7,6 +7,7 @@ import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.StandInSize
 import android.view.View
+import tv.anstelle.core.model.MediaProgress
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
@@ -28,12 +29,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -840,7 +841,7 @@ private fun ProgramActions(
         )
         val range = WatchChoices.clockRange(program.startUtcMs, program.endUtcMs)
         when (AiringTense.of(program.startUtcMs, program.endUtcMs, nowMs)) {
-            AiringTense.ON_NOW -> StatusLine(true, "On now", "$range  ·  ${WatchChoices.span(program.endUtcMs - nowMs, roundUp = true)} left")
+            AiringTense.ON_NOW -> StatusLine(true, "On now", "$range  ·  ${MediaProgress.span(program.endUtcMs - nowMs, roundUp = true)} left")
             AiringTense.LATER -> StatusLine(false, "Later", range)
             AiringTense.AIRED -> StatusLine(null, "Aired", range)
         }

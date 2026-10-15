@@ -66,6 +66,7 @@ import kotlin.math.abs
 import kotlin.math.hypot
 import tv.anstelle.core.data.playback.StreamFacts
 import tv.anstelle.core.data.playback.TrackOption
+import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusSurface
@@ -479,7 +480,7 @@ internal fun ProgressRow(positionMs: Long, lengthMs: Long, modifier: Modifier = 
     val length = lengthMs.coerceAtLeast(1)
     var dragged by remember { mutableStateOf<Float?>(null) }
     val seek by rememberUpdatedState(onSeek)
-    val fraction = dragged ?: (positionMs.toFloat() / length).coerceIn(0f, 1f)
+    val fraction = dragged ?: MediaProgress(lengthMs, positionMs).fraction
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         androidx.compose.material3.Text(
             clock(dragged?.let { (it * length).toLong() } ?: positionMs),
@@ -512,14 +513,11 @@ internal fun ProgressRow(positionMs: Long, lengthMs: Long, modifier: Modifier = 
                 }
         }
         Box(Modifier.weight(1f).then(touch), contentAlignment = Alignment.CenterStart) {
-            SegmentLadder(fraction, segments = LADDER_SEGMENTS)
+            SegmentLadder(fraction)
         }
         androidx.compose.material3.Text(clock(lengthMs), style = typography.labelMedium, color = theme.textMuted, maxLines = 1)
     }
 }
-
-/** Segments in every progress ladder. */
-private const val LADDER_SEGMENTS = 40
 
 /**
  * How tall the ladder's touch strip is on touch screens; the ladder itself stays thin. Compose

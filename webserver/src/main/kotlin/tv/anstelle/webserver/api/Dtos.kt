@@ -372,6 +372,7 @@ data class DesignChoicesDto(
     val densities: List<LabelledName>,
     val radii: List<LabelledInt>,
     val scanlines: List<LabelledFloat>,
+    val segmentFrequencies: List<LabelledInt>,
 )
 
 /** Whether two colors read well against each other, in words for each way of fixing it. */

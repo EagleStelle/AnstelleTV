@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import tv.anstelle.core.theme.components.screenGap
 import androidx.compose.foundation.layout.Column
+import tv.anstelle.core.model.MediaProgress
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -595,7 +596,6 @@ internal fun EpisodeCarousel(
     returnTo: Long? = null,
     returnFocus: FocusRequester? = null,
     navigation: EpisodeNavigation? = null,
-    showWatched: Boolean = true,
 ) {
     val side = screenSide
     val state = rememberLazyListState()
@@ -636,7 +636,7 @@ internal fun EpisodeCarousel(
             EpisodeCard(
                 episode = episode,
                 resumeMs = watch.resumeMs(episode.id, episode.durationMs),
-                watched = showWatched && watch.watched(episode.id, episode.durationMs),
+                watched = watch.watched(episode.id, episode.durationMs),
                 current = episode.id == current,
                 onClick = { onOpen(episode) },
                 onHold = { onHold(episode) },
@@ -682,11 +682,9 @@ private fun EpisodeCard(
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(ControlShape)) {
                 Poster(episode.stillUrl, episode.label, Modifier.matchParentSize())
                 if (aired) Box(Modifier.matchParentSize().background(PastShade))
-                if (episode.durationMs > 0 || watched) WatchStrip(
-                    if (episode.durationMs > 0) resumeMs.toFloat() / episode.durationMs else 0f,
-                    watched,
+                WatchStrip(
+                    MediaProgress(episode.durationMs, resumeMs), watched,
                     Modifier.align(Alignment.BottomStart),
-                    remaining = episode.durationMs.takeIf { it > 0 }?.let { remainingTime(it - resumeMs) },
                 )
             }
             // The page's own episode is underlined like an open tab: here.

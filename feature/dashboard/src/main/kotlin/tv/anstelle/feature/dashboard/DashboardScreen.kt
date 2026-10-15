@@ -272,7 +272,7 @@ private fun LeadRank(entry: TopEntry, share: Float, ranking: Ranking, modifier: 
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             androidx.compose.material3.Text(duration(entry.playedMs), style = typography.titleLarge.figures(), color = theme.text, maxLines = 1)
-                            SegmentLadder(share, segments = 24, modifier = Modifier.weight(1f))
+                            SegmentLadder(share, modifier = Modifier.weight(1f))
                             androidx.compose.material3.Text(percent(share), style = typography.labelMedium, color = theme.textMuted, maxLines = 1)
                         }
                     }
@@ -327,7 +327,7 @@ private fun RankRow(rank: Int, entry: TopEntry, share: Float, ranking: Ranking) 
                         color = androidx.compose.material3.LocalContentColor.current,
                     )
                 }
-                SegmentLadder(share, segments = 16, color = if (focused) theme.onAccent else theme.accent, modifier = Modifier.width(if (isTv) 136.dp else 112.dp))
+                SegmentLadder(share, color = if (focused) theme.onAccent else theme.accent, modifier = Modifier.width(if (isTv) 136.dp else 112.dp))
             }
             androidx.compose.material3.Text(duration(entry.playedMs), style = typography.labelLarge.figures(), maxLines = 1)
         }
@@ -449,7 +449,7 @@ private fun Level(label: String, valueMs: Long, fraction: Float, color: Color, l
             androidx.compose.material3.Text(label.uppercase(), style = typography.labelMedium, color = theme.textMuted, maxLines = 1, modifier = Modifier.weight(1f))
             androidx.compose.material3.Text(duration(valueMs), style = (if (large) typography.headlineMedium else typography.titleMedium).figures(), color = theme.text, maxLines = 1)
         }
-        SegmentLadder(fraction, segments = 30, color = color)
+        SegmentLadder(fraction, color = color)
     }
 }
 

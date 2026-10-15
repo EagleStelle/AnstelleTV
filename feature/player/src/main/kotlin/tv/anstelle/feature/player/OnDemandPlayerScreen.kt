@@ -23,12 +23,12 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Forward30
+
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
@@ -100,6 +100,7 @@ import tv.anstelle.core.data.playback.TRACK_TYPE_TEXT
 import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.model.ProfileAccess
+import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.model.SegmentType
 import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.player.SubtitleStyle
@@ -683,11 +684,7 @@ private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long,
                 }
                 val aired = watched && !playing
                 if (aired) Box(Modifier.matchParentSize().background(PastShade))
-                val fraction = if (episode.durationMs > 0) resumeMs.toFloat() / episode.durationMs else 0f
-                if (episode.durationMs > 0 || watched) WatchStrip(
-                    fraction, watched, Modifier.align(Alignment.BottomStart),
-                    remaining = episode.durationMs.takeIf { it > 0 }?.let { WatchChoices.span((it - resumeMs).coerceAtLeast(0L), roundUp = true).uppercase() },
-                )
+                WatchStrip(MediaProgress(episode.durationMs, resumeMs), watched, Modifier.align(Alignment.BottomStart))
             }
             Column(Modifier.padding(start = 3.dp, end = 3.dp, bottom = 3.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 androidx.compose.material3.Text(

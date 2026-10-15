@@ -19,6 +19,9 @@
 	const body = $derived(fonts[spec.typography.body] ?? fonts.SANS);
 	const radius = $derived(`${spec.guide.cellRadiusDp}px`);
 	const scanlines = $derived(spec.effects.scanlines ? spec.effects.scanlineAlpha : 0);
+	let progressWidth = $state(0);
+	const blockWidth = $derived(Math.max(1, Math.round(320 / (spec.progress?.segmentFrequency ?? 20) - 3)));
+	const segmentCount = $derived(Math.max(0, Math.floor((progressWidth + 3) / (blockWidth + 3))));
 </script>
 
 <div
@@ -37,8 +40,8 @@
 				<i class="size-1.75" style:background={c.accent}></i>NOW <b class="font-semibold" style:color={c.textMuted}>8:00 – 8:30</b>
 			</span>
 			<span class="truncate font-semibold" style:color={c.bannerText}>Feature Presentation</span>
-			<span class="flex h-1 gap-0.5">
-				{#each Array(20) as _, i (i)}<i class="flex-1" style:background={i < 11 ? c.accent : c.line}></i>{/each}
+			<span class="flex h-1 justify-center gap-[3px]" bind:clientWidth={progressWidth}>
+				{#each Array(segmentCount) as _, i (i)}<i class="shrink-0" style:width="{blockWidth}px" style:background={i < Math.round(segmentCount * 0.55) ? c.accent : c.line}></i>{/each}
 			</span>
 		</div>
 	</div>

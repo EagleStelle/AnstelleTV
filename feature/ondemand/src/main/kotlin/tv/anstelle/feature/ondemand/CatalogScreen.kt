@@ -56,6 +56,8 @@ import tv.anstelle.core.data.ondemand.WatchCard
 import tv.anstelle.core.data.ondemand.ShelfType
 import tv.anstelle.core.data.ondemand.WatchChoice
 import tv.anstelle.core.data.ondemand.WatchChoices
+import tv.anstelle.core.model.MediaProgress
+import tv.anstelle.core.theme.components.WatchProgress
 import tv.anstelle.core.data.ondemand.WatchFilter
 import tv.anstelle.core.data.ondemand.WatchKind
 import tv.anstelle.core.theme.LocalAnstelleTheme
@@ -170,7 +172,11 @@ internal fun CatalogTab(
                         .let { if (focus.opened == "${kind.key}/banner") it.focusRequester(focus.returnTo) else it }
                         .focusRequester(bannerFocus)
                         .onFocusChanged { if (it.isFocused) current = -1 },
-                    footer = { i -> TitleProgress(state.banner[i], watch, Modifier.weight(1f)) },
+                    footer = { i ->
+                        val title = state.banner[i]
+                        val progress = MediaProgress(title.durationMs, watch[title.id]?.resumeMs ?: 0L)
+                        if (progress.hasProgress) WatchProgress(progress, modifier = Modifier.weight(1f))
+                    },
                 ) { i -> TitleSlide(state.banner[i], watch) }
             }
         }
@@ -208,7 +214,6 @@ internal fun CatalogTab(
                                 } else {
                                     WatchCardTile(
                                         card = card,
-                                        showProgress = content.shelf.type != ShelfType.NEXT_UP,
                                         onClick = {
                                             focus.onOpened(key)
                                             actions.onOpenEpisode(card.itemId)

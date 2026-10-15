@@ -2,6 +2,7 @@ package tv.anstelle.feature.ondemand
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
+import tv.anstelle.core.model.MediaProgress
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -191,13 +192,9 @@ fun EpisodeScreen(
                         item.title,
                         slot,
                         shaded = watched,
-                        foot = if (watched || resume > 0L) ({
-                            WatchStrip(
-                                if (item.durationMs > 0) resume.toFloat() / item.durationMs else 0f,
-                                watched,
-                                remaining = item.durationMs.takeIf { it > 0 }?.let { remainingTime(it - resume) },
-                            )
-                        }) else null,
+                        foot = {
+                            WatchStrip(MediaProgress(item.durationMs, resume), watched)
+                        },
                     )
                 },
                 title = {

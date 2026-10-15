@@ -12,9 +12,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -53,6 +54,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import tv.anstelle.core.model.MediaProgress
+import tv.anstelle.core.model.ProgressStyle
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
@@ -276,18 +279,22 @@ fun CodeBlocks(code: String?, modifier: Modifier = Modifier, length: Int = 6) {
  * segments carry the accent, the rest the line color, so the reading survives without hue.
  */
 @Composable
-fun SegmentLadder(fraction: Float, modifier: Modifier = Modifier, segments: Int = 24, color: Color = LocalAnstelleTheme.current.accent, emptyColor: Color = LocalAnstelleTheme.current.line) {
+fun SegmentLadder(fraction: Float, modifier: Modifier = Modifier, color: Color = LocalAnstelleTheme.current.accent, emptyColor: Color = LocalAnstelleTheme.current.line) {
     val empty = emptyColor
-    Canvas(modifier.fillMaxWidth().height(6.dp)) {
-        val gap = 3.dp.toPx()
-        // A narrow artwork footer keeps the same gap, yielding blocks before their widths turn negative.
-        val count = segments.coerceAtLeast(1).coerceAtMost((size.width / (gap + 2.dp.toPx())).toInt().coerceAtLeast(1))
-        val width = (size.width - gap * (count - 1)) / count
-        val filled = (fraction.coerceIn(0f, 1f) * count).roundToInt()
+    val style = LocalAnstelleTheme.current.spec.progress
+    val progress = fraction.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+    Canvas(modifier.fillMaxWidth().height(6.dp).semantics { progressBarRangeInfo = ProgressBarRangeInfo(progress, 0f..1f) }) {
+        val gap = ProgressStyle.GAP_DP.dp.toPx().roundToInt().toFloat()
+        val width = style.blockWidthDp.dp.toPx().roundToInt().coerceAtLeast(1).toFloat()
+        val count = ((size.width + gap) / (width + gap)).toInt()
+        if (count == 0) return@Canvas
+        // Repeat whole, equal-width blocks; center spare space instead of stretching or clipping a block.
+        val start = ((size.width - (count * width + (count - 1) * gap)) / 2).roundToInt().toFloat()
+        val filled = (progress * count).roundToInt()
         for (i in 0 until count) {
             drawRect(
                 if (i < filled) color else empty,
-                topLeft = Offset(i * (width + gap), 0f),
+                topLeft = Offset(start + i * (width + gap), 0f),
                 size = Size(width, size.height),
             )
         }
@@ -413,60 +420,69 @@ fun WatchedMarker(
  * watched as a ladder in the accent (where you left it is where you are), and once watched
  * through the watched square with WATCHED in the field voice, both in the accent so they
  * follow the theme. Watching one again shows the square before the ladder. One height in every state,
- * so a list of stills keeps one line. Show it only when [fraction] is above 0 or [watched].
+ * so a list of stills keeps one line. Show it only when [progress] has started or [watched].
  */
 @Composable
-fun WatchStrip(fraction: Float, watched: Boolean, modifier: Modifier = Modifier, segments: Int? = null, remaining: String? = null) {
+fun WatchStrip(progress: MediaProgress, watched: Boolean, modifier: Modifier = Modifier, remaining: String? = progress.remainingLabel, remainingBelow: Boolean = false) {
+    if (!progress.hasProgress && !watched) return
     val theme = LocalAnstelleTheme.current
     WatchProgress(
-        fraction = fraction, watched = watched, remaining = remaining,
+        progress = progress, watched = watched, remaining = remaining,
         modifier = modifier
             .fillMaxWidth()
             .background(theme.background.copy(alpha = 0.8f))
             .padding(horizontal = 6.dp),
-        segments = segments,
         compact = true,
+        remainingBelow = remainingBelow,
     )
 }
 
-/** One watch row everywhere: themed check at the start, ladder, then remaining time at the end. */
+/** One watch row everywhere: themed check, ladder, then remaining time, optionally centered below. */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun WatchProgress(
-    fraction: Float,
+    progress: MediaProgress,
     watched: Boolean = false,
-    remaining: String? = null,
+    remaining: String? = progress.remainingLabel,
     modifier: Modifier = Modifier,
     focused: Boolean = false,
-    segments: Int? = null,
     compact: Boolean = false,
+    remainingBelow: Boolean = false,
 ) {
     val theme = LocalAnstelleTheme.current
-    val spot = fraction > 0f
+    val fraction = progress.fraction
+    val spot = progress.hasProgress
     val completed = watched && (!spot || fraction >= 1f)
     val time = remaining.takeUnless { completed }
     val ink = if (focused) theme.onAccent else theme.accent
-    Row(
+    FlowRow(
         modifier
             .fillMaxWidth()
             .heightIn(min = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 8.dp),
+        maxItemsInEachRow = if (remainingBelow) 1 else 2,
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 8.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        if (watched) WatchedMarker(color = ink, tick = if (focused) theme.accent else theme.onAccent, description = if (spot) "Watched" else null)
-        if (spot || !watched) {
-            BoxWithConstraints(Modifier.weight(1f)) {
-                if (maxWidth >= 4.dp) SegmentLadder(fraction,
-                    segments = segments ?: (maxWidth / 16.dp).toInt().coerceIn(1, 40),
+        Row(
+            Modifier.weight(1f).heightIn(min = 16.dp).align(Alignment.CenterVertically),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 8.dp),
+        ) {
+            if (watched) WatchedMarker(color = ink, tick = if (focused) theme.accent else theme.onAccent, description = if (spot) "Watched" else null)
+            if (spot || !watched) {
+                Box(Modifier.weight(1f)) {
+                    SegmentLadder(fraction,
+                        color = ink,
+                        emptyColor = if (focused) theme.onAccent.copy(alpha = 0.25f) else theme.line)
+                }
+            } else if (watched) {
+                androidx.compose.material3.Text(
+                    "WATCHED",
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                     color = ink,
-                    emptyColor = if (focused) theme.onAccent.copy(alpha = 0.25f) else theme.line)
+                    maxLines = 1,
+                )
             }
-        } else if (watched) {
-            androidx.compose.material3.Text(
-                "WATCHED",
-                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                color = ink,
-                maxLines = 1,
-            )
         }
         if (time != null) androidx.compose.material3.Text(
             time,
@@ -474,7 +490,7 @@ fun WatchProgress(
                 .merge(TextStyle(fontFeatureSettings = "tnum")),
             color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
             maxLines = 1,
-            modifier = Modifier.semantics { contentDescription = "$time remaining" },
+            modifier = Modifier.align(Alignment.CenterVertically).semantics { contentDescription = "$time remaining" },
         )
     }
 }

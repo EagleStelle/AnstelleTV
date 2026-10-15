@@ -278,6 +278,16 @@
 			onselect={(v) => change((s) => (s.guide.cellRadiusDp = v))}
 			icon={RoundedCorner}
 		/>
+		<Section title="Progress" />
+		<ChoiceRow
+			title="Cut frequency"
+			value={spec.progress.segmentFrequency}
+			choices={design.choices.segmentFrequencies.map((s) => s.value)}
+			label={(v) => design!.choices.segmentFrequencies.find((s) => s.value === v)?.label ?? String(v)}
+			about="More cuts per equal length make thinner blocks. Block and gap widths match across bars."
+			onselect={(v) => change((s) => (s.progress.segmentFrequency = v))}
+			icon={TableRows}
+		/>
 		<Section title="Effects" />
 		{#if scanline}
 			<ChoiceRow

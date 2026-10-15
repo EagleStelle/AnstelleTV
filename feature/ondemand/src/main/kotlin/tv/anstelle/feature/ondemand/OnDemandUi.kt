@@ -17,8 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-
 import androidx.compose.runtime.Composable
+
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -190,10 +190,6 @@ internal fun rememberClock(): State<Long> {
 }
 
 private const val CLOCK_MS = 30_000L
-
-/** How far [nowMs] is through an airing, 0 to 1. */
-internal fun progress(startUtcMs: Long, endUtcMs: Long, nowMs: Long): Float =
-    if (endUtcMs <= startUtcMs) 0f else ((nowMs - startUtcMs).toFloat() / (endUtcMs - startUtcMs)).coerceIn(0f, 1f)
 
 /**
  * A channel number as a small OSD block: ink on the accent, or the accent on ink while the

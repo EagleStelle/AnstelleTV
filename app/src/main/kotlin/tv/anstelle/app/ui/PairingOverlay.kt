@@ -98,7 +98,7 @@ fun PairingOverlay(viewModel: PairingViewModel = hiltViewModel()) {
                 color = theme.textMuted,
             )
             CodeBlocks(current.pin, Modifier.padding(vertical = 8.dp))
-            SegmentLadder(secondsLeft / PIN_LIFETIME_S.toFloat(), segments = 30)
+            SegmentLadder(secondsLeft / PIN_LIFETIME_S.toFloat())
             androidx.compose.material3.Text(
                 "Expires in ${secondsLeft} s",
                 style = androidx.compose.material3.MaterialTheme.typography.labelMedium,

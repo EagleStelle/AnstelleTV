@@ -693,7 +693,7 @@ private fun NumberEntry(entry: String) {
                 }
             }
         }
-        SegmentLadder(left.value, segments = 16)
+        SegmentLadder(left.value)
     }
 }
 

@@ -2,6 +2,7 @@ package tv.anstelle.core.data.ondemand
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import tv.anstelle.core.model.MediaProgress
 
 class WatchChoicesTest {
     @Test
@@ -14,19 +15,26 @@ class WatchChoicesTest {
 
     @Test
     fun `spans read in minutes and hours`() {
-        assertEquals("12 min", WatchChoices.span(12 * 60_000 + 59_000))
-        assertEquals("1 h", WatchChoices.span(60 * 60_000))
-        assertEquals("1 h 4 min", WatchChoices.span(64 * 60_000))
+        assertEquals("12 min", MediaProgress.span(12 * 60_000 + 59_000))
+        assertEquals("1 h", MediaProgress.span(60 * 60_000))
+        assertEquals("1 h 4 min", MediaProgress.span(64 * 60_000))
         // Time left counts a started minute, and never says nothing is left.
-        assertEquals("18 min", WatchChoices.span(17 * 60_000 + 1_000, roundUp = true))
-        assertEquals("1 min", WatchChoices.span(500, roundUp = true))
+        assertEquals("18 min", MediaProgress.span(17 * 60_000 + 1_000, roundUp = true))
+        assertEquals("1 min", MediaProgress.span(500, roundUp = true))
     }
 
     @Test
-    fun `a program not on now plays from the start, worded by when it airs`() {
-        assertEquals("Watch now", WatchChoices.fromStart(AiringTense.LATER, 0).title)
-        assertEquals("Watch again", WatchChoices.fromStart(AiringTense.AIRED, 0).title)
-        assertEquals(WatchKind.PLAY, WatchChoices.fromStart(AiringTense.LATER, 0).kind)
+    fun `future and aired programs both offer watch now from the start`() {
+        val later = WatchChoices.fromStart(AiringTense.LATER, 0)
+        val aired = WatchChoices.fromStart(AiringTense.AIRED, 0)
+        for (choice in listOf(later, aired)) {
+            assertEquals("Watch now", choice.title)
+            assertEquals(WatchKind.PLAY, choice.kind)
+            assertEquals(0L, choice.positionMs)
+        }
+        val time = WatchChoices.clockTime(0)
+        assertEquals("Don't wait for $time. On Demand from 0:00.", later.detail)
+        assertEquals("Aired at $time. On Demand from 0:00.", aired.detail)
     }
 
     @Test

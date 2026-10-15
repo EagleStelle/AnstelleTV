@@ -42,6 +42,7 @@ import tv.anstelle.core.data.ondemand.WatchKind
 import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.data.playback.PlaybackReporter
 import tv.anstelle.core.model.Channel
+import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
@@ -214,9 +215,8 @@ fun ChannelScreen(
                         item.imageUrl, item.title.takeUnless { restricted }.orEmpty(), slot,
                         foot = if (!restricted && tense == AiringTense.ON_NOW) ({
                             WatchStrip(
-                                progress(page.startUtcMs, page.endUtcMs, clock.value),
+                                MediaProgress(page.endUtcMs - page.startUtcMs, clock.value - page.startUtcMs),
                                 watched = false,
-                                remaining = remainingTime(page.endUtcMs - clock.value),
                             )
                         }) else null,
                     )
@@ -257,13 +257,12 @@ fun ChannelScreen(
         }
         if (page.episodes.isNotEmpty()) {
             item(key = "episodes-heading") {
-                EpisodesHeading(seasons, season, WatchMarks(), Modifier.padding(top = if (isTv) 20.dp else 14.dp), navigation) { season = it }
+                EpisodesHeading(seasons, season, state.watch, Modifier.padding(top = if (isTv) 20.dp else 14.dp), navigation) { season = it }
             }
             item(key = "episodes") {
                 EpisodeCarousel(
                     episodes = seasons[season].orEmpty(),
                     watch = state.watch,
-                    showWatched = false,
                     target = lastTouched ?: topicEpisode?.id,
                     onOpen = {
                         lastTouched = it.id

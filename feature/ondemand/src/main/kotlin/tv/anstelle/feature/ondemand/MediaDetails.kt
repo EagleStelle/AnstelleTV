@@ -14,19 +14,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import tv.anstelle.core.data.ondemand.WatchChoices
+import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.WatchProgress
-
-/** Banner and episode-card time, without changing the player's existing wording. */
-internal fun remainingTime(ms: Long): String = if (ms <= 0) "0 MIN" else WatchChoices.span(ms, roundUp = true).uppercase()
-
-/** The bar fills the available row; its remaining duration holds the end edge. */
-@Composable
-internal fun ProgressRow(fraction: Float, remaining: String, modifier: Modifier = Modifier, focused: Boolean = false) {
-    WatchProgress(fraction, remaining = remaining, modifier = modifier, focused = focused)
-}
 
 /** The readable media name always appears, including when a graphical logo is available. */
 @Composable
@@ -49,7 +39,7 @@ internal fun MediaFacts(
     seasonCount: Int? = null, episodeCount: Int? = null,
 ) {
     val lengths = listOfNotNull(
-        durationMs.takeIf { it > 0 }?.let { WatchChoices.span(it) },
+        durationMs.takeIf { it > 0 }?.let { MediaProgress.span(it) },
         seasonCount?.let { "$it ${if (it == 1) "season" else "seasons"}" },
         episodeCount?.let { "$it ${if (it == 1) "episode" else "episodes"}" },
     )

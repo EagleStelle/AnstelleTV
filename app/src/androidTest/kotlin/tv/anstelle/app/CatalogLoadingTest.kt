@@ -87,6 +87,8 @@ class CatalogLoadingTest {
         assertTrue("Series episode counts missing from server response", expectedWatch.byId.values.any { it.unwatched != null })
         val expectedResume = graph.catalog().continueWatching(CatalogKind.SERIES, profile.id, access)
         val expectedNext = graph.catalog().nextUp(profile.id, access)
+        val continuingTitles = expectedResume.mapTo(HashSet()) { it.titleId }
+        assertTrue("Next up repeats a series from Continue watching", expectedNext.none { it.titleId in continuingTitles })
         val store = ViewModelStore()
         lateinit var model: CatalogViewModel
         instrumentation.runOnMainSync {

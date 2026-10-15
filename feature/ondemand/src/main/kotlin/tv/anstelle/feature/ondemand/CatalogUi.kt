@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
+import tv.anstelle.core.model.MediaProgress
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -193,7 +194,7 @@ internal fun ColumnScope.TitleSlide(title: Title, watch: CatalogWatch) {
         style = if (isTv) typography.headlineLarge else typography.headlineMedium,
         maxLines = 2,
     )
-    TitleFacts(title.year, title.rating, title.genres, if (title.durationMs > 0) WatchChoices.span(title.durationMs) else null, Modifier.padding(top = 2.dp))
+    TitleFacts(title.year, title.rating, title.genres, if (title.durationMs > 0) MediaProgress.span(title.durationMs) else null, Modifier.padding(top = 2.dp))
     WatchLine(title, watch)
     title.overview?.let {
         androidx.compose.material3.Text(
@@ -223,15 +224,6 @@ private fun WatchLine(title: Title, watch: CatalogWatch) {
             androidx.compose.material3.Text(if (unwatched == 1) "EPISODE TO WATCH" else "EPISODES TO WATCH", style = label, color = theme.textMuted)
         }
     }
-}
-
-/** Movie progress fills the banner footer, with remaining time at its trailing edge. */
-@Composable
-internal fun TitleProgress(title: Title, watch: CatalogWatch, modifier: Modifier = Modifier) {
-    val fraction = watch.fraction(title)
-    if (fraction > 0f) ProgressRow(
-        fraction, remainingTime(title.durationMs - (watch[title.id]?.resumeMs ?: 0L)), modifier,
-    )
 }
 
 /**
@@ -286,13 +278,12 @@ internal fun UnwatchedCount(count: Int, modifier: Modifier = Modifier) {
 @Composable
 internal fun PosterCard(title: Title, watch: CatalogWatch, onClick: () -> Unit, onHold: () -> Unit, modifier: Modifier = Modifier) {
     val watched = watch.watched(title)
-    val fraction = watch.fraction(title)
     val unwatched = watch.unwatched(title)
     PosterCardSurface(
         posterUrl = title.posterUrl,
         title = title.title,
         rating = title.rating,
-        fraction = fraction,
+        progress = MediaProgress(title.durationMs, watch[title.id]?.resumeMs ?: 0L),
         watched = watched,
         unwatched = unwatched,
         onClick = onClick,
@@ -308,7 +299,7 @@ internal fun PosterCard(card: WatchCard, onClick: () -> Unit, onHold: () -> Unit
         posterUrl = card.imageUrl,
         title = card.title,
         rating = card.rating,
-        fraction = if (card.durationMs > 0) card.positionMs.toFloat() / card.durationMs else 0f,
+        progress = MediaProgress(card.durationMs, card.positionMs),
         watched = false,
         unwatched = null,
         onClick = onClick,
@@ -322,7 +313,7 @@ private fun PosterCardSurface(
     posterUrl: String?,
     title: String,
     rating: String?,
-    fraction: Float,
+    progress: MediaProgress,
     watched: Boolean,
     unwatched: Int?,
     onClick: () -> Unit,
@@ -343,7 +334,7 @@ private fun PosterCardSurface(
             Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(ControlShape)) {
                 Poster(posterUrl, title, Modifier.fillMaxWidth().aspectRatio(2f / 3f))
                 if (watched) Box(Modifier.matchParentSize().background(PastShade))
-                if (fraction > 0f || watched) WatchStrip(fraction, watched, Modifier.align(Alignment.BottomStart), segments = 10)
+                WatchStrip(progress, watched, Modifier.align(Alignment.BottomStart), remaining = null)
                 if (!watched && unwatched != null && unwatched > 0) UnwatchedCount(unwatched, Modifier.align(Alignment.TopEnd).padding(6.dp))
             }
             Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -368,7 +359,7 @@ private fun PosterCardSurface(
  * the title and episode label. OK plays it; holding it (or Menu) offers the rest.
  */
 @Composable
-internal fun WatchCardTile(card: WatchCard, onClick: () -> Unit, onHold: () -> Unit, modifier: Modifier = Modifier, showProgress: Boolean = true) {
+internal fun WatchCardTile(card: WatchCard, onClick: () -> Unit, onHold: () -> Unit, modifier: Modifier = Modifier) {
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     FocusSurface(
@@ -382,11 +373,7 @@ internal fun WatchCardTile(card: WatchCard, onClick: () -> Unit, onHold: () -> U
         Column(Modifier.padding(TILE_FRAME)) {
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(ControlShape)) {
                 Poster(card.imageUrl, card.title, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
-                if (showProgress && card.durationMs > 0) WatchStrip(
-                    card.positionMs.toFloat() / card.durationMs, watched = false,
-                    modifier = Modifier.align(Alignment.BottomStart),
-                    remaining = remainingTime(card.durationMs - card.positionMs),
-                )
+                WatchStrip(MediaProgress(card.durationMs, card.positionMs), watched = false, modifier = Modifier.align(Alignment.BottomStart))
             }
             Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 androidx.compose.material3.Text(card.title, style = typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

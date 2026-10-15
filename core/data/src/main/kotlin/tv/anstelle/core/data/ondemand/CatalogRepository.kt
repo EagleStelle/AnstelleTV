@@ -193,9 +193,12 @@ class CatalogRepository @Inject constructor(
     }
 
     /** The next episode of each series the profile is watching. */
-    suspend fun nextUp(profileId: Long, access: ProfileAccess): List<WatchCard> = withContext(io) {
+    suspend fun nextUp(profileId: Long, access: ProfileAccess, continuing: List<WatchCard>? = null): List<WatchCard> = withContext(io) {
+        val resume = continuing ?: continueWatching(CatalogKind.SERIES, profileId, access)
+        val continuingTitles = resume.mapTo(HashSet()) { it.titleId }
         val ids = fromServers("Next up", profileId) { it.nextUp(ROW_LIMIT) }
         cards(CatalogKind.SERIES, ids.map { (serverId, id) -> serverId to ResumePoint(id, 0, 0) }, access)
+            .filterNot { it.titleId in continuingTitles }
     }
 
     /** A movie's or series' page; null when it is gone or the profile may not watch it. */

@@ -282,6 +282,7 @@ export interface ThemeSpec {
 	typography: { display: string; body: string; scale: number };
 	guide: { density: string; cellRadiusDp: number };
 	effects: { scanlines: boolean; scanlineAlpha: number };
+	progress: { segmentFrequency: number };
 }
 
 export interface Readability {
@@ -305,6 +306,7 @@ export interface ThemeDesign {
 		densities: { value: string; label: string }[];
 		radii: { value: number; label: string }[];
 		scanlines: { value: number; label: string }[];
+		segmentFrequencies: { value: number; label: string }[];
 	};
 }
 

@@ -2,6 +2,8 @@ package tv.anstelle.core.data.ondemand
 
 import java.text.DateFormat
 import java.util.Date
+import tv.anstelle.core.model.MediaProgress.Companion.span
+import tv.anstelle.core.model.MediaProgress
 
 /** Where an airing sits against the clock. */
 enum class AiringTense {
@@ -84,11 +86,15 @@ object WatchChoices {
         (nowUtcMs - startUtcMs).takeIf { it >= MIN_LIVE_POINT_MS }?.let { resumeOnDemand(it, isEpisode) },
     )
 
-    /** A program that isn't on now, from its start on demand; the words follow when it airs. */
-    fun fromStart(tense: AiringTense, startUtcMs: Long) = when (tense) {
-        AiringTense.LATER -> WatchChoice(WatchKind.PLAY, "Watch now", "Don't wait for ${clockTime(startUtcMs)}. On Demand from 0:00.")
-        else -> WatchChoice(WatchKind.PLAY, "Watch again", "Aired at ${clockTime(startUtcMs)}. On Demand from 0:00.")
-    }
+    /** A program that isn't on now: one play action, with airing context in its detail. */
+    fun fromStart(tense: AiringTense, startUtcMs: Long) = WatchChoice(
+        WatchKind.PLAY,
+        "Watch now",
+        when (tense) {
+            AiringTense.LATER -> "Don't wait for ${clockTime(startUtcMs)}. On Demand from 0:00."
+            else -> "Aired at ${clockTime(startUtcMs)}. On Demand from 0:00."
+        },
+    )
 
     /** Plays from Jellyfin's resume point. */
     fun resume(positionMs: Long) = WatchChoice(WatchKind.PLAY, "Resume from ${span(positionMs)} in", "Where you stopped last time.", positionMs)
@@ -137,13 +143,7 @@ object WatchChoices {
      * length; null when it has no resume point. Its still says when it was watched through.
      */
     fun timeLeft(durationMs: Long, resumeMs: Long): String? =
-        resumeMs.takeIf { it > 0 && durationMs > 0 }?.let { "${span(durationMs - it, roundUp = true)} left" }
-
-    /** "18 min", "1 h 4 min"; [roundUp] counts a started minute as whole, for time left. */
-    fun span(ms: Long, roundUp: Boolean = false): String {
-        val minutes = if (roundUp) ((ms + 59_999) / 60_000).coerceAtLeast(1) else (ms / 60_000).coerceAtLeast(0)
-        return if (minutes < 60) "$minutes min" else if (minutes % 60 == 0L) "${minutes / 60} h" else "${minutes / 60} h ${minutes % 60} min"
-    }
+        MediaProgress(durationMs, resumeMs).takeIf { it.hasProgress }?.let { "${span(it.remainingMs, roundUp = true)} left" }
 
     /** The wall-clock time in the device's format, "8:02 PM" or "20:02". */
     fun clockTime(utcMs: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(utcMs))

@@ -2,6 +2,9 @@ package tv.anstelle.core.theme
 
 import tv.anstelle.core.model.ThemeContrast
 import tv.anstelle.core.model.ThemeEffects
+import tv.anstelle.core.model.ProgressStyle
+import tv.anstelle.core.model.MIN_PROGRESS_FREQUENCY
+import tv.anstelle.core.model.MAX_PROGRESS_FREQUENCY
 import tv.anstelle.core.model.ThemeSpec
 import java.io.File
 import kotlin.test.Test
@@ -10,6 +13,20 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class ThemeSpecTest {
+    @Test
+    fun progressFrequencyDefaultsForExistingThemesAndRoundTripsWhenCustomized() {
+        val existing = File("src/main/assets/themes/rose.json").readText()
+        assertEquals(20, ThemeSpec.parse(existing).progress.segmentFrequency)
+        for (frequency in MIN_PROGRESS_FREQUENCY..MAX_PROGRESS_FREQUENCY) {
+            val spec = DefaultTheme.spec.copy(progress = ProgressStyle(frequency))
+            spec.validate()
+            assertEquals(spec, ThemeSpec.parse(spec.toJson()))
+        }
+        for (frequency in listOf(MIN_PROGRESS_FREQUENCY - 1, MAX_PROGRESS_FREQUENCY + 1)) {
+            assertFailsWith<IllegalArgumentException> { DefaultTheme.spec.copy(progress = ProgressStyle(frequency)).validate() }
+        }
+    }
+
     private val bundled = File("src/main/assets/themes").listFiles { file -> file.extension == "json" }.orEmpty().sortedBy { it.name }
 
     @Test
