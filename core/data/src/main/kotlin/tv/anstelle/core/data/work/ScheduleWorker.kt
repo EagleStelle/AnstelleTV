@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit
  * schedule [ScheduleUpdater.HORIZON_MS] ahead and regenerates the ones whose inputs changed.
  * Runs in full after each sync. At app start and twice a day it only tops up the schedules
  * that are due ([ScheduleUpdater.updateDue]), since every other change updates its own
- * schedules; a new app version or time zone still gets the full run. Runs on low-priority
+ * schedules; a scheduler revision or time zone change still gets the full run. Runs on low-priority
  * threads so the screen and playback keep their CPU.
  */
 @HiltWorker
@@ -44,8 +44,7 @@ class ScheduleWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = try {
         withContext(background) {
-            // What the last full run was made for: the app as installed, in this time zone.
-            val made = "${installed()}|${ZoneId.systemDefault().id}"
+            val made = "$SCHEDULER_REVISION|${ZoneId.systemDefault().id}"
             if (!inputData.getBoolean(KEY_FULL, true) && settings.get(Settings.SchedulesMadeFor) == made) {
                 updater.updateDue()
             } else {
@@ -58,6 +57,7 @@ class ScheduleWorker @AssistedInject constructor(
                 settings.set(Settings.SchedulesMadeFor, made)
             }
         }
+        DurationWorker.enqueue(WorkManager.getInstance(context))
         Result.success()
     } catch (e: CancellationException) {
         throw e
@@ -66,15 +66,15 @@ class ScheduleWorker @AssistedInject constructor(
         Result.failure()
     }
 
-    private fun installed(): Long =
-        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
-
     companion object {
         private const val TAG = "ScheduleWorker"
         private const val PERIODIC_NAME = "schedule-extend"
         private const val ONE_TIME_NAME = "schedule-update"
         private const val PERIOD_HOURS = 12L
         private const val KEY_FULL = "full"
+        // Bump when generated-channel or schedule semantics require a complete local pass.
+        internal const val SCHEDULER_REVISION = 2
+        private const val STARTUP_NAME = "schedule-startup"
 
         fun schedulePeriodic(workManager: WorkManager) {
             val request = PeriodicWorkRequestBuilder<ScheduleWorker>(PERIOD_HOURS, TimeUnit.HOURS)
@@ -90,7 +90,13 @@ class ScheduleWorker @AssistedInject constructor(
          */
         fun runNow(workManager: WorkManager, full: Boolean = true) {
             val request = OneTimeWorkRequestBuilder<ScheduleWorker>().setInputData(workDataOf(KEY_FULL to full)).build()
-            workManager.enqueueUniqueWork(ONE_TIME_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            // Full updates remain ordered after sync. Startup checks collapse independently,
+            // so a queued full update can never be swallowed by a lightweight check.
+            workManager.enqueueUniqueWork(
+                if (full) ONE_TIME_NAME else STARTUP_NAME,
+                if (full) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
+                request,
+            )
         }
     }
 }

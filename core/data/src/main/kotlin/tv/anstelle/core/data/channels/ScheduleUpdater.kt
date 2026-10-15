@@ -63,7 +63,7 @@ class ScheduleUpdater @Inject constructor(
 
     /** The whole library as channel rules see it, read in one query. */
     suspend fun catalog(): Catalog {
-        durations.refresh()
+        durations.applySaved()
         return Catalog(itemDao.catalog(), words.words().types)
     }
 

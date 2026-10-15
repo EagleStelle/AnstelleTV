@@ -1,6 +1,7 @@
 package tv.anstelle.core.player
 
 import android.content.Context
+import android.app.ActivityManager
 import androidx.annotation.OptIn
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
@@ -19,6 +20,10 @@ import androidx.media3.exoplayer.upstream.Allocator
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.peerless2012.ass.media.factory.AssRenderersFactory
 import okhttp3.OkHttpClient
+import okhttp3.Call
+import okhttp3.EventListener
+import okhttp3.Response
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -39,7 +44,24 @@ class PlayerFactory @Inject constructor(
     okHttpClient: OkHttpClient,
     auth: StreamAuth,
 ) {
-    private val dataSourceFactory = ResolvingDataSource.Factory(OkHttpDataSource.Factory(okHttpClient)) { spec ->
+    val lowMemory: Boolean by lazy {
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val memory = ActivityManager.MemoryInfo().also(manager::getMemoryInfo)
+        PlaybackBudget.isLowMemory(manager.isLowRamDevice, memory.totalMem, manager.memoryClass)
+    }
+    // Trace request-to-headers separately from container parsing and decoder work.
+    // No URLs, credentials or item metadata are included in these sections.
+    private val mediaClient = okHttpClient.newBuilder().eventListenerFactory {
+        object : EventListener() {
+            private var headers: TuneTrace? = null
+            override fun callStart(call: Call) { headers = TuneTrace.begin("StreamHeaders") }
+            override fun responseHeadersEnd(call: Call, response: Response) { finish() }
+            override fun callFailed(call: Call, ioe: IOException) { finish() }
+            override fun callEnd(call: Call) { finish() }
+            private fun finish() { headers?.end(); headers = null }
+        }
+    }.build()
+    private val dataSourceFactory = ResolvingDataSource.Factory(OkHttpDataSource.Factory(mediaClient)) { spec ->
         val header = auth.headerFor(spec.uri.toString()) ?: return@Factory spec
         spec.withAdditionalHeaders(mapOf("Authorization" to header))
     }
@@ -57,8 +79,11 @@ class PlayerFactory @Inject constructor(
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, START_BUFFER_MS, REBUFFER_MS)
                 // The default target is about 125 MB of heap per player; a stick's heap is 256 MB.
-                .setTargetBufferBytes(TARGET_BUFFER_BYTES)
+                .setTargetBufferBytes(if (lowMemory) 32 * 1024 * 1024 else TARGET_BUFFER_BYTES)
                 .build(),
+            standbyBufferUs = if (lowMemory) 2_000_000L else 4_000_000L,
+            standbyBufferBytes = if (lowMemory) 4 * 1024 * 1024 else 8 * 1024 * 1024,
+            activeBufferBytes = if (lowMemory) 32 * 1024 * 1024 else TARGET_BUFFER_BYTES,
         )
         val player = ExoPlayer.Builder(context, renderersFactory)
             .setTrackSelector(trackSelector)
@@ -92,12 +117,17 @@ class PlayerFactory @Inject constructor(
  * method is forwarded by hand: Kotlin delegation skips the interface's Java default methods.
  */
 @OptIn(UnstableApi::class)
-class PoolLoadControl(private val base: DefaultLoadControl) : LoadControl {
+class PoolLoadControl(
+    private val base: DefaultLoadControl,
+    private val standbyBufferUs: Long = 4_000_000L,
+    private val standbyBufferBytes: Int = 8 * 1024 * 1024,
+    private val activeBufferBytes: Int = 64 * 1024 * 1024,
+) : LoadControl {
     @Volatile var standby: Boolean = false
 
     override fun shouldContinueLoading(parameters: LoadControl.Parameters): Boolean {
-        if (standby && (parameters.bufferedDurationUs >= STANDBY_BUFFER_US ||
-            base.getAllocator(parameters.playerId).totalBytesAllocated >= STANDBY_BUFFER_BYTES)) return false
+        if (standby && (parameters.bufferedDurationUs >= standbyBufferUs ||
+            base.getAllocator(parameters.playerId).totalBytesAllocated >= standbyBufferBytes)) return false
         return base.shouldContinueLoading(parameters)
     }
 
@@ -126,12 +156,13 @@ class PoolLoadControl(private val base: DefaultLoadControl) : LoadControl {
         timeline: Timeline,
         mediaPeriodId: MediaSource.MediaPeriodId,
         bufferedDurationUs: Long,
-    ): Boolean = !standby && bufferedDurationUs < STANDBY_BUFFER_US &&
-        base.getAllocator(playerId).totalBytesAllocated < 64 * 1024 * 1024 &&
+    ): Boolean = !standby && bufferedDurationUs < standbyBufferUs &&
+        base.getAllocator(playerId).totalBytesAllocated < activeBufferBytes &&
         base.shouldContinuePreloading(playerId, timeline, mediaPeriodId, bufferedDurationUs)
 
-    private companion object {
-        const val STANDBY_BUFFER_US = 4_000_000L
-        const val STANDBY_BUFFER_BYTES = 8 * 1024 * 1024
-    }
+}
+
+internal object PlaybackBudget {
+    fun isLowMemory(lowRam: Boolean, totalBytes: Long, heapMb: Int): Boolean =
+        lowRam || totalBytes <= 2L * 1024 * 1024 * 1024 || heapMb <= 128
 }

@@ -33,6 +33,21 @@ class ProgramTransitionTest {
     @Before fun serveSamples() { server = TransitionSampleServer(context) }
     @After fun stopServer() { server.close() }
 
+    @Test fun poolCreatesStandbyOnlyWhenNeededAndReleasesItWhenIdle() {
+        instrumentation.runOnMainSync {
+            val pool = PlayerPool(factory())
+            try {
+                assertNull(pool.preparedStandby)
+                pool.active
+                assertNull(pool.preparedStandby)
+                val standby = pool.standby
+                assertTrue(pool.preparedStandby === standby)
+                pool.stopAll()
+                assertNull(pool.preparedStandby)
+            } finally { pool.release() }
+        }
+    }
+
     @Test
     fun playlistPreloadsNextProgramWithoutRebuffering() {
         val done = CountDownLatch(1)

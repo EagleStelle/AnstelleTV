@@ -2,10 +2,16 @@ package tv.anstelle.core.data.playback
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import tv.anstelle.core.common.AppLog
+import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.database.dao.MediaItemDao
@@ -40,7 +46,12 @@ internal object DurationOutliers {
     }
 }
 
-/** Corrects broken runtimes before the scheduler loads its catalog and preserves measured lengths through sync. */
+@Serializable
+internal data class DurationAttempt(val remoteId: String, val sourceId: String?, val reportedMs: Long, val retryUtcMs: Long)
+
+data class DurationRefresh(val changed: Set<Long>, val hasMore: Boolean)
+
+/** Local corrections never wait on remote probes. Only background maintenance measures files. */
 @Singleton
 class MediaDurations @Inject constructor(
     private val items: MediaItemDao,
@@ -48,8 +59,10 @@ class MediaDurations @Inject constructor(
     private val tokens: TokenStore,
     private val settings: SettingsRepository,
     private val files: FileDurationProbe,
+    private val time: TimeSource = TimeSource.System,
 ) {
     private val gate = Mutex()
+    private val probes = Mutex()
 
     private suspend fun saved(serverId: Long): MutableMap<String, DurationCorrection> {
         val raw = settings.get(Settings.fileDurations(serverId))
@@ -61,8 +74,8 @@ class MediaDurations @Inject constructor(
         settings.set(Settings.fileDurations(serverId), Json.encodeToString(corrections.values.toList()))
     }
 
-    /** Runs on existing libraries too: an app update does not require re-syncing every item. */
-    suspend fun refresh() = gate.withLock {
+    /** Reapply cached measurements without contacting any server. */
+    suspend fun applySaved() = gate.withLock {
         for ((serverId, rows) in items.runtimes().groupBy { it.serverId }) {
             val corrections = saved(serverId)
             val original = corrections.toMap()
@@ -70,31 +83,70 @@ class MediaDurations @Inject constructor(
             corrections.entries.removeAll { (id, correction) ->
                 live[id]?.let { !correction.matches(it.mediaSourceId, it.durationMs) } ?: true
             }
-            val effective = rows.map { row ->
+            rows.forEach { row ->
                 val correction = corrections[row.remoteId]
                 if (correction != null && row.durationMs != correction.measuredMs) items.setDuration(row.id, correction.measuredMs)
-                if (correction == null) row else row.copy(durationMs = correction.measuredMs)
-            }
-            val suspicious = DurationOutliers.ids(effective)
-            val pending = effective.filter { it.id in suspicious && it.remoteId !in corrections }
-            if (pending.isNotEmpty()) {
-                val server = servers.byId(serverId)
-                val token = server?.let { tokens.get(it.jellyfinServerId) }
-                if (server != null && token != null) {
-                    for (row in pending) {
-                        val measured = files.durationMs(server.baseUrl, token, row.remoteId, row.mediaSourceId)?.takeIf { it > 0 } ?: continue
-                        val duration = if (ProgramLength.differs(measured, row.durationMs)) measured else row.durationMs
-                        corrections[row.remoteId] = DurationCorrection(row.remoteId, row.mediaSourceId, row.durationMs, duration)
-                        // Persist each result before moving to another file or changing its catalog row.
-                        save(serverId, corrections)
-                        if (duration != row.durationMs) {
-                            items.setDuration(row.id, duration)
-                            AppLog.i("Duration", "Item ${row.id}: file samples corrected ${row.durationMs} ms to $duration ms")
-                        }
-                    }
-                }
             }
             if (corrections != original) save(serverId, corrections)
+        }
+    }
+
+    /** One bounded pass; no network I/O holds the metadata gate or scheduler mutex. */
+    suspend fun refresh(
+        budgetMs: Long = 20_000,
+        onChanged: suspend (Set<Long>) -> Unit = {},
+    ): DurationRefresh = probes.withLock {
+        val deadline = System.nanoTime() / 1_000_000 + budgetMs
+        applySaved()
+        val changed = LinkedHashSet<Long>()
+        var hasMore = false
+        try {
+            for ((serverId, rows) in items.runtimes().groupBy { it.serverId }) {
+                val corrections = gate.withLock { saved(serverId) }
+                val suspicious = DurationOutliers.ids(rows)
+                val live = rows.associateBy { it.remoteId }
+                val attempts = runCatching {
+                    Json.decodeFromString<List<DurationAttempt>>(settings.get(Settings.fileDurationAttempts(serverId)))
+                }.getOrDefault(emptyList()).filter { attempt ->
+                    live[attempt.remoteId]?.let { it.mediaSourceId == attempt.sourceId && it.durationMs == attempt.reportedMs } == true
+                }.associateByTo(LinkedHashMap()) { it.remoteId }
+                val pending = rows.filter { row ->
+                    row.id in suspicious && row.remoteId !in corrections &&
+                        (attempts[row.remoteId]?.retryUtcMs ?: 0) <= time.nowUtcMs()
+                }
+                if (pending.isEmpty()) continue
+                val server = servers.byId(serverId) ?: continue
+                val token = tokens.get(server.jellyfinServerId) ?: continue
+                for (row in pending) {
+                    currentCoroutineContext().ensureActive()
+                    val remaining = deadline - System.nanoTime() / 1_000_000
+                    if (remaining <= 0) { hasMore = true; break }
+                    // Persist before starting: a killed process must not probe the same bad file every launch.
+                    attempts[row.remoteId] = DurationAttempt(row.remoteId, row.mediaSourceId, row.durationMs, time.nowUtcMs() + RETRY_MS)
+                    settings.set(Settings.fileDurationAttempts(serverId), Json.encodeToString(attempts.values.toList()))
+                    val measured = withTimeoutOrNull(remaining) {
+                        files.durationMs(server.baseUrl, token, row.remoteId, row.mediaSourceId, remaining)
+                    }?.takeIf { it > 0 } ?: continue
+                    withContext(NonCancellable) { gate.withLock commit@{
+                        val duration = if (ProgramLength.differs(measured, row.durationMs)) measured else row.durationMs
+                        if (items.correctDuration(row.id, row.serverId, row.remoteId, row.mediaSourceId, row.durationMs, duration) == 0) return@commit
+                        val latest = saved(serverId)
+                        latest[row.remoteId] = DurationCorrection(row.remoteId, row.mediaSourceId, row.durationMs, duration)
+                        save(serverId, latest)
+                        attempts.remove(row.remoteId)
+                        settings.set(Settings.fileDurationAttempts(serverId), Json.encodeToString(attempts.values.toList()))
+                        if (duration != row.durationMs) {
+                            changed += row.id
+                            AppLog.i("Duration", "Item ${row.id}: corrected ${row.durationMs} ms to $duration ms")
+                        }
+                    } }
+                }
+            }
+            DurationRefresh(changed, hasMore)
+        } finally {
+            // Cancellation may follow a successful measurement in the same pass.
+            // Persist its invalidations even when the remaining probes are cancelled.
+            if (changed.isNotEmpty()) withContext(NonCancellable) { onChanged(changed.toSet()) }
         }
     }
 
@@ -117,10 +169,12 @@ class MediaDurations @Inject constructor(
     /** A natural playback end supplies another trusted measurement, including for movies. */
     suspend fun remember(item: MediaItemEntity, durationMs: Long) = gate.withLock {
         if (durationMs <= 0) return@withLock
+        if (items.correctDuration(item.id, item.serverId, item.remoteId, item.mediaSourceId, item.durationMs, durationMs) == 0) return@withLock
         val corrections = saved(item.serverId)
         val previous = corrections[item.remoteId]?.takeIf { it.matches(item.mediaSourceId, item.durationMs) }
         corrections[item.remoteId] = DurationCorrection(item.remoteId, item.mediaSourceId, previous?.reportedMs ?: item.durationMs, durationMs)
         save(item.serverId, corrections)
-        items.setDuration(item.id, durationMs)
     }
+
+    private companion object { const val RETRY_MS = 24 * 60 * 60 * 1000L }
 }

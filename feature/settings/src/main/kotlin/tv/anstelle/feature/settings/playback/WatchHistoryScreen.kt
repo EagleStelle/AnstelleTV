@@ -34,6 +34,7 @@ import tv.anstelle.core.model.WatchSync
 import tv.anstelle.core.model.codeOf
 import tv.anstelle.core.theme.components.ChoiceRow
 import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.SettingsNotice
 import tv.anstelle.core.theme.components.SwitchRow
 import tv.anstelle.core.theme.components.WatchIcons
 import tv.anstelle.core.theme.components.rememberInitialFocus
@@ -55,6 +56,7 @@ data class WatchHistoryUiState(
     /** Whether the profile keeps what it watches for its dashboard. */
     val dashboard: Boolean = Settings.dashboard(0).default,
     val loaded: Boolean = false,
+    val reconnect: Boolean = false,
 ) {
     fun of(place: SyncPlace) = when (place) {
         SyncPlace.LIVE_TV -> liveTv
@@ -78,7 +80,12 @@ class WatchHistoryViewModel @Inject constructor(
             settings.observe(Settings.liveTvSync(profileId)),
             settings.observe(Settings.onDemandSync(profileId)),
             history.observeEnabled(profileId),
-        ) { live, onDemand, dashboard -> WatchHistoryUiState(codeOf(live), codeOf(onDemand), dashboard, loaded = true) }
+            profiles.observeAccounts(profileId),
+        ) { live, onDemand, dashboard, accounts ->
+            WatchHistoryUiState(codeOf(live), codeOf(onDemand), dashboard, loaded = true,
+                reconnect = (live != WatchSync.OFF.code || onDemand != WatchSync.OFF.code) &&
+                    (accounts.isEmpty() || accounts.any { !it.signedIn }))
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WatchHistoryUiState())
 
     fun turnOnDashboard() {
@@ -115,6 +122,11 @@ fun WatchHistoryScreen(
             about = "Sent to your Jellyfin server. The dashboard stays on this device.",
         ) {
             section("Jellyfin")
+            if (state.reconnect) {
+                item(key = "reconnect") {
+                    SettingsNotice("History sync needs a sign-in. Open your profile's Jellyfin account to reconnect.", isError = true)
+                }
+            }
             for (place in SyncPlace.entries) {
                 item(key = place.name) {
                     ChoiceRow(

@@ -61,14 +61,14 @@ internal fun syncName(sync: WatchSync): String = when (sync) {
 internal fun syncDescription(place: SyncPlace, sync: WatchSync): String = when (place) {
     SyncPlace.LIVE_TV -> when (sync) {
         WatchSync.STATUS -> "What you finish is marked watched after at least 30 seconds of playback, even if you joined late."
-        WatchSync.PROGRESS -> "After 30 seconds of playback, where you stop replaces your On Demand spot. Watched status stays unchanged."
-        WatchSync.BOTH -> "After 30 seconds of playback, what you finish is marked watched and where you stop replaces your On Demand spot."
+        WatchSync.PROGRESS -> "After 30 seconds of playback, progress updates every 5 seconds and appears in Now Playing. Watched status stays unchanged."
+        WatchSync.BOTH -> "After 30 seconds of playback, progress updates every 5 seconds and appears in Now Playing. What you finish is marked watched."
         WatchSync.OFF -> "Live TV sends nothing to your server."
     }
     SyncPlace.ON_DEMAND -> when (sync) {
         WatchSync.STATUS -> "What you finish is marked watched. Where you stop isn't saved."
-        WatchSync.PROGRESS -> "Where you stop is saved, so you can resume. Nothing is marked watched."
-        WatchSync.BOTH -> "Where you stop is saved and what you finish is marked watched."
+        WatchSync.PROGRESS -> "Progress updates every 5 seconds and appears in Now Playing. Watched status stays unchanged."
+        WatchSync.BOTH -> "Progress updates every 5 seconds and appears in Now Playing. What you finish is marked watched."
         WatchSync.OFF -> "On Demand sends nothing to your server."
     }
 }

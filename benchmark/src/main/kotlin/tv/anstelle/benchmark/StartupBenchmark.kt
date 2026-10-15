@@ -38,7 +38,12 @@ class StartupBenchmark {
         compilationMode = compilationMode,
         startupMode = StartupMode.COLD,
         iterations = ITERATIONS,
-        setupBlock = { pressHome() },
+        setupBlock = {
+            pressHome()
+            // Background WorkManager jobs can restart a killed process between runs.
+            // Force-stop also suspends those jobs until this explicit launch.
+            device.executeShellCommand("am force-stop $TARGET_PACKAGE")
+        },
     ) {
         startActivityAndWait()
     }

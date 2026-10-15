@@ -112,6 +112,7 @@ object Settings {
 
     /** Measured file runtimes, retained while the source and its reported runtime stay the same. */
     fun fileDurations(serverId: Long) = SettingKey.StringKey("media.durations.$serverId", "")
+    fun fileDurationAttempts(serverId: Long) = SettingKey.StringKey("media.durationAttempts.$serverId", "")
 
     /** This device's own settings: a backup leaves them out and a restore keeps them. */
     val DeviceOnly = listOf(WebServerEnabled.name, WebServerPort.name, ActiveProfileId.name, BackupSaved.name, ThemesSeeded.name, SchedulesMadeFor.name)

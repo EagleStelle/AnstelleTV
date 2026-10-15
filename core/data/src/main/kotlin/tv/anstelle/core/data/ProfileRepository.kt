@@ -3,6 +3,8 @@ package tv.anstelle.core.data
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -84,6 +86,8 @@ class ProfileRepository @Inject constructor(
     private val pinLock = Any()
     private var wrongPins = 0
     private var lockedUntilUtcMs = 0L
+    private val _accountChanges = MutableSharedFlow<Unit>(extraBufferCapacity = 16)
+    val accountChanges = _accountChanges.asSharedFlow()
 
     fun observeProfiles(): Flow<List<Profile>> = dao.observeAll().map { list -> list.map { it.toModel() } }
 
@@ -239,6 +243,7 @@ class ProfileRepository @Inject constructor(
         dao.replaceHidden(profileId, serverId, emptyList())
         if (isFirstAccount(profileId, serverId)) mirror(profileId, server, JellyfinUser(session.userId, session.userName, session.imageTag))
         AppLog.i(TAG, "Profile $profileId is now ${session.userName} on ${server.name}")
+        _accountChanges.tryEmit(Unit)
     }
 
     /** A new member profile made from [session]'s user, as [linkAccount] links one; returns its id. */
@@ -310,6 +315,23 @@ class ProfileRepository @Inject constructor(
         val token = tokens.get(tokenKey(server.jellyfinServerId, own.device))
         if (token == null) AppLog.w(TAG, "Profile $profileId's sign-in on ${server.name} is gone; nothing plays as it")
         token?.let { WatchAccount(own.userId, it, own.device, keepsHistory = true) }
+    }
+
+    /** Reporting may refresh credentials, but must never move a view to another user. */
+    suspend fun historyAccount(profileId: Long, server: MediaServerEntity, userId: String): WatchAccount? = withContext(io) {
+        val own = dao.account(profileId, server.id)?.takeIf { it.userId == userId } ?: return@withContext null
+        tokens.get(tokenKey(server.jellyfinServerId, own.device))?.let { WatchAccount(own.userId, it, own.device, true) }
+    }
+
+    /** A delayed 401 must not clear a credential that was replaced meanwhile. */
+    suspend fun reportingSignedOut(profileId: Long, server: MediaServerEntity, failed: WatchAccount) = withContext(io) {
+        val own = dao.account(profileId, server.id) ?: return@withContext
+        if (own.userId != failed.userId || own.device != failed.device) return@withContext
+        val key = tokenKey(server.jellyfinServerId, own.device)
+        if (tokens.get(key) != failed.accessToken) return@withContext
+        tokens.remove(key)
+        dao.upsertAccount(own)
+        _accountChanges.tryEmit(Unit)
     }
 
     /** Whether [serverId] is the first server the profile has a user of its own on: that user names the profile. */

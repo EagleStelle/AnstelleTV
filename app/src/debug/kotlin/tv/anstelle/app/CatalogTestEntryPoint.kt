@@ -11,6 +11,8 @@ import tv.anstelle.core.data.playback.PlaybackReporter
 import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.jellyfin.auth.JellyfinAuth
 import tv.anstelle.core.jellyfin.auth.TokenStore
+import tv.anstelle.core.jellyfin.PlaystateFactory
+import tv.anstelle.core.jellyfin.JellyfinClients
 
 /** App graph for catalog device tests and opt-in owner-session recovery; absent from releases. */
 @EntryPoint
@@ -24,4 +26,6 @@ interface CatalogTestEntryPoint {
     fun servers(): MediaServerDao
     fun auth(): JellyfinAuth
     fun tokens(): TokenStore
+    fun playstates(): PlaystateFactory
+    fun clients(): JellyfinClients
 }

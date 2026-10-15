@@ -7,6 +7,12 @@ import android.os.SystemClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.CoroutineStart
+import okhttp3.Call
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.CoroutineContext
 import org.jellyfin.sdk.api.client.util.AuthorizationHeaderBuilder
 import org.jellyfin.sdk.model.serializer.toUUID
 import okhttp3.OkHttpClient
@@ -21,6 +27,8 @@ import java.util.concurrent.TimeUnit
 /** Reads the last playable samples, rather than trusting a possibly broken container duration. */
 interface FileDurationProbe {
     suspend fun durationMs(baseUrl: String, token: String, itemId: String, sourceId: String?): Long?
+    suspend fun durationMs(baseUrl: String, token: String, itemId: String, sourceId: String?, budgetMs: Long): Long? =
+        durationMs(baseUrl, token, itemId, sourceId)
 }
 
 @Singleton
@@ -28,7 +36,10 @@ class AndroidFileDurationProbe @Inject constructor(
     private val clients: JellyfinClients,
     private val http: OkHttpClient,
 ) : FileDurationProbe {
-    override suspend fun durationMs(baseUrl: String, token: String, itemId: String, sourceId: String?): Long? = withContext(Dispatchers.IO) {
+    override suspend fun durationMs(baseUrl: String, token: String, itemId: String, sourceId: String?): Long? =
+        durationMs(baseUrl, token, itemId, sourceId, MAX_SCAN_MS)
+
+    override suspend fun durationMs(baseUrl: String, token: String, itemId: String, sourceId: String?, budgetMs: Long): Long? = withContext(Dispatchers.IO) {
         val api = clients.api(baseUrl, token)
         val url = api.createUrl("/Videos/{itemId}/stream", mapOf("itemId" to itemId.toUUID()),
             mapOf("static" to true, "mediaSourceId" to (sourceId ?: itemId)), false)
@@ -36,7 +47,12 @@ class AndroidFileDurationProbe @Inject constructor(
             api.clientInfo.name, api.clientInfo.version, api.deviceInfo.id, api.deviceInfo.name, token)
         val extractor = MediaExtractor()
         val began = SystemClock.elapsedRealtime()
-        val source = RangeSource(http, url, authorization, began + MAX_SCAN_MS)
+        val source = RangeSource(http, url, authorization, began + minOf(MAX_SCAN_MS, budgetMs), coroutineContext)
+        // MediaExtractor calls the data source synchronously. A sibling cancellation
+        // handler cancels the socket immediately even while native extraction is blocked.
+        val cancellation = launch(start = CoroutineStart.UNDISPATCHED) {
+            try { awaitCancellation() } finally { source.cancel() }
+        }
         try {
             extractor.setDataSource(source)
             val last = LongArray(extractor.trackCount) { -1 }
@@ -54,6 +70,7 @@ class AndroidFileDurationProbe @Inject constructor(
             extractor.seekTo(Long.MAX_VALUE / 1000, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
             var samples = 0
             while (extractor.sampleTime >= 0) {
+                coroutineContext.ensureActive()
                 if (++samples > MAX_SAMPLES || SystemClock.elapsedRealtime() - began > MAX_SCAN_MS) return@withContext null
                 val track = extractor.sampleTrackIndex
                 val position = extractor.sampleTime
@@ -77,6 +94,7 @@ class AndroidFileDurationProbe @Inject constructor(
             AppLog.w("Duration", "Could not read the file's final samples")
             null
         } finally {
+            cancellation.cancel()
             extractor.release()
             source.close()
         }
@@ -88,10 +106,13 @@ class AndroidFileDurationProbe @Inject constructor(
         private val url: String,
         private val authorization: String,
         private val deadline: Long,
+        private val context: CoroutineContext,
     ) : MediaDataSource() {
         private var length = -1L
         private var start = -1L
         private var bytes = byteArrayOf()
+        @Volatile private var activeCall: Call? = null
+        @Volatile private var cancelled = false
         @Volatile var failed = false
             private set
 
@@ -101,11 +122,14 @@ class AndroidFileDurationProbe @Inject constructor(
         }
 
         private fun fetch(position: Long, count: Int): ByteArray {
+            context.ensureActive()
             val remaining = deadline - SystemClock.elapsedRealtime()
             if (remaining <= 0) throw failure("File duration probe timed out")
             val request = Request.Builder().url(url).header("Authorization", authorization)
                 .header("Range", "bytes=$position-${position + count - 1}").header("Accept-Encoding", "identity").build()
             val call = http.newCall(request)
+            activeCall = call
+            if (cancelled) call.cancel()
             call.timeout().timeout(remaining, TimeUnit.MILLISECONDS)
             return try { call.execute().use { response ->
                 if (response.code != 206 && !(position == 0L && response.code == 200)) throw failure("File range unavailable")
@@ -125,7 +149,7 @@ class AndroidFileDurationProbe @Inject constructor(
             } } catch (e: IOException) {
                 failed = true
                 throw e
-            }
+            } finally { activeCall = null }
         }
 
         @Synchronized
@@ -140,6 +164,7 @@ class AndroidFileDurationProbe @Inject constructor(
             if (position < 0 || (length >= 0 && position >= length)) return -1
             var filled = 0
             while (filled < size) {
+                context.ensureActive()
                 if (SystemClock.elapsedRealtime() >= deadline) throw failure("File duration probe timed out")
                 val current = position + filled
                 if (length >= 0 && current >= length) break
@@ -161,6 +186,8 @@ class AndroidFileDurationProbe @Inject constructor(
 
         @Synchronized
         override fun close() { bytes = byteArrayOf() }
+
+        fun cancel() { cancelled = true; activeCall?.cancel() }
     }
 
     private companion object {

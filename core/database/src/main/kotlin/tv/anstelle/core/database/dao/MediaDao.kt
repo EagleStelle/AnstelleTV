@@ -249,6 +249,10 @@ interface MediaItemDao {
     @Query("UPDATE media_item SET durationMs = :durationMs WHERE id = :id")
     suspend fun setDuration(id: Long, durationMs: Long)
 
+    /** A probe must not overwrite a file replaced while its network reads were running. */
+    @Query("UPDATE media_item SET durationMs = :measuredMs WHERE id = :id AND serverId = :serverId AND remoteId = :remoteId AND mediaSourceId IS :sourceId AND durationMs = :reportedMs")
+    suspend fun correctDuration(id: Long, serverId: Long, remoteId: String, sourceId: String?, reportedMs: Long, measuredMs: Long): Int
+
     @Query("DELETE FROM media_item WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 

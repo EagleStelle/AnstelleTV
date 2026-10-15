@@ -22,6 +22,7 @@ import org.jellyfin.sdk.model.api.request.GetResumeItemsRequest
 import org.jellyfin.sdk.model.serializer.toUUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.util.UUID
 
 /** One item's playback as Jellyfin sees it. */
 data class PlaystateItem(
@@ -29,7 +30,11 @@ data class PlaystateItem(
     val mediaSourceId: String?,
     val playSessionId: String,
     val transcoded: Boolean,
+    /** Non-library presence keeps server session side effects away from saved user data. */
+    val presence: PlaybackPresence? = null,
 )
+
+data class PlaybackPresence(val id: String, val title: String, val series: String?, val durationMs: Long)
 
 /** Where the user stands with one item: where they stopped (0 for no resume point), and whether it is marked played. */
 data class ItemWatch(val positionMs: Long, val played: Boolean)
@@ -98,11 +103,19 @@ internal class JellyfinPlaystate(
 ) : Playstate {
     private val user = userId.toUUID()
 
+    private fun PlaystateItem.reportedId(): UUID = if (presence == null) itemId.toUUID() else UUID(0, 0)
+    private fun PlaystateItem.metadata(): BaseItemDto? = presence?.let {
+        BaseItemDto(id = it.id.toUUID(), name = it.title, seriesName = it.series,
+            runTimeTicks = it.durationMs * TICKS_PER_MS, mediaType = MediaType.VIDEO,
+            type = if (it.series == null) BaseItemKind.MOVIE else BaseItemKind.EPISODE)
+    }
+
     override suspend fun started(item: PlaystateItem, positionMs: Long) = jellyfinCall("Reporting playback start") {
         api.sessionApi.reportPlaybackStart(
             PlaybackStartInfo(
                 canSeek = true,
-                itemId = item.itemId.toUUID(),
+                itemId = item.reportedId(),
+                item = item.metadata(),
                 mediaSourceId = item.mediaSourceId,
                 isPaused = false,
                 isMuted = false,
@@ -120,7 +133,8 @@ internal class JellyfinPlaystate(
         api.sessionApi.reportPlaybackProgress(
             PlaybackProgressInfo(
                 canSeek = true,
-                itemId = item.itemId.toUUID(),
+                itemId = item.reportedId(),
+                item = item.metadata(),
                 mediaSourceId = item.mediaSourceId,
                 isPaused = paused,
                 isMuted = false,
@@ -137,7 +151,8 @@ internal class JellyfinPlaystate(
     override suspend fun stopped(item: PlaystateItem, positionMs: Long) = jellyfinCall("Reporting playback stop") {
         api.sessionApi.reportPlaybackStopped(
             PlaybackStopInfo(
-                itemId = item.itemId.toUUID(),
+                itemId = item.reportedId(),
+                item = item.metadata(),
                 mediaSourceId = item.mediaSourceId,
                 positionTicks = positionMs * TICKS_PER_MS,
                 playSessionId = item.playSessionId,

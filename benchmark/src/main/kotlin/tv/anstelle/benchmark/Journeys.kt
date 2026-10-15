@@ -21,8 +21,8 @@ internal fun MacrobenchmarkScope.openGuide() {
 internal fun MacrobenchmarkScope.watchFullScreen() {
     device.pressDPadCenter()
     device.waitForIdle()
-    device.pressDPadCenter()
-    device.wait(Until.gone(By.res(GUIDE_GRID)), WAIT_MS)
+    if (device.hasObject(By.res(GUIDE_GRID))) device.pressDPadCenter()
+    check(device.wait(Until.gone(By.res(GUIDE_GRID)), WAIT_MS)) { "Full-screen playback did not open" }
 }
 
 /** Opens a destination of the navigation rail (or bar) by its label. */

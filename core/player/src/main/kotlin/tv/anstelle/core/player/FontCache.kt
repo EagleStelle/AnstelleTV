@@ -4,12 +4,21 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
 import java.io.File
+import java.io.IOException
+import kotlin.coroutines.resume
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -36,44 +45,53 @@ class FontCache @Inject constructor(
     suspend fun load(stream: ProgramStream): List<FontFile> {
         if (stream.fonts.isEmpty()) return emptyList()
         return withContext(io) {
-            val deadline = System.currentTimeMillis() + LOAD_LIMIT_MS
             val fonts = ArrayList<FontFile>(stream.fonts.size)
-            var changed = false
-            for (font in stream.fonts) {
-                val ref = File(dir, sha1(font.url.toByteArray()) + REF)
-                val file = ref.takeIf { it.exists() }?.let { File(dir, it.readText()) }?.takeIf { it.exists() }
-                    ?: if (System.currentTimeMillis() > deadline) null else download(font.url)?.also {
-                        ref.writeText(it.name)
-                        changed = true
-                    }
-                if (file == null) continue
-                val now = System.currentTimeMillis()
-                file.setLastModified(now)
-                ref.setLastModified(now)
-                runCatching { file.readBytes() }.onSuccess { fonts += FontFile(font.fileName, it) }
+            withTimeoutOrNull(LOAD_LIMIT_MS) {
+                for (font in stream.fonts) {
+                    currentCoroutineContext().ensureActive()
+                    val ref = File(dir, sha1(font.url.toByteArray()) + REF)
+                    val file = ref.takeIf { it.exists() }?.let { File(dir, it.readText()) }?.takeIf { it.exists() }
+                        ?: download(font.url)?.also { ref.writeText(it.name) }
+                    if (file == null) continue
+                    val now = System.currentTimeMillis()
+                    file.setLastModified(now)
+                    ref.setLastModified(now)
+                    runCatching { file.readBytes() }.onSuccess { fonts += FontFile(font.fileName, it) }
+                }
             }
-            // Cache hits only touch their LRU timestamps; daily housekeeping handles old debris.
-            if (changed) trim()
+            // Housekeeping trims the cache; channel startup does not scan its directory.
             fonts
         }
     }
 
     /** Downloads the font at [url] and returns its file, named by its contents. */
-    private fun download(url: String): File? = runCatching {
+    private suspend fun download(url: String): File? = suspendCancellableCoroutine { continuation ->
         val request = Request.Builder().url(url).apply { auth.headerFor(url)?.let { header("Authorization", it) } }.build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) error("HTTP ${response.code}")
-            val data = response.body.bytes()
-            dir.mkdirs()
-            val file = File(dir, sha1(data) + FONT)
-            if (!file.exists()) {
-                val partial = File(dir, file.name + PART)
-                partial.writeBytes(data)
-                partial.renameTo(file)
+        val call = client.newCall(request)
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                continuation.resume(null)
             }
-            file
-        }
-    }.onFailure { AppLog.w(TAG, "Font download failed: ${it.message}") }.getOrNull()
+            override fun onResponse(call: Call, response: Response) {
+                val file = runCatching {
+                    response.use {
+                        check(it.isSuccessful) { "HTTP ${it.code}" }
+                        val data = it.body.bytes()
+                        if (!continuation.isActive) return@use null
+                        dir.mkdirs()
+                        val target = File(dir, sha1(data) + FONT)
+                        if (!target.exists()) {
+                            val partial = File.createTempFile("font-", PART, dir)
+                            try { partial.writeBytes(data); partial.renameTo(target) } finally { partial.delete() }
+                        }
+                        target.takeIf { it.exists() }
+                    }
+                }.onFailure { AppLog.w(TAG, "Font download failed: ${it.message}") }.getOrNull()
+                continuation.resume(file)
+            }
+        })
+    }
 
     /** Trims the cache to its size; daily housekeeping runs it, so nothing waits on a tune to free the space. */
     suspend fun tidy() = withContext(io) { trim() }

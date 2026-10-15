@@ -89,7 +89,15 @@ class MediaDurationTest {
         val measured = requireNotNull(graph.files().durationMs(server.baseUrl, token, before.remoteId, before.mediaSourceId))
         val channel = graph.channels().all().single { it.number == number }
         val now = System.currentTimeMillis()
-        // Exercise the application entry point. No test SQL or ad-hoc repair is involved.
+        // Local scheduling never probes. Exercise the production background worker instead.
+        val work = androidx.work.WorkManager.getInstance(context)
+        tv.anstelle.core.data.work.DurationWorker.enqueue(work)
+        kotlinx.coroutines.withTimeout(90_000) {
+            while (kotlin.math.abs(requireNotNull(graph.items().byId(itemId)).durationMs - measured) > 5_000) {
+                kotlinx.coroutines.delay(250)
+            }
+        }
+        // The measured row can be visible just before the worker finishes its schedule batch.
         graph.updater().update(channel.id)
         val after = requireNotNull(graph.items().byId(itemId))
         assertTrue("Scheduling did not adopt the file's measured duration", kotlin.math.abs(after.durationMs - measured) <= 5_000)

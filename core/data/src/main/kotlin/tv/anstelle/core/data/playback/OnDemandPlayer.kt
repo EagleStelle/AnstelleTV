@@ -481,6 +481,7 @@ class OnDemandPlayer @Inject constructor(
             playSessionId = entry.stream.playSessionId,
             transcoded = entry.stream.transcoded,
             channelId = null,
+            source = tv.anstelle.core.model.WatchSource.ON_DEMAND,
             profileId = profileId,
             positionMs = positionMs,
             playing = exo?.isPlaying == true,
@@ -593,7 +594,7 @@ class OnDemandPlayer @Inject constructor(
 
     private companion object {
         const val TAG = "OnDemand"
-        const val PROGRESS_MS = 10_000L
+        const val PROGRESS_MS = 5_000L
         const val SEGMENT_MS = 250L
         /** A near-start Previous is the common "go back one" action. */
         const val PREVIOUS_RESTART_THRESHOLD_MS = 5_000L

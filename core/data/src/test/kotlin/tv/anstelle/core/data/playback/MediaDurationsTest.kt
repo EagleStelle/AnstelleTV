@@ -1,6 +1,12 @@
 package tv.anstelle.core.data.playback
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.test.runCurrent
+import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.stub
 import tv.anstelle.core.database.dao.MediaItemDao
@@ -39,12 +45,20 @@ class MediaDurationsTest {
     )
 
     private inner class Fixture(reported: Long, var measured: Long? = normal) {
+        var now = 0L
+        var beforeProbe: suspend () -> Unit = {}
         val rows = (1L..5).map { row(it, if (it == 3L) reported else normal) }.associateByTo(LinkedHashMap()) { it.id }
         val probes = ArrayList<String>()
         val stored = HashMap<String, String>()
         private val items = object : MediaItemDao by stub() {
             override suspend fun runtimes(seriesType: MediaType) = rows.values.toList()
             override suspend fun setDuration(id: Long, durationMs: Long) { rows[id] = rows.getValue(id).copy(durationMs = durationMs) }
+            override suspend fun correctDuration(id: Long, serverId: Long, remoteId: String, sourceId: String?, reportedMs: Long, measuredMs: Long): Int {
+                val row = rows[id] ?: return 0
+                if (row.serverId != serverId || row.remoteId != remoteId || row.mediaSourceId != sourceId || row.durationMs != reportedMs) return 0
+                rows[id] = row.copy(durationMs = measuredMs)
+                return 1
+            }
             override suspend fun upsertAll(items: List<MediaItemEntity>) {
                 for (item in items) rows[item.id] = MediaRuntimeRow(item.id, item.serverId, item.remoteId,
                     item.mediaSourceId, item.seriesRemoteId, item.season, item.episode, item.durationMs)
@@ -63,14 +77,15 @@ class MediaDurationsTest {
         private val files = object : FileDurationProbe {
             override suspend fun durationMs(baseUrl: String, token: String, itemId: String, sourceId: String?): Long? {
                 probes += itemId
+                beforeProbe()
                 return measured
             }
         }
-        val durations = MediaDurations(items, servers, tokens, settings, files)
+        val durations = MediaDurations(items, servers, tokens, settings, files, TimeSource { now })
     }
 
     @Test
-    fun `both inflated and understated runtimes are measured before scheduling`() = runTest {
+    fun `both inflated and understated runtimes are measured by maintenance`() = runTest {
         for (bad in listOf(normal * 10, normal / 10)) {
             val fixture = Fixture(bad)
             fixture.durations.refresh()
@@ -100,11 +115,14 @@ class MediaDurationsTest {
     }
 
     @Test
-    fun `failed probes preserve metadata and may retry`() = runTest {
+    fun `failed probes preserve metadata and wait twenty four hours before retry`() = runTest {
         val fixture = Fixture(normal * 10, measured = null)
         fixture.durations.refresh()
         assertEquals(normal * 10, fixture.rows.getValue(3).durationMs)
         fixture.measured = normal
+        fixture.durations.refresh()
+        assertEquals(1, fixture.probes.size)
+        fixture.now += 24 * 60 * 60 * 1000L
         fixture.durations.refresh()
         assertEquals(normal, fixture.rows.getValue(3).durationMs)
         assertEquals(2, fixture.probes.size)
@@ -145,5 +163,82 @@ class MediaDurationsTest {
         assertEquals(normal, fixture.durations.preserve(listOf(incoming)).single().durationMs)
         fixture.durations.refresh()
         assertTrue(fixture.probes.isEmpty())
+    }
+
+    @Test
+    fun `local catalog corrections never probe remote files`() = runTest {
+        val fixture = Fixture(normal * 10)
+        fixture.durations.applySaved()
+        assertTrue(fixture.probes.isEmpty())
+        assertEquals(normal * 10, fixture.rows.getValue(3).durationMs)
+    }
+
+    @Test
+    fun `a remote probe holds neither sync nor the local correction gate`() = runTest {
+        val fixture = Fixture(normal * 10)
+        val release = CompletableDeferred<Unit>()
+        fixture.beforeProbe = { release.await() }
+        val checking = launch { fixture.durations.refresh() }
+        runCurrent()
+        fixture.durations.store(listOf(entity(fixture.rows.getValue(1))))
+        fixture.durations.applySaved()
+        release.complete(Unit)
+        checking.join()
+        assertEquals(normal, fixture.rows.getValue(3).durationMs)
+    }
+
+    @Test
+    fun `measurement cannot overwrite a source replaced during the probe`() = runTest {
+        val fixture = Fixture(normal * 10)
+        fixture.beforeProbe = { fixture.rows[3] = fixture.rows.getValue(3).copy(mediaSourceId = "replacement") }
+        assertTrue(fixture.durations.refresh().changed.isEmpty())
+        assertEquals(normal * 10, fixture.rows.getValue(3).durationMs)
+        fixture.beforeProbe = {}
+        fixture.durations.refresh()
+        assertEquals(2, fixture.probes.size)
+        assertEquals(normal, fixture.rows.getValue(3).durationMs)
+    }
+
+    @Test
+    fun `maintenance timeout preserves metadata and does not immediately repeat the probe`() = runTest {
+        val fixture = Fixture(normal * 10)
+        fixture.beforeProbe = { delay(1_000) }
+        fixture.durations.refresh(budgetMs = 10)
+        assertEquals(normal * 10, fixture.rows.getValue(3).durationMs)
+        fixture.beforeProbe = {}
+        fixture.durations.refresh()
+        assertEquals(1, fixture.probes.size)
+        fixture.durations.applySaved()
+    }
+
+    @Test
+    fun `cancelling a probe releases maintenance without saving an obsolete measurement`() = runTest {
+        val fixture = Fixture(normal * 10)
+        fixture.beforeProbe = { CompletableDeferred<Unit>().await() }
+        val checking = launch { fixture.durations.refresh() }
+        runCurrent()
+        checking.cancelAndJoin()
+        fixture.durations.applySaved()
+        assertEquals(normal * 10, fixture.rows.getValue(3).durationMs)
+        fixture.beforeProbe = {}
+        fixture.rows[3] = fixture.rows.getValue(3).copy(mediaSourceId = "replacement")
+        fixture.durations.refresh()
+        assertEquals(normal, fixture.rows.getValue(3).durationMs)
+        assertEquals(2, fixture.probes.size)
+    }
+
+    @Test
+    fun `cancellation after one measurement persists its correction and invalidates once`() = runTest {
+        val fixture = Fixture(normal * 10)
+        val original = entity(fixture.rows.getValue(3))
+        fixture.rows[6] = row(6, normal * 10)
+        fixture.beforeProbe = { if (fixture.probes.size == 2) CompletableDeferred<Unit>().await() }
+        val batches = ArrayList<Set<Long>>()
+        val checking = launch { fixture.durations.refresh(onChanged = { batches += it }) }
+        runCurrent()
+        checking.cancelAndJoin()
+        assertEquals(listOf(setOf(3L)), batches)
+        assertEquals(normal, fixture.durations.preserve(listOf(original)).single().durationMs)
+        assertEquals(normal * 10, fixture.rows.getValue(6).durationMs)
     }
 }

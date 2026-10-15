@@ -40,28 +40,38 @@ class PooledPlayer(
 class PlayerPool @Inject constructor(
     private val factory: PlayerFactory,
 ) {
-    private var players: Array<PooledPlayer>? = null
+    private var activeSlot: PooledPlayer? = null
+    private var standbySlot: PooledPlayer? = null
 
-    private fun players(): Array<PooledPlayer> = players ?: arrayOf(factory.create(), factory.create()).also {
-        it[1].loadControl.standby = true
-        players = it
+    @get:MainThread
+    val active: PooledPlayer get() = activeSlot ?: factory.create().also { activeSlot = it }
+
+    @get:MainThread
+    val standby: PooledPlayer get() = standbySlot ?: factory.create().also {
+        it.loadControl.standby = true
+        standbySlot = it
     }
 
     @get:MainThread
-    val active: PooledPlayer get() = players()[0]
+    val preparedStandby: PooledPlayer? get() = standbySlot
 
-    @get:MainThread
-    val standby: PooledPlayer get() = players()[1]
+    @MainThread
+    fun releaseStandby() {
+        standbySlot?.release()
+        standbySlot = null
+    }
 
     /** Makes the standby the active player. The old active player stops and becomes the standby. */
     @MainThread
     fun swap(): PooledPlayer {
-        val pair = players()
-        pair.reverse()
-        pair[0].loadControl.standby = false
-        pair[1].loadControl.standby = true
-        stop(pair[1])
-        return pair[0]
+        val next = standby
+        val previous = active
+        activeSlot = next
+        standbySlot = previous
+        next.loadControl.standby = false
+        previous.loadControl.standby = true
+        stop(previous)
+        return next
     }
 
     /**
@@ -73,7 +83,7 @@ class PlayerPool @Inject constructor(
         player.player.playWhenReady = false
         player.player.volume = 0f
         player.player.trackSelectionParameters = player.player.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !concurrentVideoDecoders)
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, factory.lowMemory || !concurrentVideoDecoders)
             // Audio keeps the demuxer loading even on a stick with one video decoder.
             .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
@@ -94,26 +104,29 @@ class PlayerPool @Inject constructor(
      */
     @MainThread
     fun renewIfFull(player: PooledPlayer): PooledPlayer {
-        val pair = players ?: return player
-        val index = pair.indexOf(player)
-        if (index < 0 || player.subtitles.fontBytes <= FONT_BUDGET_BYTES) return player
+        if (player !== activeSlot && player !== standbySlot) return player
+        val budget = if (factory.lowMemory) 16L * 1024 * 1024 else FONT_BUDGET_BYTES
+        if (player.subtitles.fontBytes <= budget) return player
+        val isStandby = player === standbySlot
         player.release()
         return factory.create().also {
-            it.loadControl.standby = index == 1
-            pair[index] = it
+            it.loadControl.standby = isStandby
+            if (isStandby) standbySlot = it else activeSlot = it
         }
     }
 
-    /** Stops both players; they are kept for the next time something plays. */
+    /** Stops the active player for reuse and releases the idle standby. */
     @MainThread
     fun stopAll() {
-        players?.forEach(::stop)
+        activeSlot?.let(::stop)
+        releaseStandby()
     }
 
     @MainThread
     fun release() {
-        players?.forEach(PooledPlayer::release)
-        players = null
+        activeSlot?.release()
+        activeSlot = null
+        releaseStandby()
     }
 
     private companion object {

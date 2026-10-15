@@ -156,6 +156,7 @@ class CatalogViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val watchCache = HashMap<Pair<ProfileAccess, List<CatalogKind>>, Pair<Long, Watching>>()
+    private var historyDirty = false
     private var watchRevision = 0
     private val watching: StateFlow<Watching> = visible.flatMapLatest { shown ->
         if (!shown) return@flatMapLatest emptyFlow()
@@ -243,6 +244,16 @@ class CatalogViewModel @Inject constructor(
         viewModelScope.launch {
             merge(reporter.reported, repository.watchChanges).debounce(RELOAD_DEBOUNCE_MS).collect { watchTick.value++ }
         }
+        viewModelScope.launch {
+            reporter.updates.collect { update ->
+                // Progress can arrive while this catalog is behind the player. Invalidate
+                // its history cache, without loading the hidden shelves every five seconds.
+                if (update.profileId == access.first().profileId) {
+                    watchCache.clear()
+                    if (visible.value) watchTick.value++ else historyDirty = true
+                }
+            }
+        }
         // Reconnecting a profile can leave its visible access rules unchanged. Its account
         // table still emits, so discard history collected under the previous credentials.
         viewModelScope.launch {
@@ -260,6 +271,10 @@ class CatalogViewModel @Inject constructor(
     suspend fun firstEpisodeId(titleId: Long): Long? = repository.firstEpisodeId(titleId, access.first())
 
     fun setVisible(visible: Boolean) {
+        if (visible && historyDirty) {
+            historyDirty = false
+            watchTick.value++
+        }
         this.visible.value = visible
     }
 
