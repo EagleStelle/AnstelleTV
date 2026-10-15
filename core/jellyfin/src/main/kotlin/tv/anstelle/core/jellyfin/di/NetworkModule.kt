@@ -14,6 +14,8 @@ import org.jellyfin.sdk.android.androidDevice
 import org.jellyfin.sdk.api.okhttp.OkHttpFactory
 import org.jellyfin.sdk.createJellyfin
 import org.jellyfin.sdk.model.ClientInfo
+import tv.anstelle.core.jellyfin.sync.AndroidFileDurationProbe
+import tv.anstelle.core.jellyfin.sync.FileDurationProbe
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
@@ -25,6 +27,9 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
+    @Provides
+    fun fileDurationProbe(probe: AndroidFileDurationProbe): FileDurationProbe = probe
+
     @Provides
     @Singleton
     fun okHttpClient(): OkHttpClient = OkHttpClient.Builder()

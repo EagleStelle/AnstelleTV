@@ -4,12 +4,15 @@ import kotlinx.coroutines.test.runTest
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.FakeScheduleDao
 import tv.anstelle.core.data.ScheduleRepository
+import tv.anstelle.core.data.SettingsRepository
+import tv.anstelle.core.data.playback.MediaDurations
 import tv.anstelle.core.data.episodes
 import tv.anstelle.core.data.item
 import tv.anstelle.core.data.stub
 import tv.anstelle.core.database.dao.CatalogRow
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.MediaItemDao
+import tv.anstelle.core.database.dao.MediaRuntimeRow
 import tv.anstelle.core.database.entity.ChannelDaypartEntity
 import tv.anstelle.core.database.entity.ChannelEntity
 import tv.anstelle.core.database.entity.ChannelRuleEntity
@@ -151,8 +154,10 @@ class ScheduleUpdaterTest {
     }
     private val itemDao = object : MediaItemDao by stub() {
         override suspend fun catalog() = rows
+        override suspend fun runtimes(seriesType: MediaType) = emptyList<MediaRuntimeRow>()
     }
-    private val updater = ScheduleUpdater(channelDao, scheduleDao, itemDao, ScheduleRepository(scheduleDao, time), { ChannelWords.EMPTY }, time)
+    private val durations = MediaDurations(itemDao, stub(), stub(), SettingsRepository(stub()), stub())
+    private val updater = ScheduleUpdater(channelDao, scheduleDao, itemDao, ScheduleRepository(scheduleDao, time), { ChannelWords.EMPTY }, time, durations)
 
     private fun slots(channelId: Long = 1) = scheduleDao.slotsOf(channelId)
 
@@ -198,7 +203,7 @@ class ScheduleUpdaterTest {
                     return rows
                 }
             },
-            ScheduleRepository(scheduleDao, time), { ChannelWords.EMPTY }, time,
+            ScheduleRepository(scheduleDao, time), { ChannelWords.EMPTY }, time, durations,
         )
         channels[1] = channel()
         rules[1] = genres(1, "Comedy")
@@ -235,6 +240,51 @@ class ScheduleUpdaterTest {
         assertTrue(after.isNotEmpty() && after.all { it.mediaItemId in 101L..140L })
         assertContiguous(slots())
         assertEquals(ScheduleOutcome.UP_TO_DATE, updater.update(1, ZoneOffset.UTC))
+    }
+
+    @Test
+    fun `a corrected file duration replaces a stale current airing`() = runTest {
+        channels[1] = channel()
+        rules[1] = genres(1, "Comedy")
+        updater.updateAll(ZoneOffset.UTC)
+        val current = at(now)
+        val corrected = 11 * MINUTE
+        rows = rows.map { if (it.id == current.mediaItemId) it.copy(durationMs = corrected) else it }
+        assertEquals(ScheduleOutcome.REGENERATED, updater.update(1, ZoneOffset.UTC))
+        val replacement = slots().first { it.startUtcMs == current.startUtcMs }
+        assertEquals(current.mediaItemId, replacement.mediaItemId)
+        assertEquals(corrected, replacement.endUtcMs - replacement.startUtcMs)
+        assertContiguous(slots())
+    }
+
+    @Test
+    fun `a corrected next file duration preserves only the valid current airing`() = runTest {
+        channels[1] = channel()
+        rules[1] = genres(1, "Comedy")
+        updater.updateAll(ZoneOffset.UTC)
+        val current = at(now)
+        val next = slots().first { it.startUtcMs == current.endUtcMs }
+        val corrected = 44 * MINUTE
+        rows = rows.map { if (it.id == next.mediaItemId) it.copy(durationMs = corrected) else it }
+        assertEquals(ScheduleOutcome.REGENERATED, updater.update(1, ZoneOffset.UTC))
+        assertEquals(current, at(now))
+        val replacement = slots().first { it.startUtcMs == next.startUtcMs }
+        assertEquals(next.mediaItemId, replacement.mediaItemId)
+        assertEquals(corrected, replacement.endUtcMs - replacement.startUtcMs)
+        assertContiguous(slots())
+    }
+
+    @Test
+    fun `stale protected durations are repaired even when the inputs hash already matches`() = runTest {
+        channels[1] = channel()
+        rules[1] = genres(1, "Comedy")
+        updater.updateAll(ZoneOffset.UTC)
+        val current = at(now)
+        ScheduleRepository(scheduleDao, time).endAt(1, current.startUtcMs, current.endUtcMs + HOUR)
+        assertEquals(ScheduleOutcome.REGENERATED, updater.update(1, ZoneOffset.UTC))
+        assertEquals(current.endUtcMs, slots().first { it.startUtcMs == current.startUtcMs }.endUtcMs)
+        assertEquals(ScheduleOutcome.UP_TO_DATE, updater.update(1, ZoneOffset.UTC))
+        assertContiguous(slots())
     }
 
     @Test

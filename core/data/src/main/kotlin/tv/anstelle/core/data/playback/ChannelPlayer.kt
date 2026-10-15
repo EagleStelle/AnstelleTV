@@ -171,6 +171,7 @@ class ChannelPlayer @Inject constructor(
     private val profiles: ProfileRepository,
     private val time: TimeSource,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
+    private val durations: MediaDurations,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -217,6 +218,7 @@ class ChannelPlayer @Inject constructor(
     private var tuneJob: Job? = null
     private var waitJob: Job? = null
     private var tickJob: Job? = null
+    private var scheduleCheckJob: Job? = null
     private var handoverJob: Job? = null
 
     /** Schedule moves are written one at a time, in the order the seeks happened. */
@@ -362,7 +364,7 @@ class ChannelPlayer @Inject constructor(
         scope.launch {
             moving?.join()
             withContext(io + NonCancellable) {
-                itemDao.setDuration(finished.item.id, lengthMs)
+                durations.remember(finished.item, lengthMs)
                 updater.updateAll()
             }
         }
@@ -382,6 +384,7 @@ class ChannelPlayer @Inject constructor(
         tuneJob?.cancel()
         waitJob?.cancel()
         tickJob?.cancel()
+        scheduleCheckJob?.cancel()
         endSession(atEnd = false)
         trace = null
         sample = null
@@ -664,8 +667,25 @@ class ChannelPlayer @Inject constructor(
         // The first playlist entry is the program on now (queue.first()).
         if (player.isPlaying && player.currentMediaItemIndex == 0) sample = ProgramLength.sample(sample, player.currentPosition, time.nowUtcMs())
         if (ticks % PROGRESS_TICKS == 0) session?.let { reporter.progress(it, player.currentPosition, paused = !player.isPlaying) }
+        if (ticks % PROGRESS_TICKS == 0) checkSchedule()
         prepareBoundary()
         if (ticks % STANDBY_TICKS == 0) refreshStandby()
+    }
+
+    /** A measured duration can replace the airing being watched; follow that repair without waiting for a bad header's end. */
+    private fun checkSchedule() {
+        if (scheduleCheckJob?.isActive == true || _state.value.status != TuneStatus.PLAYING) return
+        val program = queue.firstOrNull() ?: return
+        val channel = current ?: return
+        scheduleCheckJob = scope.launch {
+            val kept = shifts.withLock { scheduleDao.slotAt(channel.id, program.slot.startUtcMs) }
+            if (queue.firstOrNull() !== program || current?.id != channel.id || _state.value.status != TuneStatus.PLAYING) return@launch
+            // Comparing the stored airing itself leaves an unchanged, longer-playing file alone.
+            if (kept?.kind == SlotKind.PROGRAM && kept.mediaItemId == program.item.id &&
+                kept.startUtcMs == program.slot.startUtcMs && kept.endUtcMs == program.slot.endUtcMs) return@launch
+            tuneJob?.cancel()
+            tuneJob = scope.launch { tuneNow(channel) }
+        }
     }
 
     private fun refreshStandby() {

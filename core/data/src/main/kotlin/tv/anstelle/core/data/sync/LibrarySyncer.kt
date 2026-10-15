@@ -9,6 +9,7 @@ import org.jellyfin.sdk.model.api.BaseItemKind
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ProfileRepository
+import tv.anstelle.core.data.playback.MediaDurations
 import tv.anstelle.core.database.AnstelleDatabase
 import tv.anstelle.core.database.dao.BackupDao
 import tv.anstelle.core.database.dao.LibraryDao
@@ -70,6 +71,7 @@ class LibrarySyncer @Inject constructor(
     private val profiles: ProfileRepository,
     private val backupDao: BackupDao,
     private val time: TimeSource,
+    private val durations: MediaDurations,
 ) {
     /** One sync at a time, so a restore can hold them all off ([paused]). */
     private val gate = Mutex()
@@ -282,7 +284,7 @@ class LibrarySyncer @Inject constructor(
         if (dtos.isEmpty()) return
         val existing = itemDao.storedFor(serverId, dtos.map { it.id.toJellyfinId() }).associateBy { it.remoteId }
         val entities = dtos.mapNotNull { dto -> ItemMapper.map(dto, context, existing[dto.id.toJellyfinId()]?.id ?: 0L) }
-        if (entities.isNotEmpty()) itemDao.upsertAll(entities)
+        if (entities.isNotEmpty()) durations.store(entities)
     }
 
     private suspend fun reconcile(server: MediaServerEntity, libraries: List<LibraryEntity>, source: LibrarySource) {

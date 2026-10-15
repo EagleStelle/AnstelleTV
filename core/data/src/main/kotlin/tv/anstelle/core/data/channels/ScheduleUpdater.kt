@@ -5,10 +5,13 @@ import kotlinx.coroutines.sync.withLock
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ScheduleRepository
+import tv.anstelle.core.data.playback.MediaDurations
+import tv.anstelle.core.data.playback.ProgramLength
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.database.entity.ChannelEntity
+import tv.anstelle.core.database.entity.ScheduleSlotEntity
 import tv.anstelle.core.model.SlotKind
 import tv.anstelle.core.scheduler.PastAiring
 import tv.anstelle.core.scheduler.ScheduleEngine
@@ -39,7 +42,7 @@ enum class ScheduleOutcome {
  *   the same as one generated at once.
  * - **Regeneration:** when a channel's inputs change (rules, settings, matched items, zone)
  *   or sync marks it stale, the airing on now and the one after it stay; everything later is
- *   regenerated. An airing whose item was deleted, or an off-air stretch, is not kept. A
+ *   regenerated. An airing whose item was deleted or whose file length changed, or an off-air stretch, is not kept. A
  *   schedule stored further ahead than the horizon (made when it was longer) is cut back the
  *   same way.
  */
@@ -51,6 +54,7 @@ class ScheduleUpdater @Inject constructor(
     private val schedules: ScheduleRepository,
     private val words: ChannelWordsSource,
     private val time: TimeSource,
+    private val durations: MediaDurations,
 ) {
     private val mutex = Mutex()
 
@@ -58,7 +62,10 @@ class ScheduleUpdater @Inject constructor(
     suspend fun <T> paused(block: suspend () -> T): T = mutex.withLock { block() }
 
     /** The whole library as channel rules see it, read in one query. */
-    suspend fun catalog(): Catalog = Catalog(itemDao.catalog(), words.words().types)
+    suspend fun catalog(): Catalog {
+        durations.refresh()
+        return Catalog(itemDao.catalog(), words.words().types)
+    }
 
     /** Updates every channel of every profile; [catalog] is the library as the caller just read it. */
     suspend fun updateAll(zone: ZoneId = ZoneId.systemDefault(), catalog: Catalog? = null): Map<ScheduleOutcome, Int> = mutex.withLock {
@@ -103,6 +110,7 @@ class ScheduleUpdater @Inject constructor(
         val now = time.nowUtcMs()
         val horizon = now + HORIZON_MS
         val stored = schedules.stored(channel.id)
+        val staleLength = stored?.inputsHash == hash && hasStaleLength(channel.id, now, catalog)
 
         when {
             stored == null -> {
@@ -110,7 +118,7 @@ class ScheduleUpdater @Inject constructor(
                 schedules.save(channel.id, state.nextStartUtcMs, ScheduleEngine.generate(inputs, state, horizon), hash)
                 return ScheduleOutcome.CREATED
             }
-            stored.inputsHash != hash || stored.generatedUntilUtcMs > horizon + TRIM_MARGIN_MS -> {
+            stored.inputsHash != hash || staleLength || stored.generatedUntilUtcMs > horizon + TRIM_MARGIN_MS -> {
                 val kept = keepUntil(channel.id, now, catalog)
                 val cursor = kept ?: now
                 val removed = scheduleDao.programItemIdsFrom(channel.id, cursor).toLongArray()
@@ -135,19 +143,32 @@ class ScheduleUpdater @Inject constructor(
     }
 
     /**
-     * Where regeneration starts: after the current and next airings, unless they can't stay.
+     * Where regeneration starts: after the current and next airings, unless they can't stay
+     * (including a corrected file length).
      * Null when nothing airs now.
      */
     private suspend fun keepUntil(channelId: Long, now: Long, catalog: Catalog): Long? {
         val current = scheduleDao.slotAt(channelId, now)?.takeIf { now < it.endUtcMs } ?: return null
-        if (!keeps(current.kind, current.mediaItemId, catalog)) return current.startUtcMs
+        if (!keeps(current, catalog)) return current.startUtcMs
         val next = scheduleDao.slotsFrom(channelId, current.endUtcMs, 1).firstOrNull() ?: return current.endUtcMs
-        if (!keeps(next.kind, next.mediaItemId, catalog)) return next.startUtcMs
+        if (!keeps(next, catalog)) return next.startUtcMs
         return next.endUtcMs
     }
 
-    private fun keeps(kind: SlotKind, mediaItemId: Long?, catalog: Catalog) =
-        kind == SlotKind.PROGRAM && mediaItemId != null && catalog[mediaItemId] != null
+    private fun keeps(slot: ScheduleSlotEntity, catalog: Catalog): Boolean {
+        if (slot.kind != SlotKind.PROGRAM) return false
+        val item = slot.mediaItemId?.let { catalog[it] } ?: return false
+        return !ProgramLength.differs(item.row.durationMs, slot.endUtcMs - slot.startUtcMs)
+    }
+
+    /** Also repairs protected slots left by an older app, even when the catalog hash already matches. */
+    private suspend fun hasStaleLength(channelId: Long, now: Long, catalog: Catalog): Boolean {
+        val current = scheduleDao.slotAt(channelId, now)?.takeIf { now < it.endUtcMs } ?: return false
+        val next = scheduleDao.slotsFrom(channelId, current.endUtcMs, 1).firstOrNull()
+        return listOfNotNull(current, next).any { slot ->
+            slot.kind == SlotKind.PROGRAM && slot.mediaItemId?.let { catalog[it] } != null && !keeps(slot, catalog)
+        }
+    }
 
     companion object {
         private const val TAG = "Schedules"

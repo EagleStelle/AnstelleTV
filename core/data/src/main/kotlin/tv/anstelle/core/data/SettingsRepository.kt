@@ -110,6 +110,9 @@ object Settings {
     /** The app install and time zone the last full schedule run was made for (`ScheduleWorker`); empty for none. */
     val SchedulesMadeFor = SettingKey.StringKey("schedules.made", "")
 
+    /** Measured file runtimes, retained while the source and its reported runtime stay the same. */
+    fun fileDurations(serverId: Long) = SettingKey.StringKey("media.durations.$serverId", "")
+
     /** This device's own settings: a backup leaves them out and a restore keeps them. */
     val DeviceOnly = listOf(WebServerEnabled.name, WebServerPort.name, ActiveProfileId.name, BackupSaved.name, ThemesSeeded.name, SchedulesMadeFor.name)
 }

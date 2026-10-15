@@ -115,6 +115,8 @@ class ScheduleInputs(
      */
     fun fingerprint(): Long {
         val f = Fingerprint()
+        // Regenerate schedules made before completed series started sitting out rotations.
+        f.add(1L)
         f.add(config.seed)
             .add(config.series.order.code).add(config.series.blockSize)
             .add(config.movies.order.code).add(config.movies.blockSize)

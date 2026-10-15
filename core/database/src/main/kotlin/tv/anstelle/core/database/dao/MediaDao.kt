@@ -12,6 +12,18 @@ import tv.anstelle.core.model.MediaType
 /** Local row id for a Jellyfin item id. */
 data class ItemIdRow(val id: Long, val remoteId: String)
 
+/** File identity and runtime, without loading artwork, descriptions or stream metadata. */
+data class MediaRuntimeRow(
+    val id: Long,
+    val serverId: Long,
+    val remoteId: String,
+    val mediaSourceId: String?,
+    val seriesRemoteId: String?,
+    val season: Int?,
+    val episode: Int?,
+    val durationMs: Long,
+)
+
 data class TypeCount(val type: MediaType, val count: Int)
 
 /** An official rating as items carry it, its score, and how many items carry it. */
@@ -136,6 +148,9 @@ interface LibraryDao {
 
 @Dao
 interface MediaItemDao {
+    @Query("SELECT id, serverId, remoteId, mediaSourceId, seriesRemoteId, season, episode, durationMs FROM media_item WHERE durationMs > 0 AND type != :seriesType")
+    suspend fun runtimes(seriesType: MediaType = MediaType.SERIES): List<MediaRuntimeRow>
+
     @Query("SELECT * FROM media_item WHERE id = :id")
     suspend fun byId(id: Long): MediaItemEntity?
 
@@ -228,8 +243,8 @@ interface MediaItemDao {
     suspend fun upsertAll(items: List<MediaItemEntity>)
 
     /**
-     * Gives an item the length its file played for when the server's runtime was off. It holds
-     * until the next sync brings the item again with the server's runtime.
+     * Gives an item its measured file length when the server's runtime was off.
+     * MediaDurations retains that measurement through sync while the file identity and reported runtime match.
      */
     @Query("UPDATE media_item SET durationMs = :durationMs WHERE id = :id")
     suspend fun setDuration(id: Long, durationMs: Long)

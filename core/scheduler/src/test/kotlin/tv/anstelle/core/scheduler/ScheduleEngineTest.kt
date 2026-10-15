@@ -205,6 +205,78 @@ class ScheduleEngineTest {
     }
 
     @Test
+    fun completedSeriesWaitForUnfinishedSeriesBeforeRestartingAtEpisodeOne() {
+        val candidates = show("short", 100, 2, MIN, weight = 1000f) + show("long", 200, 4, MIN)
+        for (order in listOf(PlaybackOrder.EPISODE_ORDER, PlaybackOrder.BLOCKS)) {
+            val inputs = inputs(order, candidates = candidates)
+            val state = EngineState(start, 42, showCursors = mapOf(
+                "short" to EpisodeKey(1, 2, 103),
+                "long" to EpisodeKey(1, 2, 202),
+            ))
+            val result = ScheduleEngine.generate(inputs, state, start + 4 * MIN)
+            assertEquals(listOf(202L, 203, 204), result.slots.programIds().take(3), "$order")
+            assertTrue(result.slots.programIds()[3] in setOf(101L, 201), "$order reruns open at episode 1")
+        }
+    }
+
+    @Test
+    fun aSeriesBlockEndsAtTheFinalEpisodeWhileOtherSeriesRemain() {
+        val inputs = inputs(PlaybackOrder.BLOCKS,
+            candidates = show("short", 100, 2, MIN) + show("long", 200, 4, MIN), blockSize = 4)
+        val state = EngineState(start, 42, showCursors = mapOf(
+            "short" to EpisodeKey(1, 2, 102),
+            "long" to EpisodeKey(1, 1, 201),
+        ), blockShow = "short", blockRemaining = 3, lastItemId = 101)
+        val ids = ScheduleEngine.generate(inputs, state, start + 5 * MIN).slots.programIds()
+        assertEquals(listOf(102L, 201, 202, 203, 204), ids)
+    }
+
+    @Test
+    fun seriesAddedAfterSetupStartAtEpisodeOneAndExistingSeriesContinue() {
+        for (order in listOf(PlaybackOrder.EPISODE_ORDER, PlaybackOrder.BLOCKS)) {
+            val original = inputs(order, candidates = show("old", 100, 20, MIN))
+            val first = ScheduleEngine.generate(original, ScheduleEngine.initialState(original, start), start + MIN)
+            val changed = inputs(order, candidates = show("old", 100, 20, MIN) + show("new", 200, 10, MIN))
+            val resumed = ScheduleEngine.rewind(changed, EngineState.decode(first.state.encode()),
+                first.state.nextStartUtcMs, longArrayOf(), aired(first.slots.rows()))
+            val ids = ScheduleEngine.generate(changed, resumed, start + 40 * MIN).slots.programIds()
+            assertEquals(201L, ids.first { it > 200 }, "$order new series")
+            val previous = first.slots.programIds().single()
+            assertEquals(if (previous == 120L) 101L else previous + 1, ids.first { it < 200 }, "$order existing series")
+        }
+    }
+
+    @Test
+    fun regenerationKeepsACompletedSeriesWaitingAcrossDiscardedReruns() {
+        val candidates = show("short", 100, 2, MIN, weight = 1000f) + show("long", 200, 4, MIN)
+        for (order in listOf(PlaybackOrder.EPISODE_ORDER, PlaybackOrder.BLOCKS)) {
+            val inputs = inputs(order, candidates = candidates)
+            val completedAtCut = EngineState(start, 42, showCursors = mapOf(
+                "short" to EpisodeKey(1, 2, 103), "long" to EpisodeKey(1, 2, 202),
+            ), lastItemId = 102)
+            val future = ScheduleEngine.generate(inputs, completedAtCut, start + 20 * MIN)
+            val state = ScheduleEngine.rewind(inputs, future.state, start, future.slots.programIds().toLongArray(),
+                listOf(PastAiring(201, start - 2 * MIN), PastAiring(102, start - MIN)))
+            val ids = ScheduleEngine.generate(inputs, state, start + 3 * MIN).slots.programIds()
+            assertEquals(listOf(202L, 203, 204), ids, "$order")
+        }
+    }
+
+    @Test
+    fun completedSeriesCanReturnWhenOtherUnfinishedSeriesAreIneligible() {
+        val candidates = show("short", 100, 2, MIN, rating = 0) + show("long", 200, 4, MIN, rating = 18)
+        for (order in listOf(PlaybackOrder.EPISODE_ORDER, PlaybackOrder.BLOCKS)) {
+            val inputs = inputs(order, candidates = candidates, dayparts = listOf(Daypart(0, 0, maxRatingScore = 7)))
+            val state = EngineState(start, 42, showCursors = mapOf(
+                "short" to EpisodeKey(1, 2, 103), "long" to EpisodeKey(1, 2, 202),
+            ), lastItemId = 102)
+            val result = ScheduleEngine.generate(inputs, state, start + 4 * MIN)
+            assertEquals(listOf(101L, 102, 101, 102), result.slots.programIds(), "$order")
+            assertEquals(state.showCursors["long"], result.state.showCursors["long"])
+        }
+    }
+
+    @Test
     fun seriesOpenAtARegularEpisodeBeforeTheirSpecials() {
         val candidates = show("s", 0, 3, 30 * MIN) +
             Candidate(id = 10, durationMs = 30 * MIN, showKey = "s", season = 0, episode = 1) +
@@ -235,12 +307,15 @@ class ScheduleEngineTest {
 
     @Test
     fun showWeightsSetHowOftenShowsAir() {
-        val candidates = show("one", 1000, 50, 10 * MIN, weight = 1f) +
-            show("two", 2000, 50, 10 * MIN, weight = 2f) +
-            show("five", 3000, 50, 10 * MIN, weight = 5f)
-        val ids = generate(inputs(PlaybackOrder.EPISODE_ORDER, candidates = candidates), 40).slots.programIds()
+        // None finishes during this sample: weights apply among unfinished series.
+        val candidates = show("one", 100_000, 10_000, 10 * MIN, weight = 1f) +
+            show("two", 200_000, 10_000, 10 * MIN, weight = 2f) +
+            show("five", 300_000, 10_000, 10 * MIN, weight = 5f)
+        val inputs = inputs(PlaybackOrder.EPISODE_ORDER, candidates = candidates)
+        val state = EngineState(start, 42)
+        val ids = ScheduleEngine.generate(inputs, state, start + 40 * DAY).slots.programIds()
         assertTrue(ids.size > 5000)
-        val share = ids.groupingBy { it / 1000 }.eachCount().mapValues { it.value.toDouble() / ids.size }
+        val share = ids.groupingBy { it / 100_000 }.eachCount().mapValues { it.value.toDouble() / ids.size }
         assertEquals(1.0 / 8, share.getValue(1), 0.02)
         assertEquals(2.0 / 8, share.getValue(2), 0.02)
         assertEquals(5.0 / 8, share.getValue(3), 0.02)
@@ -259,12 +334,15 @@ class ScheduleEngineTest {
         val candidates = show("a", 100, 20) + show("b", 200, 20) + show("c", 300, 2)
         for (size in 2..4) {
             val ids = generate(inputs(PlaybackOrder.BLOCKS, candidates = candidates, blockSize = size), 10).slots.programIds()
-            // Series "c" has only two episodes, so its blocks are shorter.
-            fun blockLength(id: Long) = if (id / 100 == 3L) minOf(size, 2) else size
+            // Blocks stop at the finale, including the partial first run from a random opening.
+            fun blockLength(id: Long): Int {
+                val episodes = if (id / 100 == 3L) 2 else 20
+                return minOf(size, episodes - (id % 100).toInt() + 1)
+            }
             val runs = ArrayList<MutableList<Long>>()
             for (id in ids) {
                 val run = runs.lastOrNull()
-                if (run != null && run.size < blockLength(id) && run.last() / 100 == id / 100) {
+                if (run != null && run.size < blockLength(run.first()) && run.last() / 100 == id / 100) {
                     run += id
                 } else {
                     runs += mutableListOf(id)
@@ -273,8 +351,7 @@ class ScheduleEngineTest {
             assertTrue(runs.size > 100)
             for (run in runs.dropLast(1)) {
                 assertEquals(blockLength(run.first()), run.size, "block size $size: $run")
-                // Consecutive episodes, possibly wrapping to episode 1.
-                for (k in 1 until run.size) assertTrue(run[k] == run[k - 1] + 1 || run[k] % 100 == 1L, "$run")
+                for (k in 1 until run.size) assertEquals(run[k - 1] + 1, run[k], "$run")
             }
         }
     }

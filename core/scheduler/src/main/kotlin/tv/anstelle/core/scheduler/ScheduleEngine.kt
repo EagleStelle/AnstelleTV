@@ -22,15 +22,28 @@ class PastAiring(val itemId: Long, val startUtcMs: Long)
  *   weight decides (a movie is a show of its own). Each kind then follows its own playback:
  *   SHUFFLE deals every eligible episode, or movie, once per deck; EPISODE_ORDER plays the picked
  *   series' next episode, or the next movie by release date; BLOCKS plays 2–4 of those in a row.
- *   In order, a series opens at an episode and the movies at a movie picked from the seed.
+ *   At first setup, series open at episodes picked from the seed. Later additions and reruns
+ *   start at the first episode. Completed series wait until the other eligible series finish.
+ *   Movies open at a movie picked from the seed.
  * - **Repeats:** an item never airs right after itself, and a movie never starts within
  *   `movieGapMs` of its last start, while anything else on the lineup can air instead. When
  *   nothing else can, the gap gives way first, then the repeat.
  */
 object ScheduleEngine {
-    /** A fresh state whose first program starts at [startUtcMs]. */
-    fun initialState(inputs: ScheduleInputs, startUtcMs: Long): EngineState =
-        EngineState(nextStartUtcMs = startUtcMs, rngState = inputs.config.seed)
+    /** A fresh state, with staggered episode positions for the series present at first setup. */
+    fun initialState(inputs: ScheduleInputs, startUtcMs: Long): EngineState {
+        val cursors = HashMap<String, EpisodeKey>()
+        if (inputs.config.series.order != PlaybackOrder.SHUFFLE) {
+            for (pool in listOf(inputs.pool) + inputs.seasons.map { it.pool }) {
+                for (show in 0 until pool.showCount) {
+                    val key = pool.showKeys[show] ?: continue
+                    val index = openingEpisode(pool, inputs.config.seed, show)
+                    cursors.putIfAbsent(key, EpisodeKey(pool.seasonKeys[index], pool.episodeKeys[index], pool.ids[index]))
+                }
+            }
+        }
+        return EngineState(nextStartUtcMs = startUtcMs, rngState = inputs.config.seed, showCursors = cursors)
+    }
 
     /**
      * [state] moved back so that [nowUtcMs] falls at a random point of its first program, as if
@@ -63,7 +76,8 @@ object ScheduleEngine {
      * resumes at the first of its episodes that was discarded, and the movies' release order at
      * the first discarded movie, so nothing is skipped. [aired] are the programs kept before the
      * cursor, oldest first, reaching back at least the movie gap: the repeat rules go on from
-     * them. A running block ends, and shuffle decks start over from what aired before the cursor.
+     * them, and a series with a kept episode resumes after that episode rather than jumping
+     * into a discarded rerun. A running block ends, and shuffle decks start over.
      */
     fun rewind(
         inputs: ScheduleInputs,
@@ -87,6 +101,19 @@ object ScheduleEngine {
                     movieRewound = true
                 } else if (rewound.add(show)) {
                     cursors[show] = EpisodeKey(pool.seasonKeys[i], pool.episodeKeys[i], pool.ids[i])
+                }
+                break
+            }
+        }
+        // The first discarded airing can be a rerun from a later rotation. Prefer the last
+        // kept episode so a series that finished before the cut stays completed.
+        for (airing in aired) {
+            for (pool in pools) {
+                val i = pool.indexOfId(airing.itemId)
+                if (i < 0) continue
+                val show = pool.showKeys[pool.showOf[i]]
+                if (show != null && show in rewound) {
+                    cursors[show] = EpisodeKey(pool.seasonKeys[i], pool.episodeKeys[i], pool.ids[i] + 1)
                 }
                 break
             }
@@ -140,7 +167,7 @@ private class Eligible(pool: CandidatePool, daypart: Daypart?) {
         movieFingerprint = fingerprint(pool, movies)
     }
 
-    private fun cumulative(pool: CandidatePool, shows: IntArray): DoubleArray {
+    fun cumulative(pool: CandidatePool, shows: IntArray): DoubleArray {
         var total = 0.0
         return DoubleArray(shows.size) { k ->
             total += pool.showWeights[shows[k]]
@@ -177,6 +204,10 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
     private var poolKey = BASE_POOL_KEY
     private var daypart = -1
     private lateinit var eligible: Eligible
+    private lateinit var rotationShows: IntArray
+    private lateinit var rotationShowWeights: DoubleArray
+    private lateinit var rotationSeries: IntArray
+    private lateinit var rotationSeriesWeights: DoubleArray
 
     fun generate(untilUtcMs: Long): ScheduleResult {
         while (cursor < untilUtcMs) step()
@@ -234,7 +265,8 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
     private fun pick(): Int {
         val continued = continueBlock()
         if (continued >= 0) return continued
-        val drawn = draw(eligible.shows, eligible.showWeights, exclude = -1)
+        prepareRotation()
+        val drawn = draw(rotationShows, rotationShowWeights, exclude = -1)
         if (drawn < 0) return -1
         val moviesFirst = pool.showKeys[drawn] == null
         for (level in STRICT..ANY) {
@@ -244,6 +276,31 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
             if (second >= 0) return second
         }
         error("Eligible shows without an eligible item")
+    }
+
+    /** Finished series sit out the rotation until all currently eligible series finish. */
+    private fun prepareRotation() {
+        if (config.series.order == PlaybackOrder.SHUFFLE || eligible.series.isEmpty()) {
+            rotationShows = eligible.shows
+            rotationShowWeights = eligible.showWeights
+            rotationSeries = eligible.series
+            rotationSeriesWeights = eligible.seriesWeights
+            return
+        }
+        var remaining = eligible.series.filter { peekEpisode(it) >= 0 }.toIntArray()
+        if (remaining.isEmpty()) {
+            for (show in eligible.series) {
+                val first = pool.showStart[show]
+                showCursors[pool.showKeys[show]!!] = EpisodeKey(pool.seasonKeys[first], pool.episodeKeys[first], pool.ids[first])
+            }
+            remaining = eligible.series
+        }
+        rotationSeries = remaining
+        rotationSeriesWeights = eligible.cumulative(pool, remaining)
+        val inRotation = BooleanArray(pool.showCount)
+        for (show in remaining) inRotation[show] = true
+        rotationShows = eligible.shows.filter { pool.showKeys[it] == null || inRotation[it] }.toIntArray()
+        rotationShowWeights = eligible.cumulative(pool, rotationShows)
     }
 
     /** The next item of the running block, or -1 when none runs or it can't go on. */
@@ -271,13 +328,13 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
 
     /** An episode by the series playback: from [drawn] (or a series picked now), or -1. */
     private fun series(drawn: Int, level: Int): Int {
-        if (eligible.series.isEmpty()) return -1
+        if (rotationSeries.isEmpty()) return -1
         if (config.series.order == PlaybackOrder.SHUFFLE) return deal(movies = false, level)
-        var show = if (drawn >= 0) drawn else draw(eligible.series, eligible.seriesWeights, exclude = -1)
+        var show = if (drawn >= 0) drawn else draw(rotationSeries, rotationSeriesWeights, exclude = -1)
         var index = peekEpisode(show)
         if (!allowed(index, level)) {
             // Only a series whose one eligible episode just aired gets here.
-            show = draw(eligible.series, eligible.seriesWeights, exclude = show)
+            show = draw(rotationSeries, rotationSeriesWeights, exclude = show)
             if (show < 0) return -1
             index = peekEpisode(show)
             if (!allowed(index, level)) return -1
@@ -307,6 +364,7 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
 
     /** Whether [index] may air now: [STRICT] keeps both repeat rules, [RELAXED] only "not right after itself". */
     private fun allowed(index: Int, level: Int): Boolean {
+        if (index < 0) return false
         if (level == ANY) return true
         val id = pool.ids[index]
         if (id == lastItemId) return false
@@ -411,15 +469,15 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
     }
 
     /**
-     * The series' first eligible episode at or after its cursor, wrapping around. A series
-     * without a cursor has not aired yet and starts at its [openingEpisode].
+     * The series' first eligible episode at or after its cursor, or -1 when it has finished.
+     * A series without a cursor was added after setup and starts at the first episode.
      */
     private fun peekEpisode(show: Int): Int {
         val from = pool.showStart[show]
         val to = pool.showEnd[show]
         val position = pool.showKeys[show]?.let { showCursors[it] }
         val start = if (position == null) {
-            openingEpisode(show)
+            from
         } else {
             // First item at or after the cursor (binary search over the series' sorted range).
             var low = from
@@ -431,25 +489,7 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
             low
         }
         for (i in start until to) if (eligible.itemMask[i]) return i
-        for (i in from until start) if (eligible.itemMask[i]) return i
-        error("Eligible series without an eligible episode")
-    }
-
-    /**
-     * Where a series opens on this channel: one of its regular episodes, picked from the seed
-     * and the series, so channels don't all open at episode 1. Specials and unnumbered episodes
-     * (sorted last) only open a series that has nothing else.
-     */
-    private fun openingEpisode(show: Int): Int {
-        val from = pool.showStart[show]
-        var low = from
-        var high = pool.showEnd[show]
-        while (low < high) {
-            val mid = (low + high) ushr 1
-            if (pool.seasonKeys[mid] < CandidatePool.SPECIALS_SEASON) low = mid + 1 else high = mid
-        }
-        val count = (if (low > from) low else pool.showEnd[show]) - from
-        return from + Math.floorMod(Fingerprint().add(config.seed).add(pool.showKeys[show]).value, count.toLong()).toInt()
+        return -1
     }
 
     /** Moves the series' cursor past [index]. */
@@ -517,6 +557,19 @@ private class Run(private val inputs: ScheduleInputs, state: EngineState) {
 /** Keep the stagger and the movies' opening apart from other hashes of the same values. */
 private const val STAGGER = 1L
 private const val MOVIES = 2L
+
+/** Random openings apply only at setup; specials open a series only if it has no regular episodes. */
+private fun openingEpisode(pool: CandidatePool, seed: Long, show: Int): Int {
+    val from = pool.showStart[show]
+    var low = from
+    var high = pool.showEnd[show]
+    while (low < high) {
+        val mid = (low + high) ushr 1
+        if (pool.seasonKeys[mid] < CandidatePool.SPECIALS_SEASON) low = mid + 1 else high = mid
+    }
+    val count = (if (low > from) low else pool.showEnd[show]) - from
+    return from + Math.floorMod(Fingerprint().add(seed).add(pool.showKeys[show]).value, count.toLong()).toInt()
+}
 
 private fun shuffle(values: IntArray, rng: SplitMix64) {
     for (i in values.size - 1 downTo 1) swap(values, i, rng.nextInt(i + 1))
