@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ThemeRepository
@@ -68,20 +70,27 @@ class StartupViewModel @Inject constructor(
         // Only after an install or update is there anything to copy; the first frame never waits for it.
         viewModelScope.launch { themes.seedBuiltIns() }
         viewModelScope.launch {
-            if (!profiles.hasProfiles()) {
-                _needsServer.value = true
-                profiles.observeProfiles().first { it.isNotEmpty() }
-                _needsServer.value = false
-            }
-            val active = profiles.activeProfile()
-            val picker = profiles.observeProfiles().first().size > 1 || active.hasPin
-            // The first frame already wears the profile's theme.
-            _theme.value = themes.observeActiveTheme().first()?.let(ResolvedTheme::from) ?: DefaultTheme.resolved
-            launch { themes.observeActiveTheme().collect { spec -> _theme.value = spec?.let(ResolvedTheme::from) ?: DefaultTheme.resolved } }
-            profiles.observeActiveProfile().map { it.id to ProfileRights.canManageApp(it) }.distinctUntilChanged().collect { (id, manages) ->
-                val previous = _session.value
-                if (previous != null && previous.profileId != id) channelPlayer.stop()
-                _session.value = AppSession(id, launchPicker = previous?.launchPicker ?: picker, canManageApp = manages)
+            profiles.observeProfiles().map { it.isEmpty() }.distinctUntilChanged().collectLatest { empty ->
+                if (empty) {
+                    channelPlayer.stop()
+                    _session.value = null
+                    _theme.value = DefaultTheme.resolved
+                    _needsServer.value = true
+                    return@collectLatest
+                }
+                coroutineScope {
+                    val active = profiles.activeProfile()
+                    val picker = profiles.observeProfiles().first().size > 1 || active.hasPin
+                    // The first frame already wears the profile's theme.
+                    _theme.value = themes.observeActiveTheme().first()?.let(ResolvedTheme::from) ?: DefaultTheme.resolved
+                    _needsServer.value = false
+                    launch { themes.observeActiveTheme().collect { spec -> _theme.value = spec?.let(ResolvedTheme::from) ?: DefaultTheme.resolved } }
+                    profiles.observeActiveProfile().map { it.id to ProfileRights.canManageApp(it) }.distinctUntilChanged().collect { (id, manages) ->
+                        val previous = _session.value
+                        if (previous != null && previous.profileId != id) channelPlayer.stop()
+                        _session.value = AppSession(id, launchPicker = previous?.launchPicker ?: picker, canManageApp = manages)
+                    }
+                }
             }
         }
     }

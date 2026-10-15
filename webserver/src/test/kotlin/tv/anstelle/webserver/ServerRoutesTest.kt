@@ -64,6 +64,27 @@ class ServerRoutesTest {
     }
 
     @Test
+    fun serverRemovalUsesThePairedOwnerAndChosenAdmin() = serverTest { server ->
+        val auth = "Bearer ${pair(server)}"
+        val response = client.delete("/api/servers/1?transferOwnerTo=2") { header(HttpHeaders.Authorization, auth) }
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals(FakeGate.OWNER, server.servers.removedBy)
+        assertEquals(2L, server.servers.newOwner)
+    }
+
+    @Test
+    fun serverRemovalReturnsOwnershipConflicts() = serverTest { server ->
+        val auth = "Bearer ${pair(server)}"
+        server.servers.removalError = tv.anstelle.core.data.ServerRemovalException("owner_transfer_required", "Choose another admin.")
+        val conflict = client.delete("/api/servers/1") { header(HttpHeaders.Authorization, auth) }
+        assertEquals(HttpStatusCode.Conflict, conflict.status)
+        assertTrue(conflict.bodyAsText().contains("owner_transfer_required"))
+        server.servers.removalError = tv.anstelle.core.data.ServerRemovalException("owner_only", "Only the owner can remove this server.")
+        assertEquals(HttpStatusCode.Forbidden, client.delete("/api/servers/1") { header(HttpHeaders.Authorization, auth) }.status)
+        assertEquals(HttpStatusCode.BadRequest, client.delete("/api/servers/1?transferOwnerTo=bad") { header(HttpHeaders.Authorization, auth) }.status)
+    }
+
+    @Test
     fun apiRequiresPairing() = serverTest {
         assertEquals(HttpStatusCode.Unauthorized, client.get("/api/channels").status)
         assertEquals(HttpStatusCode.Unauthorized, client.get("/api/session").status)

@@ -133,7 +133,13 @@ data class CountDto(val type: String, val count: Int)
 data class LibraryDto(val id: Long, val name: String, val kind: String, val enabled: Boolean, val canAir: Boolean)
 
 @Serializable
-data class ServerDetailDto(val server: ServerDto, val counts: List<CountDto>, val libraries: List<LibraryDto>)
+data class ServerDetailDto(val server: ServerDto, val counts: List<CountDto>, val libraries: List<LibraryDto>, val removal: ServerRemovalDto? = null)
+
+@Serializable
+data class RemovalAdminDto(val id: Long, val name: String)
+
+@Serializable
+data class ServerRemovalDto(val resetsApp: Boolean, val requiresTransfer: Boolean, val admins: List<RemovalAdminDto>)
 
 @Serializable
 data class SyncRequest(val full: Boolean = false)

@@ -118,6 +118,7 @@ export interface ServerDetail {
 	server: Server;
 	counts: { type: string; count: number }[];
 	libraries: Library[];
+	removal?: { resetsApp: boolean; requiresTransfer: boolean; admins: { id: number; name: string }[] };
 }
 
 export interface FoundServer {
@@ -382,7 +383,7 @@ export const api = {
 	sync: (id: number, full: boolean) => request<void>('POST', `/servers/${id}/sync`, { full }),
 	setLibrary: (serverId: number, libraryId: number, enabled: boolean) =>
 		request<void>('PUT', `/servers/${serverId}/libraries/${libraryId}`, { enabled }),
-	removeServer: (id: number) => request<void>('DELETE', `/servers/${id}`),
+	removeServer: (id: number, transferOwnerTo?: number) => request<void>('DELETE', `/servers/${id}${transferOwnerTo === undefined ? '' : `?transferOwnerTo=${transferOwnerTo}`}`),
 	findServer: (address: string) => request<FoundServer>('POST', '/servers/find', { address }),
 	signIn: (signInId: string, username: string, password: string) =>
 		request<{ id: number }>('POST', `/servers/signin/${signInId}`, { username, password }),

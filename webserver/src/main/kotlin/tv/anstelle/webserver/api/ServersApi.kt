@@ -20,7 +20,7 @@ interface ServersApi {
     suspend fun server(serverId: Long): ServerDetailDto?
     suspend fun sync(serverId: Long, full: Boolean): Boolean
     suspend fun setLibrary(serverId: Long, libraryId: Long, enabled: Boolean): Boolean
-    suspend fun remove(serverId: Long): Boolean
+    suspend fun remove(serverId: Long, transferOwnerTo: Long?, actorId: Long): Boolean
 
     suspend fun find(address: String): FoundServerDto
 
@@ -60,6 +60,9 @@ internal class RoomServersApi @Inject constructor(
             libraries = repository.observeLibraries(serverId).first().map {
                 LibraryDto(it.id, it.name, it.collectionType ?: "mixed", it.isEnabled, repository.canAir(it.collectionType))
             },
+            removal = repository.observeRemoval(serverId).first().let { plan ->
+                ServerRemovalDto(plan.resetsApp, plan.requiresTransfer, plan.admins.map { RemovalAdminDto(it.id, it.name) })
+            },
         )
     }
 
@@ -76,9 +79,9 @@ internal class RoomServersApi @Inject constructor(
         return true
     }
 
-    override suspend fun remove(serverId: Long): Boolean {
+    override suspend fun remove(serverId: Long, transferOwnerTo: Long?, actorId: Long): Boolean {
         repository.observeServer(serverId).first() ?: return false
-        repository.remove(serverId)
+        repository.remove(serverId, transferOwnerTo, actorId)
         return true
     }
 

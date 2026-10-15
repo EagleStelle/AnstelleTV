@@ -10,12 +10,10 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.common.TimeSource
-import tv.anstelle.core.data.sync.LibrarySyncer
 import tv.anstelle.core.data.sync.SyncProgress
 import tv.anstelle.core.data.sync.SyncStatusTracker
 import tv.anstelle.core.data.work.LibrarySyncWorker
@@ -74,9 +72,9 @@ class ServerRepository @Inject constructor(
     private val tokens: TokenStore,
     private val probe: ServerProbe,
     private val auth: JellyfinAuth,
-    private val syncer: LibrarySyncer,
     private val syncStatus: SyncStatusTracker,
     private val profiles: ProfileRepository,
+    private val removal: ServerRemovalService,
     private val time: TimeSource,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
@@ -153,18 +151,10 @@ class ServerRepository @Inject constructor(
     private fun deviceFor(target: SignInFor): String? = if (target == SignInFor.Server) null else ProfileRepository.newDevice()
 
     /** Signs out on the server, forgets the token and deletes everything synced from it. */
-    suspend fun remove(serverId: Long) {
-        val server = serverDao.byId(serverId) ?: return
-        LibrarySyncWorker.cancel(WorkManager.getInstance(context), serverId)
-        tokens.get(server.jellyfinServerId)?.let { token ->
-            withTimeoutOrNull(SIGN_OUT_TIMEOUT_MS) { auth.signOut(server.baseUrl, token) }
-        }
-        tokens.remove(server.jellyfinServerId)
-        profiles.forgetAccountsOn(serverId)
-        syncer.removeItems(itemDao.allIds(serverId).map { it.id })
-        serverDao.delete(serverId)
-        AppLog.i(TAG, "Removed server ${server.name}")
-    }
+    suspend fun remove(serverId: Long, transferOwnerTo: Long? = null, actorId: Long? = null) =
+        removal.remove(serverId, transferOwnerTo, actorId)
+
+    fun observeRemoval(serverId: Long): Flow<ServerRemovalPlan> = removal.observe(serverId)
 
     /**
      * Turns syncing a library on or off. Nothing changes until the next sync: it fetches a
@@ -247,6 +237,5 @@ class ServerRepository @Inject constructor(
     private companion object {
         const val TAG = "Servers"
         const val QUICK_CONNECT_POLL_MS = 3_000L
-        const val SIGN_OUT_TIMEOUT_MS = 3_000L
     }
 }

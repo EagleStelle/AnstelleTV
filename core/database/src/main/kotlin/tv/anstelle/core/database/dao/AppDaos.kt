@@ -55,6 +55,9 @@ interface ProfileDao {
     @Query("SELECT * FROM profile_account WHERE profileId = :profileId ORDER BY serverId")
     fun observeAccounts(profileId: Long): Flow<List<ProfileAccountEntity>>
 
+    @Query("SELECT * FROM profile_account")
+    fun observeAllAccounts(): Flow<List<ProfileAccountEntity>>
+
     /** Every profile's own user on [serverId]. */
     @Query("SELECT * FROM profile_account WHERE serverId = :serverId")
     suspend fun accountsOn(serverId: Long): List<ProfileAccountEntity>

@@ -40,6 +40,7 @@ import tv.anstelle.core.model.ProfileRole
 import tv.anstelle.core.model.RatingLevel
 import tv.anstelle.core.model.RatingLimits
 import tv.anstelle.core.model.ServerConnectException
+import tv.anstelle.core.model.ServerProblem
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -266,6 +267,11 @@ class ProfileRepository @Inject constructor(
                 if (user.name.isNotBlank() && user.name != account.userName) dao.setAccountName(account.profileId, server.id, user.name)
                 if (isFirstAccount(account.profileId, server.id)) mirror(account.profileId, server, user)
             } catch (e: ServerConnectException) {
+                if (e.problem == ServerProblem.SIGNED_OUT) {
+                    tokens.remove(tokenKey(server.jellyfinServerId, account.device))
+                    // Wake account observers after forgetting an expired session.
+                    dao.upsertAccount(account)
+                }
                 AppLog.w(TAG, "${server.name}: couldn't read profile ${account.profileId}'s user: ${e.message}")
             }
         }

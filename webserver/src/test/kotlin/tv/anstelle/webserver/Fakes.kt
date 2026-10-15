@@ -219,7 +219,15 @@ class FakeServers : ServersApi {
     override suspend fun server(serverId: Long): ServerDetailDto? = null
     override suspend fun sync(serverId: Long, full: Boolean) = serverId == 1L
     override suspend fun setLibrary(serverId: Long, libraryId: Long, enabled: Boolean) = serverId == 1L && libraryId == 1L
-    override suspend fun remove(serverId: Long) = serverId == 1L
+    var removalError: tv.anstelle.core.data.ServerRemovalException? = null
+    var removedBy: Long? = null
+    var newOwner: Long? = null
+    override suspend fun remove(serverId: Long, transferOwnerTo: Long?, actorId: Long): Boolean {
+        removalError?.let { throw it }
+        removedBy = actorId
+        newOwner = transferOwnerTo
+        return serverId == 1L
+    }
 
     override suspend fun find(address: String): FoundServerDto {
         if (address.isBlank()) throw ServerConnectException(ServerProblem.INVALID_URL, "Enter a server address")

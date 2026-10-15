@@ -4,6 +4,8 @@
 	import { api, ApiError, problem, type ServerDetail } from '#lib/api.ts';
 	import Button from '#lib/components/Button.svelte';
 	import Buttons from '#lib/components/Buttons.svelte';
+	import ChoiceRow from '#lib/components/ChoiceRow.svelte';
+	import { session } from '#lib/session.svelte.ts';
 	import DangerButton from '#lib/components/DangerButton.svelte';
 	import Fact from '#lib/components/Fact.svelte';
 	import Facts from '#lib/components/Facts.svelte';
@@ -36,6 +38,10 @@
 	let detail = $state<ServerDetail | null>(null);
 	let error = $state<string | null>(null);
 	let gone = $state(false);
+	let selectedAdmin = $state<number | null>(null);
+	let removing = $state(false);
+	const removal = $derived(detail?.removal);
+	const admin = $derived(removal?.admins.find((admin) => admin.id === selectedAdmin));
 
 	async function load() {
 		try {
@@ -51,7 +57,22 @@
 		if (id) void load();
 	});
 
-	onMount(() => live.subscribe(['media_server', 'library', 'media_item', 'sync'], () => void load()));
+	onMount(() => live.subscribe(['media_server', 'library', 'media_item', 'profile', 'sync'], () => void load()));
+
+	async function remove() {
+		if (removing) return;
+		removing = true;
+		try {
+			await api.removeServer(id, removal?.requiresTransfer ? admin?.id : undefined);
+			await session.refresh();
+			await goto('/servers');
+		} catch (e) {
+			await load();
+			error = problem(e);
+		} finally {
+			removing = false;
+		}
+	}
 
 	async function act(action: () => Promise<unknown>) {
 		try {
@@ -158,18 +179,41 @@
 		{#if detail.libraries.length === 0}<Notice text="No libraries yet." />{/if}
 		<Section title="Account" />
 		<LinkRow title="Jellyfin user" summary={server.userName ?? 'Not signed in'} icon={Person} href={signInHref} />
+		{#if removal?.requiresTransfer}
+			<Section title="Transfer ownership" />
+			{#if !session.isOwner}
+				<Notice text="The owner must transfer ownership before this server can be removed." />
+			{:else if removal.admins.length === 0}
+				<Notice text="Sign in an admin on another server before removing this server. The new owner must remain signed in." />
+			{:else}
+				<ChoiceRow
+					title="New owner"
+					value={selectedAdmin}
+					choices={removal.admins.map((admin) => admin.id)}
+					label={(id) => removal?.admins.find((admin) => admin.id === id)?.name ?? 'Choose an admin'}
+					onselect={(id) => selectedAdmin = id}
+					about="Transfer ownership to this admin when the server is removed."
+				/>
+			{/if}
+		{/if}
+		{#if removal?.resetsApp && !session.isOwner}
+			<Notice text="Only the owner can remove the last server and reset the app." />
+		{/if}
+		{#if removal && !removing && (!removal.requiresTransfer || (session.isOwner && admin)) && (!removal.resetsApp || session.isOwner)}
 		<Buttons foot>
 			<DangerButton
 				label="Remove server"
-				question="Remove {server.name}?"
-				explanation="Signs out and deletes everything synced from it."
+				question={removal.resetsApp ? `Remove ${server.name} and start over?` : `Remove ${server.name}?`}
+				explanation={removal.resetsApp
+					? 'Deletes all servers, profiles, history, channels and settings, including signed-out entries. Returns to first-time setup.'
+					: removal.requiresTransfer
+						? `Makes ${admin?.name} the owner, signs out and deletes this server's accounts and profiles without another valid account.`
+						: 'Signs out and deletes everything synced from it, its accounts and profiles without another valid account.'}
 				confirm="Remove"
-				onconfirm={() => act(async () => {
-					await api.removeServer(id);
-					await goto('/servers');
-				})}
+				onconfirm={remove}
 			/>
 		</Buttons>
+		{/if}
 	</Page>
 {:else if error}
 	<Page title="Server" trail={[{ label: 'Home', href: '/' }, { label: 'Servers', href: '/servers' }]}>

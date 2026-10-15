@@ -16,6 +16,8 @@ import tv.anstelle.webserver.api.FindServerRequest
 import tv.anstelle.webserver.api.PasswordRequest
 import tv.anstelle.webserver.api.QuickConnectDto
 import tv.anstelle.webserver.api.SyncRequest
+import tv.anstelle.webserver.api.ErrorDto
+import tv.anstelle.core.data.ServerRemovalException
 
 private const val NO_SERVER = "no_server"
 private const val NO_SERVER_TEXT = "There is no such server."
@@ -73,9 +75,18 @@ internal fun Route.serverRoutes(deps: ServerDependencies) {
             }
 
             delete {
-                call.requireManager(deps) ?: return@delete
+                val access = call.requireManager(deps) ?: return@delete
                 val id = call.idOrNotFound(NO_SERVER, NO_SERVER_TEXT) ?: return@delete
-                if (api.remove(id)) call.respond(HttpStatusCode.NoContent) else call.respondNotFound(NO_SERVER, NO_SERVER_TEXT)
+                val transfer = call.request.queryParameters["transferOwnerTo"]
+                val transferId = transfer?.toLongOrNull()
+                if (transfer != null && (transferId == null || transferId <= 0)) {
+                    return@delete call.respond(HttpStatusCode.BadRequest, ErrorDto("invalid_owner", "Choose a valid admin."))
+                }
+                try {
+                    if (api.remove(id, transferId, access.manager.id)) call.respond(HttpStatusCode.NoContent) else call.respondNotFound(NO_SERVER, NO_SERVER_TEXT)
+                } catch (e: ServerRemovalException) {
+                    call.respond(if (e.code == "owner_only") HttpStatusCode.Forbidden else HttpStatusCode.Conflict, ErrorDto(e.code, e.message.orEmpty()))
+                }
             }
 
             post("/sync") {

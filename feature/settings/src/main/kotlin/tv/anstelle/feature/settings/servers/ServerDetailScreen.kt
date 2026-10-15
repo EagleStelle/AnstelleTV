@@ -52,12 +52,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ServerRepository
+import tv.anstelle.core.data.RemovalAdmin
+import tv.anstelle.core.data.ServerRemovalException
+import tv.anstelle.core.data.ServerRemovalPlan
+import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.database.dao.TypeCount
 import tv.anstelle.core.database.entity.LibraryEntity
 import tv.anstelle.core.model.MediaServer
@@ -66,6 +72,8 @@ import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.PanelShape
 import tv.anstelle.core.theme.components.DangerButton
+import tv.anstelle.core.theme.components.ChoiceRow
+import tv.anstelle.core.theme.components.SettingsNotice
 import tv.anstelle.core.theme.components.InfoRow
 import tv.anstelle.core.theme.components.LinkRow
 import tv.anstelle.core.theme.components.OsdButton
@@ -85,25 +93,34 @@ data class ServerDetailUiState(
     val counts: List<TypeCount> = emptyList(),
     val progress: String? = null,
     val nowUtcMs: Long = 0,
+    val removal: ServerRemovalPlan? = null,
 )
 
 @HiltViewModel
 class ServerDetailViewModel @Inject constructor(
     savedState: SavedStateHandle,
     private val repository: ServerRepository,
+    profiles: ProfileRepository,
     time: TimeSource,
 ) : ViewModel() {
     /** Matches the `serverId` argument of the navigation route. */
     val serverId: Long = checkNotNull(savedState.get<Long>("serverId"))
 
-    val state: StateFlow<ServerDetailUiState> = combine(
+    private val detail = combine(
         repository.observeServer(serverId),
         repository.observeLibraries(serverId),
         repository.observeItemCounts(serverId),
         repository.syncProgress,
     ) { server, libraries, counts, progress ->
         ServerDetailUiState(server, libraries, counts, progress[serverId]?.message, time.nowUtcMs())
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ServerDetailUiState())
+    }
+    val state = combine(detail, repository.observeRemoval(serverId)) { detail, removal -> detail.copy(removal = removal) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ServerDetailUiState())
+    val isOwner = profiles.observeActiveProfile().map { it.role == tv.anstelle.core.model.ProfileRole.OWNER }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val selectedAdmin = MutableStateFlow<RemovalAdmin?>(null)
+    val error = MutableStateFlow<String?>(null)
+    val removing = MutableStateFlow(false)
 
     fun canAir(library: LibraryEntity) = repository.canAir(library.collectionType)
 
@@ -114,9 +131,17 @@ class ServerDetailViewModel @Inject constructor(
     }
 
     fun remove(onRemoved: () -> Unit) {
+        if (removing.value) return
+        removing.value = true
         viewModelScope.launch {
-            repository.remove(serverId)
-            onRemoved()
+            try {
+                repository.remove(serverId, selectedAdmin.value?.id?.takeIf { state.value.removal?.requiresTransfer == true })
+                onRemoved()
+            } catch (e: ServerRemovalException) {
+                error.value = e.message
+            } finally {
+                removing.value = false
+            }
         }
     }
 }
@@ -133,6 +158,10 @@ fun ServerDetailScreen(
     viewModel: ServerDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
+    val selectedAdmin by viewModel.selectedAdmin.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val removing by viewModel.removing.collectAsStateWithLifecycle()
     val server = state.server ?: return
     val firstFocus = rememberInitialFocus()
 
@@ -176,11 +205,41 @@ fun ServerDetailScreen(
                 onClick = { onSignIn(server.id) },
             )
         }
-        foot {
+        val removal = state.removal
+        error?.let { message -> item(key = "remove-error") { SettingsNotice(message, isError = true) } }
+        if (removal?.requiresTransfer == true) {
+            section("Transfer ownership")
+            item(key = "transfer-owner") {
+                if (!isOwner) {
+                    SettingsNotice("Switch to the owner's profile to transfer ownership before removing this server.")
+                } else if (removal.admins.isEmpty()) {
+                    SettingsNotice("Sign in an admin on another server before removing this server. The new owner must remain signed in.")
+                } else {
+                    ChoiceRow<RemovalAdmin?>(
+                        title = "New owner",
+                        value = selectedAdmin?.takeIf { it in removal.admins },
+                        choices = removal.admins,
+                        label = { it?.name ?: "Choose an admin" },
+                        onSelect = { viewModel.selectedAdmin.value = it },
+                        about = "Transfer ownership to this admin when the server is removed.",
+                    )
+                }
+            }
+        }
+        if (removal?.resetsApp == true && !isOwner) {
+            item(key = "reset-owner-only") { SettingsNotice("Only the owner can remove the last server and reset the app.") }
+        }
+        if (removal != null && !removing &&
+            (!removal.requiresTransfer || (isOwner && selectedAdmin in removal.admins)) &&
+            (!removal.resetsApp || isOwner)) foot {
             DangerButton(
                 text = "Remove server",
-                question = "Remove ${server.name}?",
-                explanation = "Signs out and deletes everything synced from it.",
+                question = if (removal.resetsApp) "Remove ${server.name} and start over?" else "Remove ${server.name}?",
+                explanation = when {
+                    removal.resetsApp -> "Deletes all servers, profiles, history, channels and settings, including signed-out entries. Returns to first-time setup."
+                    removal.requiresTransfer -> "Makes ${selectedAdmin?.name} the owner, signs out and deletes this server's accounts and profiles without another valid account."
+                    else -> "Signs out and deletes everything synced from it, its accounts and profiles without another valid account."
+                },
                 confirm = "Remove",
                 onConfirm = { viewModel.remove(onRemoved) },
             )
