@@ -35,6 +35,8 @@ data class MediaServerEntity(
     val lastSyncError: String? = null,
     /** Device time of the last ID-only reconciliation (deletions). */
     val lastReconcileUtcMs: Long? = null,
+    /** The profile used for this server's connection sign-in. */
+    val ownerProfileId: Long? = null,
 )
 
 /**

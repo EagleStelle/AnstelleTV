@@ -77,6 +77,33 @@ class ProfileRightsTest {
     }
 
     @Test
+    fun `members and disconnected admins can sign out only themselves`() {
+        assertTrue(ProfileRights.canSignOut(member, member, ownsServer = false))
+        assertTrue(ProfileRights.canSignOut(admin, admin, ownsServer = false))
+        assertFalse(ProfileRights.canSignOut(admin, admin, ownsServer = true))
+        assertFalse(ProfileRights.canSignOut(owner, owner, ownsServer = false))
+        assertFalse(ProfileRights.canSignOut(owner, admin, ownsServer = false))
+        assertFalse(ProfileRights.canSignOut(admin, member, ownsServer = false))
+    }
+
+    @Test
+    fun `server owning profiles cannot be deleted directly even by owner`() {
+        assertFalse(ProfileRights.canDelete(owner, admin, ownsServer = true))
+        assertTrue(ProfileRights.canDelete(owner, admin, ownsServer = false))
+        assertFalse(ProfileRights.canDelete(owner, member, ownsServer = true))
+        assertFalse(ProfileRights.canSetAdmin(owner, admin, ownsServer = true))
+        assertTrue(ProfileRights.canTransferOwnership(owner, admin))
+    }
+
+    @Test
+    fun `only app owner and connection owner can remove a server`() {
+        assertTrue(ServerRights.canRemove(owner.id, owner.id, admin.id))
+        assertTrue(ServerRights.canRemove(admin.id, owner.id, admin.id))
+        assertFalse(ServerRights.canRemove(otherAdmin.id, owner.id, admin.id))
+        assertFalse(ServerRights.canRemove(member.id, owner.id, admin.id))
+    }
+
+    @Test
     fun `rating levels come from the server's table, kept to what the library reaches`() {
         val table = listOf(
             RatingLevel(0, "G"), RatingLevel(0, "TV-G"), RatingLevel(0, "TV-Y"),

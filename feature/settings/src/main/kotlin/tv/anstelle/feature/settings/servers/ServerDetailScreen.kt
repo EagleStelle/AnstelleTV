@@ -94,6 +94,8 @@ data class ServerDetailUiState(
     val progress: String? = null,
     val nowUtcMs: Long = 0,
     val removal: ServerRemovalPlan? = null,
+    val viewerId: Long = 0L,
+    val canRemove: Boolean = false,
 )
 
 @HiltViewModel
@@ -114,10 +116,10 @@ class ServerDetailViewModel @Inject constructor(
     ) { server, libraries, counts, progress ->
         ServerDetailUiState(server, libraries, counts, progress[serverId]?.message, time.nowUtcMs())
     }
-    val state = combine(detail, repository.observeRemoval(serverId)) { detail, removal -> detail.copy(removal = removal) }
+    val state = combine(detail, repository.observeRemoval(serverId), profiles.observeActiveProfile()) { detail, removal, viewer ->
+        detail.copy(removal = removal, viewerId = viewer.id, canRemove = removal.canRemove(viewer.id))
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ServerDetailUiState())
-    val isOwner = profiles.observeActiveProfile().map { it.role == tv.anstelle.core.model.ProfileRole.OWNER }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
     val selectedAdmin = MutableStateFlow<RemovalAdmin?>(null)
     val error = MutableStateFlow<String?>(null)
     val removing = MutableStateFlow(false)
@@ -131,11 +133,11 @@ class ServerDetailViewModel @Inject constructor(
     }
 
     fun remove(onRemoved: () -> Unit) {
-        if (removing.value) return
+        if (removing.value || !state.value.canRemove) return
         removing.value = true
         viewModelScope.launch {
             try {
-                repository.remove(serverId, selectedAdmin.value?.id?.takeIf { state.value.removal?.requiresTransfer == true })
+                repository.remove(serverId, selectedAdmin.value?.id?.takeIf { state.value.removal?.requiresTransfer == true }, state.value.viewerId)
                 onRemoved()
             } catch (e: ServerRemovalException) {
                 error.value = e.message
@@ -158,7 +160,6 @@ fun ServerDetailScreen(
     viewModel: ServerDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
     val selectedAdmin by viewModel.selectedAdmin.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val removing by viewModel.removing.collectAsStateWithLifecycle()
@@ -207,10 +208,13 @@ fun ServerDetailScreen(
         }
         val removal = state.removal
         error?.let { message -> item(key = "remove-error") { SettingsNotice(message, isError = true) } }
+        if (removal != null && !state.canRemove && !removal.requiresTransfer && !removal.resetsApp) {
+            item(key = "remove-owner-only") { SettingsNotice("Admins can remove only their own servers. Switch to the owner's profile to remove other servers.") }
+        }
         if (removal?.requiresTransfer == true) {
             section("Transfer ownership")
             item(key = "transfer-owner") {
-                if (!isOwner) {
+                if (!state.canRemove) {
                     SettingsNotice("Switch to the owner's profile to transfer ownership before removing this server.")
                 } else if (removal.admins.isEmpty()) {
                     SettingsNotice("Sign in an admin on another server before removing this server. The new owner must remain signed in.")
@@ -226,20 +230,15 @@ fun ServerDetailScreen(
                 }
             }
         }
-        if (removal?.resetsApp == true && !isOwner) {
+        if (removal?.resetsApp == true && !state.canRemove) {
             item(key = "reset-owner-only") { SettingsNotice("Only the owner can remove the last server and reset the app.") }
         }
-        if (removal != null && !removing &&
-            (!removal.requiresTransfer || (isOwner && selectedAdmin in removal.admins)) &&
-            (!removal.resetsApp || isOwner)) foot {
+        if (removal != null && state.canRemove && !removing &&
+            (!removal.requiresTransfer || selectedAdmin in removal.admins)) foot {
             DangerButton(
                 text = "Remove server",
                 question = if (removal.resetsApp) "Remove ${server.name} and start over?" else "Remove ${server.name}?",
-                explanation = when {
-                    removal.resetsApp -> "Deletes all servers, profiles, history, channels and settings, including signed-out entries. Returns to first-time setup."
-                    removal.requiresTransfer -> "Makes ${selectedAdmin?.name} the owner, signs out and deletes this server's accounts and profiles without another valid account."
-                    else -> "Signs out and deletes everything synced from it, its accounts and profiles without another valid account."
-                },
+                explanation = removal.explanation,
                 confirm = "Remove",
                 onConfirm = { viewModel.remove(onRemoved) },
             )

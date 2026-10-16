@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.sqlite.db.SupportSQLiteDatabase
 import tv.anstelle.core.database.dao.BackupDao
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.LibraryDao
@@ -86,12 +87,12 @@ abstract class AnstelleDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     companion object {
-        const val VERSION = 13
+        const val VERSION = 14
         const val NAME = "anstelle.db"
 
         /** Tables the web UI can subscribe to for live updates. */
         val OBSERVED_TABLES = arrayOf(
-            "media_server", "profile", "library", "media_item", "channel_group", "channel",
+            "media_server", "profile", "profile_account", "library", "media_item", "channel_group", "channel",
             "channel_rule", "channel_season", "channel_daypart", "live_source", "live_channel",
             "live_program", "schedule_slot", "theme", "watch_event", "paired_client", "setting",
         )
@@ -109,6 +110,48 @@ abstract class AnstelleDatabase : RoomDatabase() {
                 .apply { if (allowDestructiveMigration) fallbackToDestructiveMigration(dropAllTables = true) }
                 .build()
 
-        private val PRE_RELEASE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+        private val PRE_RELEASE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+
+        /** Also used when restoring backups made before server ownership was recorded. */
+        fun assignServerOwners(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                UPDATE media_server SET ownerProfileId = NULL
+                WHERE ownerProfileId IS NOT NULL AND userId IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM profile_account a WHERE a.profileId = ownerProfileId
+                    AND a.serverId = media_server.id AND a.userId = media_server.userId
+                )
+            """.trimIndent())
+            db.execSQL("""
+                UPDATE media_server SET ownerProfileId = (
+                    SELECT p.id FROM profile p JOIN profile_account a ON a.profileId = p.id
+                    WHERE a.serverId = media_server.id AND a.userId = media_server.userId
+                    ORDER BY p.role DESC, p.id LIMIT 1
+                ) WHERE ownerProfileId IS NULL
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TEMP TABLE missing_connection_profile AS
+                SELECT id AS serverId, (SELECT COALESCE(MAX(id), 0) FROM profile) + id AS profileId
+                FROM media_server WHERE ownerProfileId IS NULL AND userId IS NOT NULL
+            """.trimIndent())
+            db.execSQL("""
+                INSERT INTO profile (id, name, role, maxRating, pinHash, pictureUrl, themeId, sortOrder, createdAtUtcMs)
+                SELECT m.profileId, COALESCE(NULLIF(s.userName, ''), s.name), 1, NULL, NULL, NULL, NULL,
+                    (SELECT COALESCE(MAX(sortOrder), -1) FROM profile) + s.id, s.createdAtUtcMs
+                FROM missing_connection_profile m JOIN media_server s ON s.id = m.serverId
+            """.trimIndent())
+            // These accounts have no token until the connection user signs in again; server sessions are kept.
+            db.execSQL("""
+                INSERT INTO profile_account (profileId, serverId, userId, userName, device)
+                SELECT m.profileId, s.id, s.userId, COALESCE(NULLIF(s.userName, ''), s.name), 'connection-' || s.id
+                FROM missing_connection_profile m JOIN media_server s ON s.id = m.serverId
+            """.trimIndent())
+            db.execSQL("""
+                UPDATE media_server SET ownerProfileId = (SELECT m.profileId FROM missing_connection_profile m WHERE m.serverId = media_server.id)
+                WHERE id IN (SELECT serverId FROM missing_connection_profile)
+            """.trimIndent())
+            db.execSQL("DROP TABLE missing_connection_profile")
+            db.execSQL("UPDATE profile SET role = 1, maxRating = NULL WHERE role = 0 AND id IN (SELECT ownerProfileId FROM media_server)")
+            db.execSQL("UPDATE media_server SET ownerProfileId = (SELECT id FROM profile WHERE role = 2 LIMIT 1) WHERE ownerProfileId IS NULL")
+        }
     }
 }

@@ -1,6 +1,7 @@
 package tv.anstelle.feature.profiles
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
@@ -50,6 +51,7 @@ import tv.anstelle.core.theme.components.LocalSettingsSheets
 import tv.anstelle.core.theme.components.PinEntry
 import tv.anstelle.core.theme.components.SettingsButtons
 import tv.anstelle.core.theme.components.SettingsPage
+import tv.anstelle.core.theme.components.SettingsNotice
 import tv.anstelle.core.theme.components.SwitchRow
 import tv.anstelle.core.theme.components.foot
 import tv.anstelle.core.theme.components.lockedOutMessage
@@ -81,8 +83,11 @@ data class ProfileEditUiState(
 ) {
     val canEdit: Boolean get() = profile != null && viewer != null && ProfileRights.canEdit(viewer, profile)
     val canSetParental: Boolean get() = profile != null && viewer != null && ProfileRights.canSetParental(viewer, profile)
-    val canSetAdmin: Boolean get() = profile != null && viewer != null && ProfileRights.canSetAdmin(viewer, profile)
-    val canDelete: Boolean get() = profile != null && viewer != null && ProfileRights.canDelete(viewer, profile)
+    val canSetAdmin: Boolean get() = profile != null && viewer != null && ProfileRights.canSetAdmin(viewer, profile, ownsServer)
+    val canTransferOwnership: Boolean get() = profile != null && viewer != null && ProfileRights.canTransferOwnership(viewer, profile)
+    val ownsServer: Boolean get() = profile != null && servers.any { it.ownerProfileId == profile.id }
+    val canDelete: Boolean get() = profile != null && viewer != null && ProfileRights.canDelete(viewer, profile, ownsServer)
+    val canSignOut: Boolean get() = profile != null && viewer != null && ProfileRights.canSignOut(viewer, profile, ownsServer)
 }
 
 @HiltViewModel
@@ -170,7 +175,7 @@ class ProfileEditViewModel @Inject constructor(
     }
 
     fun makeOwner() {
-        if (!state.value.canSetAdmin) return
+        if (!state.value.canTransferOwnership) return
         act { profiles.transferOwnership(profileId) }
     }
 
@@ -199,6 +204,10 @@ class ProfileEditViewModel @Inject constructor(
     /** The page closes once the profile is gone. */
     fun delete() {
         if (state.value.canDelete) act { profiles.delete(profileId) }
+    }
+
+    fun signOut() {
+        if (state.value.canSignOut) act { profiles.signOut(profileId) }
     }
 
     private fun act(action: suspend () -> Unit) {
@@ -323,7 +332,7 @@ fun ProfileEditScreen(
         }
         // Permissions: what the owner or an admin sets for the profile. Only they see the group,
         // and each row only when the viewer may change it.
-        if (state.canSetAdmin || state.canSetParental) section("Permissions")
+        if (state.canSetAdmin || state.canSetParental || state.canTransferOwnership) section("Permissions")
         if (state.canSetAdmin) {
             item(key = "admin") {
                 SwitchRow(
@@ -347,7 +356,7 @@ fun ProfileEditScreen(
                 )
             }
         }
-        if (state.canSetAdmin) {
+        if (state.canTransferOwnership) {
             item(key = "make-owner") {
                 SettingsButtons {
                     DangerButton(
@@ -362,6 +371,23 @@ fun ProfileEditScreen(
             }
         }
         // Deleting stands apart at the foot of the page, under no heading.
+        if (state.ownsServer) {
+            item(key = "server-owner") {
+                SettingsNotice("This profile owns a server connection. Remove its server to delete the profile; it cannot sign out or be deleted separately.")
+            }
+        }
+        if (state.canSignOut) {
+            foot {
+                DangerButton(
+                    text = "Sign out",
+                    question = "Sign out ${profile.name}?",
+                    explanation = "Removes this profile from this TV, including its local history, settings, paired browsers and Jellyfin sign-ins. Server connections and Jellyfin watch history are kept.",
+                    confirm = "Sign out",
+                    icon = Icons.AutoMirrored.Filled.Logout,
+                    onConfirm = viewModel::signOut,
+                )
+            }
+        }
         if (state.canDelete) {
             foot {
                 DangerButton(

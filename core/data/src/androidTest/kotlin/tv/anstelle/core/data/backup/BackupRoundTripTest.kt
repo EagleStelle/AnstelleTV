@@ -79,7 +79,7 @@ class BackupRoundTripTest {
 
     /** A device with a server, two profiles, a theme of its own, a library channel and one built by hand, and history. */
     private suspend fun seed(db: AnstelleDatabase) {
-        db.mediaServerDao().upsert(MediaServerEntity(3, "jf-home", "Home", "http://192.168.1.20:8096", "u1", "Alex", "12.1.0", 100, lastSyncUtcMs = 200))
+        db.mediaServerDao().upsert(MediaServerEntity(3, "jf-home", "Home", "http://192.168.1.20:8096", "u1", "Alex", "12.1.0", 100, lastSyncUtcMs = 200, ownerProfileId = 1))
         db.libraryDao().upsert(LibraryEntity(serverId = 3, remoteId = "lib-shows", name = "Shows", collectionType = "tvshows", isEnabled = true, lastSyncUtcMs = 300))
         db.libraryDao().upsert(LibraryEntity(serverId = 3, remoteId = "lib-music", name = "Music", collectionType = "music", isEnabled = false, lastSyncUtcMs = null))
         db.mediaItemDao().upsertAll(listOf(item(40, "item-a", "Pilot"), item(41, "item-b", "Second")))

@@ -82,11 +82,17 @@ class CatalogLoadingTest {
             }
         }
         val access = graph.profiles().access(profile.id)
-        val expectedWatch = graph.catalog().watch(profile.id, CatalogKind.SERIES)
-        assertTrue("Server history unavailable", expectedWatch.known)
-        assertTrue("Series episode counts missing from server response", expectedWatch.byId.values.any { it.unwatched != null })
-        val expectedResume = graph.catalog().continueWatching(CatalogKind.SERIES, profile.id, access)
-        val expectedNext = graph.catalog().nextUp(profile.id, access)
+        for (kind in CatalogKind.entries) verifyHistory(kind, profile.id, access)
+    }
+
+    private suspend fun verifyHistory(kind: CatalogKind, profileId: Long, access: tv.anstelle.core.model.ProfileAccess) {
+        val expectedWatch = graph.catalog().watch(profileId, kind)
+        assertTrue("$kind server history unavailable", expectedWatch.known)
+        if (kind.episodic) {
+            assertTrue("Series episode counts missing from server response", expectedWatch.byId.values.any { it.unwatched != null })
+        }
+        val expectedResume = graph.catalog().continueWatching(kind, profileId, access)
+        val expectedNext = if (ShelfType.NEXT_UP in kind.fixedShelves) graph.catalog().nextUp(profileId, access) else emptyList()
         val continuingTitles = expectedResume.mapTo(HashSet()) { it.titleId }
         assertTrue("Next up repeats a series from Continue watching", expectedNext.none { it.titleId in continuingTitles })
         val store = ViewModelStore()
@@ -94,17 +100,17 @@ class CatalogLoadingTest {
         instrumentation.runOnMainSync {
             model = CatalogViewModel(graph.profiles(), graph.catalog(), graph.settings(), graph.reporter(), graph.changes(), Dispatchers.Default)
             store.put("history", model)
-            model.select(CatalogKind.SERIES)
+            model.select(kind)
             model.start()
             model.setVisible(true)
         }
         try {
-            val shown = withTimeout(30_000) { model.state.first { it.watch.known && it.tabs[CatalogKind.SERIES]?.loaded == true } }
-            val shelves = shown.tabs.getValue(CatalogKind.SERIES).shelves
+            val shown = withTimeout(30_000) { model.state.first { it.watch.known && it.tabs[kind]?.loaded == true } }
+            val shelves = shown.tabs.getValue(kind).shelves
             assertEquals(expectedResume.map { it.itemId }, shelves.firstOrNull { it.shelf.type == ShelfType.CONTINUE }?.cards.orEmpty().map { it.itemId })
             assertEquals(expectedNext.map { it.itemId }, shelves.firstOrNull { it.shelf.type == ShelfType.NEXT_UP }?.cards.orEmpty().map { it.itemId })
             assertEquals(expectedWatch.byId, shown.watch.byId)
-            Log.i("Anstelle/CatalogTest", "Server history verified: continue=${expectedResume.isNotEmpty()}; nextUp=${expectedNext.isNotEmpty()}; episodeCounts=true")
+            Log.i("Anstelle/CatalogTest", "$kind server history verified: continue=${expectedResume.isNotEmpty()}; nextUp=${expectedNext.isNotEmpty()}")
         } finally {
             instrumentation.runOnMainSync { model.setVisible(false); store.clear() }
         }

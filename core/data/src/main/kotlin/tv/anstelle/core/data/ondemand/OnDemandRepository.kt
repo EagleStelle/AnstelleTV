@@ -122,7 +122,12 @@ data class ItemPage(
 )
 
 /** An episode's own page: the episode, and every episode of its show the profile may watch. */
-data class EpisodePage(val item: ItemPage, val episodes: List<EpisodeEntry>)
+data class EpisodePage(
+    val item: ItemPage,
+    val episodes: List<EpisodeEntry>,
+    /** The accessible parent series, or null when it is missing or unavailable to this profile. */
+    val seriesId: Long? = null,
+)
 
 /**
  * A channel in On demand: the program it airs now (or next, while it is off air) and, for an
@@ -285,7 +290,11 @@ class OnDemandRepository @Inject constructor(
         if (!access.allows(entity.id, entity.ratingScore)) return@withContext null
         val base = serverDao.byId(entity.serverId)?.baseUrl
         val series = entity.seriesRemoteId?.let { itemDao.byRemoteId(entity.serverId, it) }
-        EpisodePage(itemPage(entity, series, base), showEpisodes(entity, access).map { it.toEntry(base) })
+        EpisodePage(
+            itemPage(entity, series, base),
+            showEpisodes(entity, access).map { it.toEntry(base) },
+            seriesId = series?.takeIf { it.type == MediaType.SERIES && access.allows(it.id, it.ratingScore) }?.id,
+        )
     }
 
     /** Where the run of restricted programs ending one at [fromUtcMs] on [channelId] ends. */

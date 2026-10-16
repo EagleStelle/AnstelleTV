@@ -66,6 +66,7 @@ class ServerRoutesTest {
     @Test
     fun serverRemovalUsesThePairedOwnerAndChosenAdmin() = serverTest { server ->
         val auth = "Bearer ${pair(server)}"
+        server.gate.active = FakeGate.ADMIN
         val response = client.delete("/api/servers/1?transferOwnerTo=2") { header(HttpHeaders.Authorization, auth) }
         assertEquals(HttpStatusCode.NoContent, response.status)
         assertEquals(FakeGate.OWNER, server.servers.removedBy)
@@ -396,6 +397,7 @@ class ServerRoutesTest {
     @Test
     fun addingAServerSignsInFromTheBrowser() = serverTest { server ->
         val auth = "Bearer ${pair(server)}"
+        server.gate.active = FakeGate.ADMIN
         val found = client.post("/api/servers/find") {
             header(HttpHeaders.Authorization, auth)
             contentType(ContentType.Application.Json)
@@ -423,9 +425,11 @@ class ServerRoutesTest {
             setBody("""{"username":"alex","password":"right"}""")
         }
         assertTrue(right.bodyAsText().contains(""""id":1"""))
+        assertEquals(FakeGate.OWNER, server.servers.signedInBy)
 
         val code = client.post("/api/servers/signin/s1/quickconnect") { header(HttpHeaders.Authorization, auth) }
         assertTrue(code.bodyAsText().contains("123456"))
+        assertEquals(FakeGate.OWNER, server.servers.quickConnectBy)
         assertTrue(client.get("/api/servers/signin/s1") { header(HttpHeaders.Authorization, auth) }.bodyAsText().contains("waiting"))
         assertEquals(HttpStatusCode.NotFound, client.get("/api/servers/signin/gone") { header(HttpHeaders.Authorization, auth) }.status)
     }

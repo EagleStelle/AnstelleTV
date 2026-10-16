@@ -3,6 +3,7 @@ package tv.anstelle.core.theme.components
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
@@ -17,18 +18,19 @@ import androidx.compose.ui.graphics.vector.ImageVector
 object WatchIcons {
     val Live: ImageVector get() = Icons.Filled.LiveTv
     val OnDemand: ImageVector get() = Icons.Filled.Movie
+    val Details: ImageVector get() = Icons.Filled.Info
     val StartOver: ImageVector get() = Icons.Filled.Replay
     val Resume: ImageVector get() = Icons.Filled.Update
     val Play: ImageVector get() = Icons.Filled.PlayArrow
     val AddToChannel: ImageVector get() = Icons.AutoMirrored.Filled.PlaylistAdd
 
     /**
-     * An on-demand choice: picking up partway [Resume]s, a program on now leaving its channel
-     * ([leavesChannel]) is [OnDemand], and anything else [Play]s from the start.
+     * An on-demand choice: picking up partway [Resume]s, a scheduled program ([fromAiring])
+     * uses [OnDemand], and anything else [Play]s from the start.
      */
-    fun play(positionMs: Long, leavesChannel: Boolean): ImageVector = when {
+    fun play(positionMs: Long, fromAiring: Boolean): ImageVector = when {
         positionMs > 0 -> Resume
-        leavesChannel -> OnDemand
+        fromAiring -> OnDemand
         else -> Play
     }
 }

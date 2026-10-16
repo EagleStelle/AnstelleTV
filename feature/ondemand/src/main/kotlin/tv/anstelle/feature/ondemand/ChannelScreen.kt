@@ -36,9 +36,9 @@ import tv.anstelle.core.data.ondemand.AiringTense
 import tv.anstelle.core.data.ondemand.ChannelPage
 import tv.anstelle.core.data.ondemand.EpisodeEntry
 import tv.anstelle.core.data.ondemand.OnDemandRepository
-import tv.anstelle.core.data.ondemand.WatchChoice
+import tv.anstelle.core.model.WatchChoice
 import tv.anstelle.core.data.ondemand.WatchChoices
-import tv.anstelle.core.data.ondemand.WatchKind
+import tv.anstelle.core.model.WatchKind
 import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.data.playback.PlaybackReporter
 import tv.anstelle.core.model.Channel
@@ -47,7 +47,9 @@ import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.ChannelLogo
-import tv.anstelle.core.theme.components.DialogAction
+import tv.anstelle.core.theme.components.dialogActions
+import tv.anstelle.core.theme.components.icon
+import tv.anstelle.core.theme.components.onDemandNavigation
 import tv.anstelle.core.theme.components.NumberBlock
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.StandInSize
@@ -143,6 +145,8 @@ fun ChannelScreen(
     onStartOver: (channelNumber: Int) -> Unit,
     onPlay: (itemId: Long, positionMs: Long) -> Unit,
     onOpenEpisode: (itemId: Long) -> Unit,
+    /** Opens this channel's movie or episode in the on-demand library. */
+    onOpenOnDemand: (itemId: Long, isEpisode: Boolean) -> Unit,
     /** Null for a member: adding to a channel is the owner's and admins'. */
     onAddToChannel: ((itemId: Long) -> Unit)?,
     onGone: () -> Unit,
@@ -194,7 +198,7 @@ fun ChannelScreen(
 
     // The ways to watch, then adding the show to a channel, as one row of keys.
     val actions = choices.map { choice ->
-        SheetAction(choice.title, choice.icon(), pinned = choice.leavesChannel && choice.positionMs > 0) {
+        SheetAction(choice.title, choice.icon(), pinned = choice.fromAiring && choice.positionMs > 0, detail = choice.detail) {
             lastTouched = null
             act(choice, item.id)
         }
@@ -239,7 +243,14 @@ fun ChannelScreen(
                         if (!restricted) MediaFacts(item.year, item.rating, item.genres, item.durationMs)
                     }
                 },
-                bars = { WatchKeys(actions, listState, firstFocus, navigation = navigation) },
+                bars = {
+                    WatchKeys(
+                        actions, listState, firstFocus, navigation = navigation,
+                        dialogDetails = choices.onDemandNavigation(item.isEpisode) {
+                            onOpenOnDemand(item.id, item.isEpisode)
+                        },
+                    )
+                },
             )
         },
         modifier = modifier,
@@ -286,11 +297,7 @@ fun ChannelScreen(
         val episodeChoices = if (episode.id == item.id) {
             choices + listOfNotNull(WatchChoices.addToChannel(isMovie = false).takeIf { onAddToChannel != null })
         } else {
-            listOfNotNull(
-                resume.takeIf { it > 0 }?.let(WatchChoices::resume),
-                WatchChoices.playFromStart,
-                WatchChoices.addToChannel(isMovie = false).takeIf { onAddToChannel != null },
-            )
+            WatchChoices.episodeActions(resume, canAddToChannel = onAddToChannel != null)
         }
         val dismiss = {
             holding = null
@@ -298,11 +305,15 @@ fun ChannelScreen(
             Unit
         }
         ActionDialog(
-            actions = episodeChoices.map { choice ->
-                DialogAction(choice.title, choice.detail, choice.icon()) {
+            actions = episodeChoices.dialogActions(
+                isEpisode = true,
+                onOpenDetails = {
                     holding = null
-                    act(choice, episode.id)
-                }
+                    onOpenOnDemand(episode.id, true)
+                },
+            ) { choice ->
+                holding = null
+                act(choice, episode.id)
             },
             onDismiss = dismiss,
         ) { EpisodeDialogHeader(item.title, episode) }
@@ -342,51 +353,13 @@ private fun ChannelIdent(channel: Channel) {
 private fun topicChoices(page: ChannelPage, nowMs: Long): List<WatchChoice> {
     val item = page.item
     val tense = if (page.onNow) AiringTense.of(page.startUtcMs, page.endUtcMs, nowMs) else AiringTense.LATER
-    page.restriction?.let { restriction ->
-        return listOfNotNull(WatchChoices.liveRestricted(page.endUtcMs, restriction.title).takeIf { tense == AiringTense.ON_NOW })
-    }
-    return if (tense == AiringTense.ON_NOW) {
-        WatchChoices.onNow(page.channel.number, page.channel.name, page.startUtcMs, page.endUtcMs, nowMs, item.isEpisode)
-    } else {
-        // Off air now, or the program has ended since the page opened: the channel is elsewhere.
-        listOfNotNull(
-            WatchChoices.liveOffAir(page.startUtcMs).takeIf { !page.onNow },
-            WatchChoices.fromStart(tense, page.startUtcMs),
-        )
-    }
-}
-
-/**
- * The readout of the page's program: when it airs on the channel (the square and the label as
- * the banner's NOW line), what is left, then what it is. A program the profile may not watch says
- * only when the channel is dark: never its rating.
- */
-private fun channelReadout(page: ChannelPage, tense: AiringTense, nowMs: Long): List<Segment> {
-    val item = page.item
-    val range = WatchChoices.clockRange(page.startUtcMs, page.endUtcMs)
-    val status = when (tense) {
-        AiringTense.ON_NOW -> Segment("On now", range, SegmentMark.ON_AIR)
-        // Off air, the page is about what comes next; opened from the guide, about any airing to come.
-        AiringTense.LATER -> Segment(if (page.onNow) "Later" else "Up next", range, SegmentMark.UP_NEXT)
-        AiringTense.AIRED -> Segment("Aired", range, SegmentMark.AIRED)
-    }
-    if (page.restriction != null) return listOf(status)
-    return listOfNotNull(
-        status,
-        item.year?.let { Segment("Year", "$it") },
-        item.rating?.let { Segment("Rated", it) },
-        item.genres.take(2).takeIf { it.isNotEmpty() }?.let { Segment("Genre", it.joinToString(", ")) },
+    val watch = WatchChoices.airing(
+        tense, page.channel.number, page.channel.name, page.startUtcMs, page.endUtcMs, nowMs,
+        isEpisode = item.isEpisode,
+        restrictionTitle = page.restriction?.title,
     )
-}
-
-internal fun WatchChoice.icon() = when {
-    startsOver -> WatchIcons.StartOver
-    else -> when (kind) {
-    WatchKind.LIVE -> WatchIcons.Live
-    WatchKind.RESTART -> WatchIcons.StartOver
-    WatchKind.ADD_TO_CHANNEL -> WatchIcons.AddToChannel
-    WatchKind.PLAY -> WatchIcons.play(positionMs, leavesChannel)
-    }
+    // Off air now, or the program has ended since the page opened: the channel is elsewhere.
+    return listOfNotNull(WatchChoices.liveOffAir(page.startUtcMs).takeIf { !page.onNow && page.restriction == null }) + watch
 }
 
 /** The header of a held episode's choices: the show, then the episode with its length. */

@@ -27,8 +27,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class ServerSignIns(
     private val find: suspend (address: String) -> ServerCandidate,
-    private val password: suspend (ServerCandidate, username: String, password: String) -> QuickConnectState.SignedIn,
-    private val quickConnect: (ServerCandidate) -> Flow<QuickConnectState>,
+    private val password: suspend (ServerCandidate, username: String, password: String, actorId: Long?) -> QuickConnectState.SignedIn,
+    private val quickConnect: (ServerCandidate, actorId: Long?) -> Flow<QuickConnectState>,
     private val time: TimeSource,
     private val scope: CoroutineScope,
 ) {
@@ -57,15 +57,15 @@ class ServerSignIns(
     }
 
     /** Signs in with a password; returns the server's id, or null when [id] is unknown or expired. */
-    suspend fun signIn(id: String, username: String, secret: String): Long? {
+    suspend fun signIn(id: String, username: String, secret: String, actorId: Long? = null): Long? {
         val entry = live(id) ?: return null
-        val signedIn = password(entry.candidate, username, secret)
+        val signedIn = password(entry.candidate, username, secret, actorId)
         pending.remove(id)?.job?.cancel()
         return signedIn.serverId
     }
 
     /** Starts Quick Connect and returns its code, or null when [id] is unknown or expired. */
-    suspend fun startQuickConnect(id: String): String? {
+    suspend fun startQuickConnect(id: String, actorId: Long? = null): String? {
         val entry = live(id) ?: return null
         entry.job?.cancel()
         entry.state = SignInStateDto(IDLE)
@@ -74,7 +74,7 @@ class ServerSignIns(
         entry.job = scope.launch {
             try {
                 withTimeout(QUICK_CONNECT_MS) {
-                    quickConnect(entry.candidate).collect { update ->
+                    quickConnect(entry.candidate, actorId).collect { update ->
                         when (update) {
                             is QuickConnectState.WaitingForApproval -> {
                                 code = update.code

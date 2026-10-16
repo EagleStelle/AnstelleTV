@@ -108,7 +108,7 @@ private class FakeSettingDao : SettingDao {
     override suspend fun remove(key: String) {
         values.value -= key
     }
-    override suspend fun removeForProfile(profileId: Long) = error("unused")
+    override suspend fun removeForProfile(profileId: Long, preserved: List<String>) = error("unused")
 }
 
 private class FakeWatchEventDao : WatchEventDao by stub() {

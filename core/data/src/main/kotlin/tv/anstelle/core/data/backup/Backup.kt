@@ -60,6 +60,7 @@ data class BackupServer(
     val serverVersion: String? = null,
     val createdAtUtcMs: Long,
     val libraries: List<BackupLibrary> = emptyList(),
+    val ownerProfileId: Long? = null,
 )
 
 /** A library and whether it is synced; its items come back with the next sync. */
@@ -290,6 +291,7 @@ private fun Backup.holdsTogether(): Boolean {
         servers.map { it.jellyfinServerId }.let { it.size == it.toSet().size } &&
         groups.mapNotNull { it.libraryKey }.let { it.size == it.toSet().size }
     if (!unique) return false
+    if (servers.any { it.ownerProfileId != null && it.ownerProfileId !in profileIds }) return false
 
     profiles.forEach { profile ->
         codeOf<ProfileRole>(profile.role)

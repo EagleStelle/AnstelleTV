@@ -3,6 +3,7 @@ package tv.anstelle.core.data.ondemand
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import tv.anstelle.core.model.MediaProgress
+import tv.anstelle.core.model.WatchKind
 
 class WatchChoicesTest {
     @Test
@@ -24,17 +25,27 @@ class WatchChoicesTest {
     }
 
     @Test
-    fun `future and aired programs both offer watch now from the start`() {
+    fun `future and aired programs share watch on demand while keeping their airing descriptions`() {
         val later = WatchChoices.fromStart(AiringTense.LATER, 0)
         val aired = WatchChoices.fromStart(AiringTense.AIRED, 0)
         for (choice in listOf(later, aired)) {
-            assertEquals("Watch now", choice.title)
+            assertEquals(WatchChoices.onDemand(false).title, choice.title)
             assertEquals(WatchKind.PLAY, choice.kind)
             assertEquals(0L, choice.positionMs)
+            assertEquals(true, choice.fromAiring)
         }
         val time = WatchChoices.clockTime(0)
         assertEquals("Don't wait for $time. On Demand from 0:00.", later.detail)
         assertEquals("Aired at $time. On Demand from 0:00.", aired.detail)
+    }
+
+    @Test
+    fun `episode quick actions keep playback first and channel management last`() {
+        assertEquals(listOf(WatchChoices.playFromStart), WatchChoices.episodeActions(0, false))
+        assertEquals(
+            listOf(WatchChoices.resume(120_000), WatchChoices.playFromStart, WatchChoices.addToChannel(false)),
+            WatchChoices.episodeActions(120_000, true),
+        )
     }
 
     @Test
@@ -57,6 +68,42 @@ class WatchChoicesTest {
         assertEquals(listOf("Watch live", "Start over", "Watch on Demand"), early.map { it.title })
         val later = WatchChoices.onNow(1001, "ABC", startUtcMs = 0, endUtcMs = 30 * 60_000, nowUtcMs = 5 * 60_000, isEpisode = true)
         assertEquals(listOf("Watch live", "Start over", "Watch on Demand", "Resume on Demand"), later.map { it.title })
+    }
+
+    @Test
+    fun `player and guide share on demand choices at the exact resume threshold`() {
+        for (isEpisode in listOf(false, true)) {
+            for (elapsed in listOf(-1L, 0L, 59_999L, 60_000L, 60_001L)) {
+                val player = WatchChoices.onDemandChoices(elapsed, isEpisode)
+                val guide = WatchChoices.onNow(1, "Channel", 0, 120_000, elapsed, isEpisode).drop(2)
+                assertEquals(player, guide)
+                assertEquals(if (elapsed >= 60_000) 2 else 1, player.size)
+                if (player.size == 2) assertEquals(elapsed, player.last().positionMs)
+            }
+        }
+    }
+
+    @Test
+    fun `shared airing rules preserve restrictions off air and past or future playback`() {
+        for (tense in AiringTense.entries) {
+            fun choices(offAir: Boolean = false, restricted: Boolean = false) = WatchChoices.airing(
+                tense, 1, "Channel", 0, 120_000, 60_000, true,
+                offAir = offAir, restrictionTitle = "No access".takeIf { restricted },
+            )
+            assertEquals(
+                if (tense == AiringTense.ON_NOW) listOf(WatchChoices.liveOffAir(120_000)) else emptyList(),
+                choices(offAir = true),
+            )
+            assertEquals(
+                if (tense == AiringTense.ON_NOW) listOf(WatchChoices.liveRestricted(120_000, "No access")) else emptyList(),
+                choices(restricted = true),
+            )
+            assertEquals(
+                if (tense == AiringTense.ON_NOW) WatchChoices.onNow(1, "Channel", 0, 120_000, 60_000, true)
+                else listOf(WatchChoices.fromStart(tense, 0)),
+                choices(),
+            )
+        }
     }
 
     @Test

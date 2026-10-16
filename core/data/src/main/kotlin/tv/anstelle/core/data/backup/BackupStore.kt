@@ -69,6 +69,7 @@ class BackupStore @Inject constructor(
                     serverVersion = server.serverVersion,
                     createdAtUtcMs = server.createdAtUtcMs,
                     libraries = libraries[server.id].orEmpty().map { BackupLibrary(it.remoteId, it.name, it.collectionType, it.isEnabled) },
+                    ownerProfileId = server.ownerProfileId,
                 )
             },
             profiles = profiles.map { profile ->
@@ -181,6 +182,7 @@ class BackupStore @Inject constructor(
                     userName = if (signIn != null) signIn.userName else server.userName,
                     serverVersion = server.serverVersion,
                     createdAtUtcMs = server.createdAtUtcMs,
+                    ownerProfileId = server.ownerProfileId,
                 )
             },
         )
@@ -210,6 +212,7 @@ class BackupStore @Inject constructor(
             },
         )
         dao.insertAccounts(backup.profiles.flatMap { profile -> profile.accounts.map { ProfileAccountEntity(profile.id, it.serverId, it.userId, it.userName, it.device) } })
+        AnstelleDatabase.assignServerOwners(database.openHelper.writableDatabase)
         dao.insertGroups(backup.groups.map { ChannelGroupEntity(it.id, it.name, it.sortOrder, it.numberStart, it.libraryKey) })
         dao.insertChannels(
             backup.channels.map { channel ->

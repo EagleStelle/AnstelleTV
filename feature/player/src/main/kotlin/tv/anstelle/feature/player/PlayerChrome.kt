@@ -60,6 +60,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import kotlin.math.abs
@@ -73,6 +75,23 @@ import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdBadge
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.SegmentRing
+
+/** Observes track discovery and selection, including subtitle files loaded after the video. */
+@Composable
+internal fun rememberPlayerTracks(player: Player?): Tracks {
+    var tracks by remember(player) { mutableStateOf(player?.currentTracks ?: Tracks.EMPTY) }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onTracksChanged(changedTracks: Tracks) {
+                tracks = changedTracks
+            }
+        }
+        player?.addListener(listener)
+        tracks = player?.currentTracks ?: Tracks.EMPTY
+        onDispose { player?.removeListener(listener) }
+    }
+    return tracks
+}
 
 /**
  * Focuses a banner key that may not be on screen yet: a hidden banner composes its keys only
@@ -445,7 +464,7 @@ internal fun RowScope.TrackChoices(title: String, options: List<TrackOption>, on
     val theme = LocalAnstelleTheme.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(options) {
         withFrameNanos { }
         runCatching { first.requestFocus() }
     }

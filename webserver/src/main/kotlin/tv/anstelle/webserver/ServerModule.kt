@@ -110,7 +110,9 @@ fun Application.anstelleModule(deps: ServerDependencies) {
         exception<BadRequestException> { call, _ -> call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Malformed request body.")) }
         exception<LibraryChannelLockedException> { call, e -> call.respond(HttpStatusCode.Forbidden, ErrorDto("library_channel_locked", e.message.orEmpty())) }
         exception<BuiltInThemeException> { call, e -> call.respond(HttpStatusCode.Forbidden, ErrorDto("built_in_theme", e.message.orEmpty())) }
-        exception<ServerConnectException> { call, e -> call.respond(HttpStatusCode.BadRequest, ErrorDto("server", e.userMessage())) }
+        exception<ServerConnectException> { call, e ->
+            call.respond(if (e.problem == tv.anstelle.core.model.ServerProblem.FORBIDDEN) HttpStatusCode.Forbidden else HttpStatusCode.BadRequest, ErrorDto("server", e.userMessage()))
+        }
         exception<ThemeImportException> { call, e -> call.respond(HttpStatusCode.BadRequest, ErrorDto("not_a_theme", e.message.orEmpty())) }
         exception<BackupException> { call, e -> call.respond(HttpStatusCode.BadRequest, ErrorDto("not_a_backup", e.message.orEmpty())) }
         // Rules the repositories check with `require`: a duplicate group name, an empty lineup, a bad start.

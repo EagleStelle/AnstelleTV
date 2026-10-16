@@ -47,6 +47,14 @@ class BackupFormatTest {
     }
 
     @Test
+    fun `server ownership round trips and cannot reference a missing profile`() {
+        val owned = backup.copy(servers = backup.servers.map { it.copy(ownerProfileId = 1) })
+        assertEquals(owned, BackupFormat.decode(BackupFormat.encode(owned)))
+        assertNull(BackupFormat.decode(BackupFormat.encode(backup)).servers.single().ownerProfileId)
+        assertEquals(BackupFormat.DAMAGED, backup.copy(servers = backup.servers.map { it.copy(ownerProfileId = 99) }).problem())
+    }
+
+    @Test
     fun `other files are refused`() {
         assertEquals(BackupFormat.NOT_A_BACKUP, assertFailsWith<BackupException> { BackupFormat.decode("{\"key\":\"rose\",\"colors\":{}}") }.message)
         assertEquals(BackupFormat.NOT_A_BACKUP, assertFailsWith<BackupException> { BackupFormat.decode("not json") }.message)

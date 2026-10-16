@@ -27,4 +27,5 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.kotlin.test)
+    androidTestRuntimeOnly(libs.slf4j.nop)
 }

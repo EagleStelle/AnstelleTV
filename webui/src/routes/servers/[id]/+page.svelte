@@ -57,7 +57,7 @@
 		if (id) void load();
 	});
 
-	onMount(() => live.subscribe(['media_server', 'library', 'media_item', 'profile', 'sync'], () => void load()));
+	onMount(() => live.subscribe(['media_server', 'library', 'media_item', 'profile', 'profile_account', 'sync'], () => void load()));
 
 	async function remove() {
 		if (removing) return;
@@ -179,9 +179,12 @@
 		{#if detail.libraries.length === 0}<Notice text="No libraries yet." />{/if}
 		<Section title="Account" />
 		<LinkRow title="Jellyfin user" summary={server.userName ?? 'Not signed in'} icon={Person} href={signInHref} />
+		{#if removal && !removal.canRemove && !removal.requiresTransfer && !removal.resetsApp}
+			<Notice text="Admins can remove only their own servers. Switch to the owner's profile to remove other servers." />
+		{/if}
 		{#if removal?.requiresTransfer}
 			<Section title="Transfer ownership" />
-			{#if !session.isOwner}
+			{#if !removal.canRemove}
 				<Notice text="The owner must transfer ownership before this server can be removed." />
 			{:else if removal.admins.length === 0}
 				<Notice text="Sign in an admin on another server before removing this server. The new owner must remain signed in." />
@@ -196,19 +199,15 @@
 				/>
 			{/if}
 		{/if}
-		{#if removal?.resetsApp && !session.isOwner}
+		{#if removal?.resetsApp && !removal.canRemove}
 			<Notice text="Only the owner can remove the last server and reset the app." />
 		{/if}
-		{#if removal && !removing && (!removal.requiresTransfer || (session.isOwner && admin)) && (!removal.resetsApp || session.isOwner)}
+		{#if removal?.canRemove && !removing && (!removal.requiresTransfer || admin)}
 		<Buttons foot>
 			<DangerButton
 				label="Remove server"
 				question={removal.resetsApp ? `Remove ${server.name} and start over?` : `Remove ${server.name}?`}
-				explanation={removal.resetsApp
-					? 'Deletes all servers, profiles, history, channels and settings, including signed-out entries. Returns to first-time setup.'
-					: removal.requiresTransfer
-						? `Makes ${admin?.name} the owner, signs out and deletes this server's accounts and profiles without another valid account.`
-						: 'Signs out and deletes everything synced from it, its accounts and profiles without another valid account.'}
+				explanation={removal.explanation}
 				confirm="Remove"
 				onconfirm={remove}
 			/>

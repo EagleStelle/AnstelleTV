@@ -54,16 +54,17 @@ import tv.anstelle.core.data.ondemand.SearchSort
 import tv.anstelle.core.data.ondemand.Title
 import tv.anstelle.core.data.ondemand.WatchCard
 import tv.anstelle.core.data.ondemand.ShelfType
-import tv.anstelle.core.data.ondemand.WatchChoice
+import tv.anstelle.core.model.WatchChoice
 import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.theme.components.WatchProgress
 import tv.anstelle.core.data.ondemand.WatchFilter
-import tv.anstelle.core.data.ondemand.WatchKind
+import tv.anstelle.core.model.WatchKind
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.DialogAction
+import tv.anstelle.core.theme.components.dialogActions
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.screenEdge
 import tv.anstelle.core.theme.components.screenGap
@@ -274,11 +275,9 @@ private fun CardActions(card: WatchCard, actions: CatalogActions, onDismiss: () 
         WatchChoices.addToChannel(isMovie = movie).takeIf { actions.onAddToChannel != null },
     )
     ActionDialog(
-        actions = choices.map { choice ->
-                DialogAction(choice.title, choice.detail, choice.icon()) {
-                onDismiss()
-                if (choice.kind == WatchKind.ADD_TO_CHANNEL) actions.onAddToChannel?.invoke(card.itemId) else actions.onPlay(card.itemId, choice.positionMs)
-            }
+        actions = choices.dialogActions { choice ->
+            onDismiss()
+            if (choice.kind == WatchKind.ADD_TO_CHANNEL) actions.onAddToChannel?.invoke(card.itemId) else actions.onPlay(card.itemId, choice.positionMs)
         },
         onDismiss = onDismiss,
     ) {
@@ -308,14 +307,12 @@ private fun TitleCardActions(title: Title, watch: CatalogWatch, actions: Catalog
         WatchChoices.addToChannel(isMovie = movie).takeIf { actions.onAddToChannel != null },
     )
     ActionDialog(
-        actions = choices.map { choice ->
-            DialogAction(choice.title, choice.detail, choice.icon()) {
-                onDismiss()
-                when {
-                    choice.kind == WatchKind.ADD_TO_CHANNEL -> actions.onAddToChannel?.invoke(title.id)
-                    !movie && episode == null -> actions.onPlaySeries(title.id, choice.positionMs)
-                    else -> actions.onPlay(itemId, choice.positionMs)
-                }
+        actions = choices.dialogActions { choice ->
+            onDismiss()
+            when {
+                choice.kind == WatchKind.ADD_TO_CHANNEL -> actions.onAddToChannel?.invoke(title.id)
+                !movie && episode == null -> actions.onPlaySeries(title.id, choice.positionMs)
+                else -> actions.onPlay(itemId, choice.positionMs)
             }
         },
         onDismiss = onDismiss,

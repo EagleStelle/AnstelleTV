@@ -246,13 +246,16 @@ internal class JellyfinPlaystate(
                 userId = user,
                 limit = limit,
                 enableImages = false,
-                enableUserData = false,
+                enableUserData = true,
                 enableTotalRecordCount = false,
                 // Episodes left part-way are Continue Watching's; Next Up is what comes after one watched through.
                 enableResumable = false,
                 enableRewatching = false,
             ),
-        ).content.items.map { it.id.toJellyfinId() }
+        ).content.items.mapNotNull { item ->
+            // Some server versions include watched specials despite enableRewatching = false.
+            item.id.toJellyfinId().takeUnless { item.userData?.played == true }
+        }
     }
 
     /** Every item of [kinds] the user can see that passes [filters], with its user data and nothing else. */

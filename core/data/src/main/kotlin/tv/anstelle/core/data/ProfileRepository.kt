@@ -1,7 +1,11 @@
 package tv.anstelle.core.data
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -14,6 +18,7 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import tv.anstelle.core.common.AnstelleDispatchers
+import tv.anstelle.core.common.ApplicationScope
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.common.TimeSource
@@ -24,7 +29,7 @@ import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.database.dao.PairedClientDao
 import tv.anstelle.core.database.dao.ProfileDao
 import tv.anstelle.core.database.dao.ScheduleDao
-import tv.anstelle.core.database.dao.SettingDao
+import tv.anstelle.core.database.AnstelleDatabase
 import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.database.entity.ProfileAccountEntity
 import tv.anstelle.core.database.entity.ProfileEntity
@@ -73,7 +78,7 @@ data class ProfileSession(val profileId: Long, val userId: String, val accessTok
 class ProfileRepository @Inject constructor(
     private val dao: ProfileDao,
     private val itemDao: MediaItemDao,
-    private val settingDao: SettingDao,
+    private val database: AnstelleDatabase,
     private val serverDao: MediaServerDao,
     private val scheduleDao: ScheduleDao,
     private val pairedClients: PairedClientDao,
@@ -81,6 +86,7 @@ class ProfileRepository @Inject constructor(
     private val tokens: TokenStore,
     private val auth: JellyfinAuth,
     private val time: TimeSource,
+    @ApplicationScope private val scope: CoroutineScope,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
     private val pinLock = Any()
@@ -152,6 +158,7 @@ class ProfileRepository @Inject constructor(
 
     /** Makes a member an admin or back. An admin has no parental controls. The owner stays the owner. */
     suspend fun setAdmin(profileId: Long, admin: Boolean) {
+        if (!admin && withContext(io) { serverDao.all().any { it.ownerProfileId == profileId } }) return
         edit(profileId) { profile ->
             when {
                 profile.role == ProfileRole.OWNER -> profile
@@ -207,17 +214,38 @@ class ProfileRepository @Inject constructor(
      * Deletes a profile with its watch history and personal settings. The owner can't go;
      * deleting the active profile makes the first remaining one active.
      */
-    suspend fun delete(profileId: Long): Boolean = withContext(io) {
-        val all = dao.all()
-        val profile = all.firstOrNull { it.id == profileId } ?: return@withContext false
-        if (profile.role == ProfileRole.OWNER) return@withContext false
-        for (account in dao.accounts(profileId)) serverDao.byId(account.serverId)?.let { forget(account, it) }
-        dao.delete(profileId)
-        settingDao.removeForProfile(profileId)
-        if (settings.get(Settings.ActiveProfileId) == profileId) settings.set(Settings.ActiveProfileId, all.first { it.id != profileId }.id)
+    suspend fun delete(profileId: Long): Boolean = remove(profileId, signingOut = false)
+
+    /** Removes one's local profile and personal sessions, leaving server connections intact. */
+    suspend fun signOut(profileId: Long): Boolean = remove(profileId, signingOut = true)
+
+    private suspend fun remove(profileId: Long, signingOut: Boolean): Boolean = scope.async(io) {
+        val sessions = database.withTransaction {
+            val profile = dao.byId(profileId)?.toModel() ?: return@withTransaction null
+            val viewer = dao.byId(settings.get(Settings.ActiveProfileId))?.toModel() ?: return@withTransaction null
+            val ownsServer = serverDao.all().any { it.ownerProfileId == profileId }
+            val allowed = if (signingOut) ProfileRights.canSignOut(viewer, profile, ownsServer)
+                else ProfileRights.canDelete(viewer, profile, ownsServer)
+            if (!allowed) return@withTransaction null
+            val sessions = dao.accounts(profileId).mapNotNull { account ->
+                val server = serverDao.byId(account.serverId) ?: return@mapNotNull null
+                val key = tokenKey(server.jellyfinServerId, account.device)
+                tokens.get(key)?.let { ProfileSignOut(key, server.baseUrl, it, account.device) }
+            }
+            database.deleteProfiles(setOf(profileId), settings)
+            sessions
+        } ?: return@async false
+        sessions.forEach { tokens.remove(it.key) }
+        _accountChanges.tryEmit(Unit)
+        // Cleanup belongs to app scope: removing the active profile tears down its screens.
+        sessions.map { session -> async {
+            withTimeoutOrNull(SIGN_OUT_TIMEOUT_MS) { auth.signOut(session.url, session.token, session.device) }
+        } }.awaitAll()
         AppLog.i(TAG, "Deleted profile $profileId")
         true
-    }
+    }.await()
+
+    private data class ProfileSignOut(val key: String, val url: String, val token: String, val device: String)
 
     /** The profile's own Jellyfin users, one per server it signed in to, first server first. */
     fun observeAccounts(profileId: Long): Flow<List<ProfileAccount>> =
@@ -235,29 +263,51 @@ class ProfileRepository @Inject constructor(
      * name and picture when it is its user on the first server it has one on.
      */
     suspend fun linkAccount(profileId: Long, serverId: Long, session: AuthSession, device: String) = withContext(io) {
-        val server = serverDao.byId(serverId) ?: return@withContext
-        dao.account(profileId, serverId)?.let { forget(it, server) }
-        tokens.put(tokenKey(server.jellyfinServerId, device), session.accessToken)
-        dao.upsertAccount(ProfileAccountEntity(profileId, serverId, session.userId, session.userName, device))
-        // What the last user couldn't see says nothing about this one; the next sync looks again.
-        dao.replaceHidden(profileId, serverId, emptyList())
-        if (isFirstAccount(profileId, serverId)) mirror(profileId, server, JellyfinUser(session.userId, session.userName, session.imageTag))
-        AppLog.i(TAG, "Profile $profileId is now ${session.userName} on ${server.name}")
-        _accountChanges.tryEmit(Unit)
+        database.withTransaction {
+            val server = serverDao.byId(serverId) ?: return@withTransaction
+            if (dao.byId(profileId) == null) throw ServerConnectException(ServerProblem.FORBIDDEN, "This profile was removed during sign-in.")
+            if (server.ownerProfileId == profileId && server.userId != session.userId) {
+                throw ServerConnectException(ServerProblem.FORBIDDEN, "Change this user's sign-in from the server's Account settings.")
+            }
+            dao.account(profileId, serverId)?.let { forget(it, server) }
+            tokens.put(tokenKey(server.jellyfinServerId, device), session.accessToken)
+            dao.upsertAccount(ProfileAccountEntity(profileId, serverId, session.userId, session.userName, device))
+            // What the last user couldn't see says nothing about this one; the next sync looks again.
+            dao.replaceHidden(profileId, serverId, emptyList())
+            if (isFirstAccount(profileId, serverId)) mirror(profileId, server, JellyfinUser(session.userId, session.userName, session.imageTag))
+            AppLog.i(TAG, "Profile $profileId is now ${session.userName} on ${server.name}")
+            _accountChanges.tryEmit(Unit)
+        }
     }
 
     /** A new member profile made from [session]'s user, as [linkAccount] links one; returns its id. */
     suspend fun createLinked(serverId: Long, session: AuthSession, device: String): Long = create(serverId, session, device, ProfileRole.MEMBER)
 
-    /** The first profile, the owner, made from the first server's user; it is the one watching. */
-    suspend fun createOwner(serverId: Long, session: AuthSession, device: String) {
-        setActive(create(serverId, session, device, ProfileRole.OWNER))
+    /** The connection's user gets a managing profile: the first is the owner watching; later ones are admins. */
+    suspend fun connectServerProfile(serverId: Long, session: AuthSession, device: String): Long = withContext(io) {
+        database.withTransaction {
+            val server = serverDao.byId(serverId) ?: throw ServerConnectException(ServerProblem.ID_MISMATCH, "That server isn't connected")
+            if (server.userId != session.userId) throw ServerConnectException(ServerProblem.ID_MISMATCH, "The profile must match the server connection's user")
+            val firstProfile = dao.all().isEmpty()
+            val matches = dao.accountsOn(serverId).filter { it.userId == session.userId }
+            val existing = matches.firstOrNull { it.profileId == server.ownerProfileId } ?: matches.minByOrNull { it.profileId }
+            val id = if (existing == null) create(serverId, session, device, if (firstProfile) ProfileRole.OWNER else ProfileRole.ADMIN) else {
+                setAdmin(existing.profileId, true)
+                linkAccount(existing.profileId, serverId, session, device)
+                existing.profileId
+            }
+            serverDao.setOwner(serverId, id)
+            if (firstProfile) setActive(id)
+            id
+        }
     }
 
     private suspend fun create(serverId: Long, session: AuthSession, device: String, role: ProfileRole): Long {
-        val id = insert(session.userName.trim().ifEmpty { "Profile" }.take(MAX_NAME), role)
-        linkAccount(id, serverId, session, device)
-        return id
+        return database.withTransaction {
+            val id = insert(session.userName.trim().ifEmpty { "Profile" }.take(MAX_NAME), role)
+            linkAccount(id, serverId, session, device)
+            id
+        }
     }
 
     /**

@@ -341,6 +341,7 @@ fun ServerConnectException.userMessage(): String = when (problem) {
     ServerProblem.ID_MISMATCH -> "This address now points to a different server. Add it again."
     ServerProblem.BAD_CREDENTIALS -> "Wrong username or password."
     ServerProblem.SIGNED_OUT -> "Signed out. Sign in again."
+    ServerProblem.FORBIDDEN -> message.orEmpty()
     ServerProblem.QUICK_CONNECT_DISABLED -> "Quick Connect is turned off on this server."
     ServerProblem.SERVER_ERROR -> "The server reported an error."
 }

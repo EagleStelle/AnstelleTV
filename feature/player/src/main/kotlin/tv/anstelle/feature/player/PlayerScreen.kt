@@ -89,6 +89,7 @@ import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.DialogAction
+import tv.anstelle.core.theme.components.dialogActions
 import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.StandInSize
@@ -110,7 +111,7 @@ private enum class Confirm { START_OVER, ON_DEMAND }
 /**
  * Full-screen channel playback, like a TV: up/down or the channel keys surf, digits enter a
  * number, left and right seek back 10 s and ahead 30 s (the channel's schedule moves with the
- * program). The banner always carries its keys (audio, subtitles, On demand and Start over); it
+ * program). The banner always carries its keys (audio and subtitles when selectable, On demand and Start over); it
  * snaps in on every tune with a key highlighted on TV and goes by itself after a few seconds
  * with no key pressed. A seek brings it in with focus left on the picture, so left and right
  * keep seeking; OK, Info or Menu then moves focus into the keys, where left and right walk
@@ -120,11 +121,18 @@ private enum class Confirm { START_OVER, ON_DEMAND }
 fun PlayerScreen(
     /** Plays the program on now on demand from [positionMs]; [channelId] and [atUtcMs] are its airing. */
     onPlayOnDemand: (itemId: Long, positionMs: Long, channelId: Long, atUtcMs: Long) -> Unit,
+    /** Opens the current movie's or episode's page without starting on-demand playback. */
+    onOpenOnDemand: (itemId: Long, isEpisode: Boolean) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val player by viewModel.player.collectAsStateWithLifecycle()
+    val tracks = rememberPlayerTracks(player)
+    val audioOptions = remember(state, player, tracks) { viewModel.audioOptions() }
+    val subtitleOptions = remember(state, player, tracks) { viewModel.subtitleOptions() }
+    val showAudio = audioOptions.size > 1
+    val showSubtitles = subtitleOptions.any { it.groupIndex >= 0 }
     val entry by viewModel.entry.collectAsStateWithLifecycle()
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val isTv = LocalIsTv.current
@@ -168,15 +176,28 @@ fun PlayerScreen(
     val subtitlesKey = remember { FocusRequester() }
     val onDemandKey = remember { FocusRequester() }
     val startOverKey = remember { FocusRequester() }
+    val canPlayOnDemand = state.now?.let { it.mediaItemId != 0L && !it.restricted } == true
+    val firstKey = when {
+        showAudio -> audioKey
+        showSubtitles -> subtitlesKey
+        canPlayOnDemand -> onDemandKey
+        else -> startOverKey
+    }
     // The key that opened a track list or a dialog gets focus back when it closes.
     var returnKey by remember { mutableStateOf<FocusRequester?>(null) }
+    fun controlsFocus(): FocusRequester = when (returnKey) {
+        audioKey -> if (showAudio) audioKey else firstKey
+        subtitlesKey -> if (showSubtitles) subtitlesKey else firstKey
+        onDemandKey -> if (canPlayOnDemand) onDemandKey else firstKey
+        else -> returnKey ?: firstKey
+    }
     LaunchedEffect(confirm) {
         if (confirm == null && panel == Panel.CONTROLS) {
             withFrameNanos { }
-            runCatching { returnKey?.requestFocus() }
+            runCatching { controlsFocus().requestFocus() }
         }
     }
-    LaunchedEffect(panel) {
+    LaunchedEffect(panel, showAudio, showSubtitles, canPlayOnDemand) {
         when (panel) {
             null -> {
                 returnKey = null
@@ -185,9 +206,10 @@ fun PlayerScreen(
             Panel.CONTROLS -> {
                 // The banner may be hidden: bring it in, then take the key once it is composed.
                 bannerRequest++
-                (returnKey ?: audioKey).requestWhenShown()
+                if (confirm == null) controlsFocus().requestWhenShown()
             }
-            else -> Unit
+            Panel.AUDIO -> if (!showAudio) panel = Panel.CONTROLS
+            Panel.SUBTITLES -> if (!showSubtitles) panel = Panel.CONTROLS
         }
     }
 
@@ -227,7 +249,7 @@ fun PlayerScreen(
                     // With the keys up, OK is theirs; if none holds focus, it puts focus back on one.
                     if (inKeys && !pictureFocused) return@onKeyEvent false
                     if (inKeys) {
-                        if (event.type == KeyEventType.KeyUp) runCatching { (returnKey ?: audioKey).requestFocus() }
+                        if (event.type == KeyEventType.KeyUp) runCatching { controlsFocus().requestFocus() }
                         return@onKeyEvent true
                     }
                     if (event.type == KeyEventType.KeyUp) {
@@ -304,8 +326,8 @@ fun PlayerScreen(
                 .onTouchHeld { bannerTouched = it },
         ) {
             // Read again whenever the playback state moves: the keys stay on screen across tunes.
-            val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.short }
-            val subtitles = remember(state, panel) { viewModel.subtitleOptions().firstOrNull { it.selected }?.short }
+            val audio = audioOptions.firstOrNull { it.selected }?.short
+            val subtitles = subtitleOptions.firstOrNull { it.selected }?.short
             InfoBanner(
                 state = state,
                 // Phones drag the bar; the remote seeks with left and right.
@@ -313,38 +335,37 @@ fun PlayerScreen(
                 keys = when (panel) {
                     null, Panel.CONTROLS -> {
                         {
-                            OsdKey("Audio", Icons.Filled.Audiotrack, onClick = {
+                            if (showAudio) OsdKey("Audio", Icons.Filled.Audiotrack, onClick = {
                                 returnKey = audioKey
                                 panel = Panel.AUDIO
                                 bannerRequest++
-                            }, Modifier.focusRequester(audioKey), value = audio)
-                            OsdKey("Subtitles", Icons.Filled.Subtitles, onClick = {
+                            }, Modifier.focusRequester(audioKey).onFocusChanged { if (it.isFocused) returnKey = audioKey }, value = audio)
+                            if (showSubtitles) OsdKey("Subtitles", Icons.Filled.Subtitles, onClick = {
                                 returnKey = subtitlesKey
                                 panel = Panel.SUBTITLES
                                 bannerRequest++
-                            }, Modifier.focusRequester(subtitlesKey), value = subtitles)
+                            }, Modifier.focusRequester(subtitlesKey).onFocusChanged { if (it.isFocused) returnKey = subtitlesKey }, value = subtitles)
                             // Tracks on the left, the player's own action on the right.
                             Spacer(Modifier.weight(1f))
-                            val program = state.now
                             OsdKey(
                                 "On demand",
                                 WatchIcons.OnDemand,
-                                enabled = program != null && program.mediaItemId != 0L && !program.restricted,
+                                enabled = canPlayOnDemand,
                                 onClick = {
                                     returnKey = onDemandKey
                                     confirm = Confirm.ON_DEMAND
                                 },
-                                modifier = Modifier.focusRequester(onDemandKey),
+                                modifier = Modifier.focusRequester(onDemandKey).onFocusChanged { if (it.isFocused) returnKey = onDemandKey },
                             )
                             OsdKey("Start over", WatchIcons.StartOver, onClick = {
                                 returnKey = startOverKey
                                 confirm = Confirm.START_OVER
-                            }, Modifier.focusRequester(startOverKey))
+                            }, Modifier.focusRequester(startOverKey).onFocusChanged { if (it.isFocused) returnKey = startOverKey })
                         }
                     }
                     Panel.AUDIO -> {
                         {
-                            TrackChoices("Audio", remember { viewModel.audioOptions() }) {
+                            TrackChoices("Audio", audioOptions) {
                                 viewModel.selectAudio(it)
                                 panel = if (isTv) Panel.CONTROLS else null
                                 bannerRequest++
@@ -353,7 +374,7 @@ fun PlayerScreen(
                     }
                     Panel.SUBTITLES -> {
                         {
-                            TrackChoices("Subtitles", remember { viewModel.subtitleOptions() }) {
+                            TrackChoices("Subtitles", subtitleOptions) {
                                 viewModel.selectSubtitles(it)
                                 panel = if (isTv) Panel.CONTROLS else null
                                 bannerRequest++
@@ -394,18 +415,22 @@ fun PlayerScreen(
                 ) { ConfirmHeader("Start over?", program?.title) }
                 Confirm.ON_DEMAND -> {
                     // The program leaves the channel for the on-demand player, from its start or from where the channel is.
-                    val elapsed = remember { program?.let { System.currentTimeMillis() - it.startUtcMs } ?: 0L }
-                    val choices = listOfNotNull(
-                        program?.let { WatchChoices.onDemand(it.isEpisode) },
-                        program?.takeIf { elapsed >= WatchChoices.MIN_LIVE_POINT_MS }?.let { WatchChoices.resumeOnDemand(elapsed, it.isEpisode) },
-                    )
+                    val elapsed = remember(program?.mediaItemId, program?.startUtcMs) { program?.let { System.currentTimeMillis() - it.startUtcMs } ?: 0L }
+                    val available = program?.takeIf { it.mediaItemId != 0L && !it.restricted }
+                    val choices = available?.let { WatchChoices.onDemandChoices(elapsed, it.isEpisode) }.orEmpty()
                     ActionDialog(
-                        actions = choices.map { choice ->
-                            DialogAction(choice.title, choice.detail, WatchIcons.play(choice.positionMs, choice.leavesChannel)) {
-                                confirm = null
-                                val channel = state.channel
-                                if (program != null && channel != null) onPlayOnDemand(program.mediaItemId, choice.positionMs, channel.id, program.startUtcMs)
-                            }
+                        actions = choices.dialogActions(
+                            isEpisode = available?.isEpisode == true,
+                            onOpenDetails = available?.let {
+                                {
+                                    confirm = null
+                                    onOpenOnDemand(it.mediaItemId, it.isEpisode)
+                                }
+                            },
+                        ) { choice ->
+                            confirm = null
+                            val channel = state.channel
+                            if (available != null && channel != null) onPlayOnDemand(available.mediaItemId, choice.positionMs, channel.id, available.startUtcMs)
                         } + stay,
                         onDismiss = { confirm = null },
                     ) { ConfirmHeader("Watch on Demand?", program?.title) }

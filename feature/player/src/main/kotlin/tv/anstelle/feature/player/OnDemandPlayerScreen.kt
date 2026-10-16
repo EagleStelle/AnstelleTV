@@ -234,11 +234,27 @@ private enum class DemandPanel { CONTROLS, AUDIO, SUBTITLES, EPISODES }
  */
 @Composable
 fun OnDemandPlayerScreen(
+    onExit: (itemId: Long, isEpisode: Boolean) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: OnDemandPlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val episodes by viewModel.episodes.collectAsStateWithLifecycle()
+    val player = viewModel.player
+    val tracks = rememberPlayerTracks(player)
+    val audioOptions = remember(state, player, tracks) { viewModel.audioOptions() }
+    val subtitleOptions = remember(state, player, tracks) { viewModel.subtitleOptions() }
+    val showAudio = audioOptions.size > 1
+    val showSubtitles = subtitleOptions.any { it.groupIndex >= 0 }
+    fun exit() {
+        val current = viewModel.state.value
+        onExit(current.itemId, current.isEpisode)
+    }
+    // The panel's BackHandler below takes precedence until the controls are closed.
+    BackHandler { exit() }
+    LaunchedEffect(state.status) {
+        if (state.status == OnDemandStatus.ENDED && state.isEpisode) exit()
+    }
     val isTv = LocalIsTv.current
     val focus = remember { FocusRequester() }
     var panel by remember { mutableStateOf<DemandPanel?>(null) }
@@ -282,6 +298,20 @@ fun OnDemandPlayerScreen(
     val previousKey = remember { FocusRequester() }
     val skipKey = remember { FocusRequester() }
     var returnKey by remember { mutableStateOf<FocusRequester?>(null) }
+    fun controlsFocus(): FocusRequester = when (returnKey) {
+        audioKey -> if (showAudio) audioKey else playKey
+        subtitlesKey -> if (showSubtitles) subtitlesKey else playKey
+        else -> returnKey ?: playKey
+    }
+    LaunchedEffect(showAudio, showSubtitles) {
+        if (returnKey === audioKey && !showAudio || returnKey === subtitlesKey && !showSubtitles) {
+            returnKey = playKey
+            if (panel == DemandPanel.CONTROLS) playKey.requestWhenShown()
+        }
+        if (panel == DemandPanel.AUDIO && !showAudio || panel == DemandPanel.SUBTITLES && !showSubtitles) {
+            panel = DemandPanel.CONTROLS
+        }
+    }
     fun closePanelOrBanner() {
         if (panel == DemandPanel.EPISODES) {
             returnKey = episodesKey
@@ -311,7 +341,7 @@ fun OnDemandPlayerScreen(
             DemandPanel.CONTROLS -> {
                 // The banner may be hidden: bring it in, then take the key once it is composed.
                 overlay++
-                (returnKey ?: playKey).requestWhenShown()
+                controlsFocus().requestWhenShown()
             }
             else -> overlay++
         }
@@ -327,14 +357,14 @@ fun OnDemandPlayerScreen(
     LaunchedEffect(skipShown) { if (isTv && skipShown && overlayShown) skipKey.requestWhenShown() }
     LaunchedEffect(overlayShown) { if (isTv && skipShown && overlayShown && panel == null) skipKey.requestWhenShown() }
     // A focused key that goes (the Skip key at its segment's end) takes focus with it: put it back.
-    LaunchedEffect(playerFocused, skipShown, overlayShown) {
-        if (playerFocused) return@LaunchedEffect
+    LaunchedEffect(playerFocused, pictureFocused, skipShown, overlayShown) {
+        if (playerFocused && !(pictureFocused && panel == DemandPanel.CONTROLS)) return@LaunchedEffect
         withFrameNanos { }
-        if (playerFocused) return@LaunchedEffect
+        if (playerFocused && !(pictureFocused && panel == DemandPanel.CONTROLS)) return@LaunchedEffect
         when {
             // EpisodeStrip and TrackChoices request their own initial focus.
             panel == DemandPanel.EPISODES || panel == DemandPanel.AUDIO || panel == DemandPanel.SUBTITLES -> Unit
-            panel != null -> (returnKey ?: playKey).requestWhenShown()
+            panel != null -> controlsFocus().requestWhenShown()
             isTv && skipShown && overlayShown -> skipKey.requestWhenShown()
             else -> runCatching { focus.requestFocus() }
         }
@@ -402,7 +432,7 @@ fun OnDemandPlayerScreen(
                             viewModel.pause()
                             returnKey = null
                         }
-                        if (panel == null) panel = DemandPanel.CONTROLS else runCatching { (returnKey ?: playKey).requestFocus() }
+                        if (panel == null) panel = DemandPanel.CONTROLS else runCatching { controlsFocus().requestFocus() }
                         overlay++
                     }
                     return@onKeyEvent true
@@ -447,7 +477,7 @@ fun OnDemandPlayerScreen(
                 overlay++
             },
     ) {
-        Video(viewModel.player, subtitleLift = if (overlayShown) overlayHeight else 0)
+        Video(player, subtitleLift = if (overlayShown) overlayHeight else 0)
         when (state.status) {
             // The same dark screen as a restricted channel's, with no stretch to wait out.
             OnDemandStatus.RESTRICTED -> Box(Modifier.fillMaxSize().background(LocalAnstelleTheme.current.background), contentAlignment = Alignment.Center) {
@@ -459,8 +489,8 @@ fun OnDemandPlayerScreen(
         }
         if (overlayShown) {
             // Read again whenever the playback state moves: the keys stay on screen across episodes.
-            val audio = remember(state, panel) { viewModel.audioOptions().firstOrNull { it.selected }?.short }
-            val subtitles = remember(state, panel) { viewModel.subtitleOptions().firstOrNull { it.selected }?.short }
+            val audio = audioOptions.firstOrNull { it.selected }?.short
+            val subtitles = subtitleOptions.firstOrNull { it.selected }?.short
             Overlay(
                 state = state,
                 viewModel = viewModel,
@@ -494,11 +524,11 @@ fun OnDemandPlayerScreen(
                 keys = when (panel) {
                     null, DemandPanel.CONTROLS, DemandPanel.EPISODES -> {
                         {
-                            OsdKey("Audio", Icons.Filled.Audiotrack, onClick = {
+                            if (showAudio) OsdKey("Audio", Icons.Filled.Audiotrack, onClick = {
                                 returnKey = audioKey
                                 panel = DemandPanel.AUDIO
                             }, Modifier.focusRequester(audioKey), value = audio)
-                            OsdKey("Subtitles", Icons.Filled.Subtitles, onClick = {
+                            if (showSubtitles) OsdKey("Subtitles", Icons.Filled.Subtitles, onClick = {
                                 returnKey = subtitlesKey
                                 panel = DemandPanel.SUBTITLES
                             }, Modifier.focusRequester(subtitlesKey), value = subtitles)
@@ -543,7 +573,7 @@ fun OnDemandPlayerScreen(
                     }
                     DemandPanel.AUDIO -> {
                         {
-                            TrackChoices("Audio", remember { viewModel.audioOptions() }) {
+                            TrackChoices("Audio", audioOptions) {
                                 viewModel.selectAudio(it)
                                 panel = null
                             }
@@ -551,7 +581,7 @@ fun OnDemandPlayerScreen(
                     }
                     DemandPanel.SUBTITLES -> {
                         {
-                            TrackChoices("Subtitles", remember { viewModel.subtitleOptions() }) {
+                            TrackChoices("Subtitles", subtitleOptions) {
                                 viewModel.selectSubtitles(it)
                                 panel = null
                             }

@@ -1,0 +1,30 @@
+{
+  "Items": [
+    {
+      "Id": "00000000000000000000000000000011",
+      "Type": "Episode",
+      "ParentIndexNumber": 0,
+      "UserData": {"ItemId": "00000000000000000000000000000011", "PlaybackPositionTicks": 0, "PlayCount": 1, "IsFavorite": false, "Played": true, "Key": "special-watched"}
+    },
+    {
+      "Id": "00000000000000000000000000000012",
+      "Type": "Episode",
+      "ParentIndexNumber": 1,
+      "UserData": {"ItemId": "00000000000000000000000000000012", "PlaybackPositionTicks": 0, "PlayCount": 0, "IsFavorite": false, "Played": false, "Key": "episode-next"}
+    },
+    {
+      "Id": "00000000000000000000000000000013",
+      "Type": "Episode",
+      "ParentIndexNumber": 1,
+      "UserData": {"ItemId": "00000000000000000000000000000013", "PlaybackPositionTicks": 0, "PlayCount": 1, "IsFavorite": false, "Played": true, "Key": "episode-watched"}
+    },
+    {
+      "Id": "00000000000000000000000000000014",
+      "Type": "Episode",
+      "ParentIndexNumber": 0,
+      "UserData": {"ItemId": "00000000000000000000000000000014", "PlaybackPositionTicks": 0, "PlayCount": 0, "IsFavorite": false, "Played": false, "Key": "special-next"}
+    }
+  ],
+  "TotalRecordCount": 4,
+  "StartIndex": 0
+}

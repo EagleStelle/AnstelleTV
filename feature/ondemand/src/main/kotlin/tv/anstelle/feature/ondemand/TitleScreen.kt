@@ -32,13 +32,13 @@ import tv.anstelle.core.data.ondemand.NextEpisode
 import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.ondemand.TitlePage
 import tv.anstelle.core.data.ondemand.WatchChoices
-import tv.anstelle.core.data.ondemand.WatchKind
+import tv.anstelle.core.model.WatchKind
 import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.data.playback.PlaybackReporter
 import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
-import tv.anstelle.core.theme.components.DialogAction
+import tv.anstelle.core.theme.components.dialogActions
 import tv.anstelle.core.theme.components.WatchIcons
 import tv.anstelle.core.theme.components.requestWhenReady
 import tv.anstelle.core.theme.components.WatchStrip
@@ -249,24 +249,18 @@ fun TitleScreen(
 
     holding?.let { episode ->
         val resume = watch.resumeMs(episode.id, episode.durationMs)
-        val choices = listOfNotNull(
-            resume.takeIf { it > 0 }?.let(WatchChoices::resume),
-            WatchChoices.playFromStart,
-            WatchChoices.addToChannel(isMovie = false).takeIf { onAddToChannel != null },
-        )
+        val choices = WatchChoices.episodeActions(resume, canAddToChannel = onAddToChannel != null)
         val dismiss = {
             holding = null
             runCatching { returnFocus.requestFocus() }
             Unit
         }
         ActionDialog(
-            actions = choices.map { choice ->
-                DialogAction(choice.title, choice.detail, choice.icon()) {
-                    holding = null
-                    when (choice.kind) {
-                        WatchKind.ADD_TO_CHANNEL -> onAddToChannel?.invoke(episode.id)
-                        else -> onPlay(episode.id, choice.positionMs)
-                    }
+            actions = choices.dialogActions { choice ->
+                holding = null
+                when (choice.kind) {
+                    WatchKind.ADD_TO_CHANNEL -> onAddToChannel?.invoke(episode.id)
+                    else -> onPlay(episode.id, choice.positionMs)
                 }
             },
             onDismiss = dismiss,
@@ -299,10 +293,3 @@ private fun titleActions(page: TitlePage, next: EpisodeEntry?, watch: WatchMarks
         TitleAction("From the start", WatchIcons.StartOver, first.id).takeIf { next.id != first.id || resume > 0 },
     )
 }
-
-/** A movie's or series' readout, as a channel's without its airing: year, rated, genre. */
-private fun titleReadout(page: TitlePage): List<Segment> = listOfNotNull(
-    page.year?.let { Segment("Year", "$it") },
-    page.rating?.let { Segment("Rated", it) },
-    page.genres.take(2).takeIf { it.isNotEmpty() }?.let { Segment("Genre", it.joinToString(", ")) },
-)

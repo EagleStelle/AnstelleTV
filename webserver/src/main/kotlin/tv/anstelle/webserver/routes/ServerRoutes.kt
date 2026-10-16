@@ -47,16 +47,16 @@ internal fun Route.serverRoutes(deps: ServerDependencies) {
             }
 
             post {
-                call.requireManager(deps) ?: return@post
+                val access = call.requireManager(deps) ?: return@post
                 val body = call.receive<PasswordRequest>()
-                val serverId = api.signIn(call.parameters["signInId"].orEmpty(), body.username, body.password)
+                val serverId = api.signIn(call.parameters["signInId"].orEmpty(), body.username, body.password, access.manager.id)
                     ?: return@post call.respondNotFound(NO_SIGN_IN, NO_SIGN_IN_TEXT)
                 call.respond(CreatedDto(serverId))
             }
 
             post("/quickconnect") {
-                call.requireManager(deps) ?: return@post
-                val code = api.quickConnect(call.parameters["signInId"].orEmpty()) ?: return@post call.respondNotFound(NO_SIGN_IN, NO_SIGN_IN_TEXT)
+                val access = call.requireManager(deps) ?: return@post
+                val code = api.quickConnect(call.parameters["signInId"].orEmpty(), access.manager.id) ?: return@post call.respondNotFound(NO_SIGN_IN, NO_SIGN_IN_TEXT)
                 call.respond(QuickConnectDto(code))
             }
 
@@ -69,9 +69,9 @@ internal fun Route.serverRoutes(deps: ServerDependencies) {
 
         route("/{id}") {
             get {
-                call.requireManager(deps) ?: return@get
+                val access = call.requireManager(deps) ?: return@get
                 val id = call.idOrNotFound(NO_SERVER, NO_SERVER_TEXT) ?: return@get
-                call.respond(api.server(id) ?: return@get call.respondNotFound(NO_SERVER, NO_SERVER_TEXT))
+                call.respond(api.server(id, access.manager.id) ?: return@get call.respondNotFound(NO_SERVER, NO_SERVER_TEXT))
             }
 
             delete {

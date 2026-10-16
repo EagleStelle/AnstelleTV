@@ -17,7 +17,7 @@ import javax.inject.Singleton
  */
 interface ServersApi {
     suspend fun servers(): List<ServerDto>
-    suspend fun server(serverId: Long): ServerDetailDto?
+    suspend fun server(serverId: Long, actorId: Long): ServerDetailDto?
     suspend fun sync(serverId: Long, full: Boolean): Boolean
     suspend fun setLibrary(serverId: Long, libraryId: Long, enabled: Boolean): Boolean
     suspend fun remove(serverId: Long, transferOwnerTo: Long?, actorId: Long): Boolean
@@ -25,10 +25,10 @@ interface ServersApi {
     suspend fun find(address: String): FoundServerDto
 
     /** The server's id once signed in, or null when [signInId] is unknown or expired. */
-    suspend fun signIn(signInId: String, username: String, password: String): Long?
+    suspend fun signIn(signInId: String, username: String, password: String, actorId: Long): Long?
 
     /** The Quick Connect code, or null when [signInId] is unknown or expired. */
-    suspend fun quickConnect(signInId: String): String?
+    suspend fun quickConnect(signInId: String, actorId: Long): String?
     fun signInState(signInId: String): SignInStateDto?
     fun cancelSignIn(signInId: String)
 }
@@ -41,8 +41,8 @@ internal class RoomServersApi @Inject constructor(
 ) : ServersApi {
     private val signIns = ServerSignIns(
         find = repository::findServer,
-        password = { candidate, username, password -> repository.signInWithPassword(candidate, username, password, SignInFor.Server) },
-        quickConnect = { candidate -> repository.quickConnect(candidate, SignInFor.Server) },
+        password = { candidate, username, password, actorId -> repository.signInWithPassword(candidate, username, password, SignInFor.Server, actorId) },
+        quickConnect = { candidate, actorId -> repository.quickConnect(candidate, SignInFor.Server, actorId) },
         time = time,
         scope = scope,
     )
@@ -52,7 +52,7 @@ internal class RoomServersApi @Inject constructor(
         return repository.observeServers().first().map { it.toDto(progress[it.id]?.message) }
     }
 
-    override suspend fun server(serverId: Long): ServerDetailDto? {
+    override suspend fun server(serverId: Long, actorId: Long): ServerDetailDto? {
         val server = repository.observeServer(serverId).first() ?: return null
         return ServerDetailDto(
             server = server.toDto(repository.syncProgress.first()[serverId]?.message),
@@ -61,7 +61,7 @@ internal class RoomServersApi @Inject constructor(
                 LibraryDto(it.id, it.name, it.collectionType ?: "mixed", it.isEnabled, repository.canAir(it.collectionType))
             },
             removal = repository.observeRemoval(serverId).first().let { plan ->
-                ServerRemovalDto(plan.resetsApp, plan.requiresTransfer, plan.admins.map { RemovalAdminDto(it.id, it.name) })
+                ServerRemovalDto(plan.resetsApp, plan.requiresTransfer, plan.admins.map { RemovalAdminDto(it.id, it.name) }, plan.canRemove(actorId), plan.explanation)
             },
         )
     }
@@ -87,9 +87,9 @@ internal class RoomServersApi @Inject constructor(
 
     override suspend fun find(address: String) = signIns.find(address)
 
-    override suspend fun signIn(signInId: String, username: String, password: String) = signIns.signIn(signInId, username, password)
+    override suspend fun signIn(signInId: String, username: String, password: String, actorId: Long) = signIns.signIn(signInId, username, password, actorId)
 
-    override suspend fun quickConnect(signInId: String) = signIns.startQuickConnect(signInId)
+    override suspend fun quickConnect(signInId: String, actorId: Long) = signIns.startQuickConnect(signInId, actorId)
 
     override fun signInState(signInId: String) = signIns.state(signInId)
 

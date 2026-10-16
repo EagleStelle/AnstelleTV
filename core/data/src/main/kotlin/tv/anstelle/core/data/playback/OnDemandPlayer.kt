@@ -175,6 +175,7 @@ class OnDemandPlayer @Inject constructor(
      */
     private var leftAtMs: Long? = null
     private var retried = false
+    private var nextJob: Job? = null
     private var tickJob: Job? = null
     private var segmentJob: Job? = null
 
@@ -384,18 +385,21 @@ class OnDemandPlayer @Inject constructor(
      * Adds the next episode to the playlist, so it follows without a gap, or keeps it for when
      * this one ends when the two can't be chained.
      */
-    private suspend fun queueNext() {
+    private fun queueNext() {
+        nextJob?.cancel()
         val last = queue.lastOrNull() ?: return
-        val following = upcoming.removeFirstOrNull()
-        val entry = following?.let { resolve(it, forceTranscode = false) }
-        if (queue.lastOrNull() !== last || exo == null) return
-        if (entry != null && last.stream.chainsWith(entry.stream)) {
-            player.addMediaItem(entry.mediaItem)
-            queue.add(entry)
-        } else {
-            deferred = entry
+        nextJob = scope.launch {
+            val following = upcoming.removeFirstOrNull()
+            val entry = following?.let { resolve(it, forceTranscode = false) }
+            if (queue.lastOrNull() !== last || exo == null) return@launch
+            if (entry != null && last.stream.chainsWith(entry.stream)) {
+                player.addMediaItem(entry.mediaItem)
+                queue.add(entry)
+            } else {
+                deferred = entry
+            }
+            _state.update { it.copy(next = entry?.item?.let(::nextLabel)) }
         }
-        _state.update { it.copy(next = entry?.item?.let(::nextLabel)) }
     }
 
     private fun show(entry: Entry, positionMs: Long, startedAtUtcMs: Long = _state.value.startedAtUtcMs) {
@@ -529,17 +533,27 @@ class OnDemandPlayer @Inject constructor(
             pooled?.let { tracks.applyDefaults(it, prefs) }
             startSession(entry, 0)
             show(entry, 0, System.currentTimeMillis())
-            scope.launch { queueNext() }
+            queueNext()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_ENDED) {
+                val finished = queue.firstOrNull() ?: return
                 endSession(atEnd = true)
-                val next = deferred
-                if (next != null) {
-                    scope.launch { start(next, 0) }
-                } else {
-                    _state.update { it.copy(status = OnDemandStatus.ENDED, playing = false, buffering = false) }
+                scope.launch {
+                    // Resolving the next stream may still be in flight when a short episode ends.
+                    nextJob?.join()
+                    val player = exo ?: return@launch
+                    if (queue.firstOrNull() !== finished || player.playbackState != Player.STATE_ENDED) return@launch
+                    val next = deferred
+                    when {
+                        player.hasNextMediaItem() -> {
+                            player.seekToNextMediaItem()
+                            player.playWhenReady = true
+                        }
+                        next != null -> start(next, 0)
+                        else -> _state.update { it.copy(status = OnDemandStatus.ENDED, playing = false, buffering = false) }
+                    }
                 }
             } else {
                 val buffering = playbackState == Player.STATE_BUFFERING

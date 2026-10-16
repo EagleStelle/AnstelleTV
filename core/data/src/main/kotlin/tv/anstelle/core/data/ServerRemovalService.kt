@@ -78,8 +78,8 @@ class ServerRemovalService @Inject constructor(
                     val accounts = database.backupDao().accounts()
                     val plan = plan(serverId, servers, profiles, accounts)
                     plan.validate(actorId ?: settings.get(Settings.ActiveProfileId), transferOwnerTo)
-                    val removedServers = if (plan.resetsApp) servers else servers.filter { it.id == serverId }
-                    val removedAccounts = accounts.filter { it.serverId == serverId || it.profileId in plan.deletedProfileIds }
+                    val removedServers = servers.filter { it.id in plan.deletedServerIds }
+                    val removedAccounts = accounts.filter { it.serverId in plan.deletedServerIds || it.profileId in plan.deletedProfileIds }
                     val byId = servers.associateBy { it.id }
                     val signOuts = removedServers.map { SignOut(it.jellyfinServerId, it.baseUrl, null, tokens.get(it.jellyfinServerId)) } +
                         removedAccounts.mapNotNull { account ->
@@ -96,15 +96,12 @@ class ServerRemovalService @Inject constructor(
                             val target = profiles.first { it.id == id }
                             database.profileDao().upsert(target.copy(role = ProfileRole.OWNER, maxRatingScore = null))
                         }
-                        for (id in plan.deletedProfileIds) {
-                            database.profileDao().delete(id)
-                            database.settingDao().removeForProfile(id)
+                        database.deleteProfiles(plan.deletedProfileIds, settings)
+                        for (server in removedServers) {
+                            syncer.removeItems(database.mediaItemDao().allIds(server.id).map { it.id })
+                            database.mediaServerDao().delete(server.id)
+                            Settings.serverKeys(server.id).forEach { database.settingDao().remove(it) }
                         }
-                        if (settings.get(Settings.ActiveProfileId) in plan.deletedProfileIds) {
-                            settings.set(Settings.ActiveProfileId, transferOwnerTo ?: profiles.first { it.id !in plan.deletedProfileIds }.id)
-                        }
-                        syncer.removeItems(database.mediaItemDao().allIds(serverId).map { it.id })
-                        database.mediaServerDao().delete(serverId)
                     }
                     val work = WorkManager.getInstance(context)
                     removedServers.forEach { LibrarySyncWorker.cancel(work, it.id) }
@@ -155,10 +152,10 @@ class ServerRemovalService @Inject constructor(
     }
 
     private fun plan(serverId: Long, servers: List<MediaServerEntity>, profiles: List<ProfileEntity>, accounts: List<ProfileAccountEntity>): ServerRemovalPlan {
-        val signedIn = servers.filter { tokens.get(it.jellyfinServerId) != null }.mapTo(HashSet()) { it.id }
         val byId = servers.associateBy { it.id }
         val byProfile = accounts.groupBy { it.profileId }
-        return serverRemovalPlan(serverId, signedIn, profiles.map { profile ->
+        val connections = servers.map { RemovalServer(it.id, it.name, it.ownerProfileId, tokens.get(it.jellyfinServerId) != null) }
+        return serverRemovalPlan(serverId, connections, profiles.map { profile ->
             val own = byProfile[profile.id].orEmpty()
             RemovalProfile(profile.id, profile.name, profile.role, own.mapTo(HashSet()) { it.serverId }, own.filter { account ->
                 val server = byId[account.serverId]

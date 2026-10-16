@@ -11,7 +11,6 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.ripple
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -59,36 +58,29 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
 import tv.anstelle.core.data.ondemand.EpisodeEntry
-import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.FocusSurface
-import tv.anstelle.core.theme.components.OsdBadge
 import tv.anstelle.core.theme.components.OsdTab
 import tv.anstelle.core.theme.components.OsdTabIndicator
 import tv.anstelle.core.theme.components.PastShade
 import tv.anstelle.core.theme.components.SectionLabel
-import tv.anstelle.core.theme.components.WatchedMarker
 import tv.anstelle.core.theme.components.WatchStrip
 import tv.anstelle.core.theme.components.screenSide
 import tv.anstelle.core.theme.components.ActionDialog
@@ -259,121 +251,6 @@ internal fun CaptionLine(number: String?, title: String?, focused: Boolean, modi
     )
 }
 
-/** What marks a readout segment: the air squares for when it airs, the watched square for done. */
-internal enum class SegmentMark { NONE, ON_AIR, UP_NEXT, AIRED, WATCHED }
-
-/**
- * One segment of the readout: its field [label] over its [value], or over [badges] (the picture
- * and sound, as the banner's badges). An airing's segment carries its square and its label in
- * the accent, as the banner's NOW line does.
- */
-internal class Segment(val label: String, val value: String = "", val mark: SegmentMark = SegmentMark.NONE, val badges: List<String> = emptyList())
-
-/**
- * The sheet's readout: segments in a row, parted by hairlines, wrapping to another line when the
- * column runs out, the way the set's info panel lists a programme. Figures are tabular.
- */
-@Composable
-internal fun Readout(segments: List<Segment>, modifier: Modifier = Modifier) {
-    if (segments.isEmpty()) return
-    val isTv = LocalIsTv.current
-    RuledFlow(segments.size, modifier, gap = if (isTv) 28.dp else 20.dp, lineGap = if (isTv) 12.dp else 10.dp) {
-        segments.forEach { ReadoutSegment(it) }
-    }
-}
-
-@Composable
-private fun ReadoutSegment(segment: Segment) {
-    val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
-    val typography = androidx.compose.material3.MaterialTheme.typography
-    val airing = segment.mark == SegmentMark.ON_AIR || segment.mark == SegmentMark.UP_NEXT
-    Column(Modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (airing) AirMarker(onAir = segment.mark == SegmentMark.ON_AIR)
-            androidx.compose.material3.Text(
-                segment.label.uppercase(),
-                style = typography.labelSmall,
-                color = if (airing) theme.accent else theme.textMuted,
-                maxLines = 1,
-            )
-        }
-        Row(Modifier.height(if (isTv) 22.dp else 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (segment.mark == SegmentMark.WATCHED) WatchedMarker(description = null)
-            if (segment.badges.isNotEmpty()) {
-                segment.badges.forEach { OsdBadge(it) }
-            } else {
-                androidx.compose.material3.Text(
-                    segment.value,
-                    style = (if (isTv) typography.titleMedium else typography.titleSmall).merge(TextStyle(fontFeatureSettings = "tnum")),
-                    color = if (segment.mark == SegmentMark.AIRED) theme.textMuted else theme.text,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
-}
-
-/**
- * The first [count] children laid out in lines, [gap] apart and wrapping at the width, with a
- * hairline (the rest of the children) standing in the middle of each gap inside a line, so a
- * wrapped line starts flush with the column like the first.
- */
-@Composable
-private fun RuledFlow(count: Int, modifier: Modifier, gap: Dp, lineGap: Dp, content: @Composable () -> Unit) {
-    val line = LocalAnstelleTheme.current.line
-    Layout(
-        content = {
-            content()
-            repeat((count - 1).coerceAtLeast(0)) { Box(Modifier.background(line)) }
-        },
-        modifier = modifier,
-    ) { measurables, constraints ->
-        val loose = constraints.copy(minWidth = 0, minHeight = 0)
-        val items = measurables.take(count).map { it.measure(loose) }
-        val rules = measurables.drop(count)
-        val gapPx = gap.roundToPx()
-        val lineGapPx = lineGap.roundToPx()
-        val ruleWidth = 1.dp.roundToPx().coerceAtLeast(1)
-        val maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth else Int.MAX_VALUE
-        val lines = ArrayList<MutableList<Int>>()
-        var x = 0
-        items.forEachIndexed { i, item ->
-            val current = lines.lastOrNull()
-            if (current == null || x + gapPx + item.width > maxWidth) {
-                lines.add(mutableListOf(i))
-                x = item.width
-            } else {
-                current.add(i)
-                x += gapPx + item.width
-            }
-        }
-        val heights = lines.map { it.maxOf { i -> items[i].height } }
-        val widths = lines.map { it.sumOf { i -> items[i].width } + gapPx * (it.size - 1) }
-        var next = 0
-        val placedRules = lines.zip(heights).flatMap { (indices, height) ->
-            List(indices.size - 1) { rules[next++].measure(Constraints.fixed(ruleWidth, height)) }
-        }
-        val width = (widths.maxOrNull() ?: 0).coerceIn(constraints.minWidth, maxWidth)
-        val height = heights.sum() + lineGapPx * (lines.size - 1).coerceAtLeast(0)
-        layout(width, height.coerceAtLeast(constraints.minHeight)) {
-            var y = 0
-            var rule = 0
-            lines.forEachIndexed { l, indices ->
-                var lx = 0
-                indices.forEachIndexed { j, i ->
-                    if (j > 0) {
-                        placedRules[rule++].place(lx - gapPx / 2 - ruleWidth / 2, y)
-                    }
-                    items[i].place(lx, y)
-                    lx += items[i].width + gapPx
-                }
-                y += heights[l] + lineGapPx
-            }
-        }
-    }
-}
-
 /** One way to watch, or Add to a channel: its words, its icon, what it does. */
 internal class SheetAction(
     val label: String,
@@ -382,8 +259,16 @@ internal class SheetAction(
     val saving: Boolean = false,
     val pinned: Boolean = false,
     val watched: Boolean? = null,
+    val detail: String? = null,
     val onClick: () -> Unit,
-)
+) {
+    constructor(action: DialogAction) : this(
+        label = action.title,
+        icon = requireNotNull(action.icon),
+        detail = action.detail,
+        onClick = action.onClick,
+    )
+}
 
 // Keys keep one shape on every device (72 by 44 on TV, up to 64 by 48 on touch), so TV and phone rows read alike.
 private val TV_KEY_WIDTH = 72.dp
@@ -395,7 +280,7 @@ private val TOUCH_KEY_WIDTH = 64.dp
  * top, the whole sheet in sight.
  */
 @Composable
-internal fun WatchKeys(actions: List<SheetAction>, listState: LazyListState, firstFocus: FocusRequester, modifier: Modifier = Modifier, navigation: EpisodeNavigation? = null) {
+internal fun WatchKeys(actions: List<SheetAction>, listState: LazyListState, firstFocus: FocusRequester, modifier: Modifier = Modifier, navigation: EpisodeNavigation? = null, dialogDetails: DialogAction? = null) {
     if (actions.isEmpty()) return
     val isTv = LocalIsTv.current
     var more by remember { mutableStateOf(false) }
@@ -444,11 +329,16 @@ internal fun WatchKeys(actions: List<SheetAction>, listState: LazyListState, fir
             }
             ActionDialog(
                 actions = extras.filter { it.enabled }.map { action ->
-                    DialogAction(action.label, null, action.icon, false, onClick = {
+                    DialogAction(action.label, action.detail, action.icon, false, onClick = {
                         dismiss()
                         action.onClick()
                     })
-                },
+                } + listOfNotNull(dialogDetails?.let { details ->
+                    DialogAction(details.title, details.detail, details.icon, false, onClick = {
+                        dismiss()
+                        details.onClick()
+                    })
+                }),
                 onDismiss = dismiss,
             ) { androidx.compose.material3.Text("More", style = androidx.compose.material3.MaterialTheme.typography.headlineSmall) }
         }

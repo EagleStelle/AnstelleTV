@@ -214,9 +214,11 @@ class FakeChannels : ChannelsApi {
 
 class FakeServers : ServersApi {
     var state = SignInStateDto("idle")
+    var signedInBy: Long? = null
+    var quickConnectBy: Long? = null
 
     override suspend fun servers() = listOf(ServerDto(1, "Home", "http://192.168.1.2:8096", "10.11", "alex", true, null, null, null))
-    override suspend fun server(serverId: Long): ServerDetailDto? = null
+    override suspend fun server(serverId: Long, actorId: Long): ServerDetailDto? = null
     override suspend fun sync(serverId: Long, full: Boolean) = serverId == 1L
     override suspend fun setLibrary(serverId: Long, libraryId: Long, enabled: Boolean) = serverId == 1L && libraryId == 1L
     var removalError: tv.anstelle.core.data.ServerRemovalException? = null
@@ -234,13 +236,17 @@ class FakeServers : ServersApi {
         return FoundServerDto("s1", "Home", "http://$address:8096", "10.11", quickConnect = true)
     }
 
-    override suspend fun signIn(signInId: String, username: String, password: String): Long? {
+    override suspend fun signIn(signInId: String, username: String, password: String, actorId: Long): Long? {
+        signedInBy = actorId
         if (signInId != "s1") return null
         if (password != "right") throw ServerConnectException(ServerProblem.BAD_CREDENTIALS, "401")
         return 1
     }
 
-    override suspend fun quickConnect(signInId: String): String? = if (signInId == "s1") "123456".also { state = SignInStateDto("waiting", code = it) } else null
+    override suspend fun quickConnect(signInId: String, actorId: Long): String? {
+        quickConnectBy = actorId
+        return if (signInId == "s1") "123456".also { state = SignInStateDto("waiting", code = it) } else null
+    }
     override fun signInState(signInId: String) = state.takeIf { signInId == "s1" }
     override fun cancelSignIn(signInId: String) = Unit
 }

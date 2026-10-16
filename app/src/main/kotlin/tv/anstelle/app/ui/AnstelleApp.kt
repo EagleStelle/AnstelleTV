@@ -201,6 +201,64 @@ private fun NavHostController.leave() {
     if (!popBackStack()) navigateTopLevel(TopLevelDestination.Guide)
 }
 
+/** Enter library browsing from an airing; never retain a stopped live player behind its details. */
+internal fun NavHostController.openOnDemandDetails(itemId: Long, isEpisode: Boolean) {
+    if (itemId == 0L) return
+    val fromPlayer = currentDestination?.hasRoute(PlayerRoute::class) == true
+    if (fromPlayer) {
+        navigate(OnDemandRoute) {
+            popUpTo<PlayerRoute> { inclusive = true }
+            launchSingleTop = true
+        }
+    }
+    val destination: Any = if (isEpisode) OnDemandEpisodeRoute(itemId) else OnDemandTitleRoute(itemId)
+    navigate(destination) {
+        launchSingleTop = true
+    }
+}
+
+/** Reuse the parent series page when present; otherwise replace the episode with its series. */
+internal fun NavHostController.openOnDemandSeries(seriesId: Long) {
+    if (seriesId == 0L) return
+    val series = OnDemandTitleRoute(seriesId)
+    if (popBackStack(series, inclusive = false)) return
+    navigate(series) {
+        popUpTo<OnDemandEpisodeRoute> { inclusive = true }
+        launchSingleTop = true
+    }
+}
+
+/** Back and natural completion share the current episode's page and replace any stale episode page. */
+internal fun NavHostController.leaveOnDemandPlayer(playing: OnDemandPlayRoute, itemId: Long, isEpisode: Boolean) {
+    // A completion and a Back press can arrive before the outgoing player leaves composition.
+    if (currentDestination?.hasRoute(OnDemandPlayRoute::class) != true) return
+    val from = previousBackStackEntry
+    if (isEpisode && itemId != 0L) {
+        val episode = OnDemandEpisodeRoute(itemId, playing.channelId, playing.atUtcMs)
+        if (from?.destination?.hasRoute(OnDemandEpisodeRoute::class) == true) {
+            if (from.toRoute<OnDemandEpisodeRoute>() == episode) {
+                popBackStack()
+            } else {
+                navigate(episode) { popUpTo(from.destination.id) { inclusive = true } }
+            }
+        } else {
+            navigate(episode) { popUpTo<OnDemandPlayRoute> { inclusive = true } }
+        }
+    } else if (playing.channelId != 0L) {
+        val onPage = from != null && (
+            from.destination.hasRoute(OnDemandEpisodeRoute::class) ||
+                from.destination.hasRoute(OnDemandChannelRoute::class) && from.toRoute<OnDemandChannelRoute>().channelId == playing.channelId
+            )
+        if (onPage) {
+            popBackStack()
+        } else {
+            navigate(OnDemandChannelRoute(playing.channelId, playing.atUtcMs)) { popUpTo<OnDemandPlayRoute> { inclusive = true } }
+        }
+    } else {
+        leave()
+    }
+}
+
 /** [canManageApp]: the owner and admins get the ways into app-wide settings; members don't see them. */
 @Composable
 private fun AppNavHost(navController: NavHostController, startDestination: Any, canManageApp: Boolean, onLaunchPickerDone: () -> Unit, modifier: Modifier) {
@@ -230,6 +288,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                 onWatch = { navController.navigate(PlayerRoute(it)) },
                 onStartOver = { navController.navigate(PlayerRoute(it, restart = true)) },
                 onPlayOnDemand = { itemId, position, channelId, atUtcMs -> navController.navigate(OnDemandPlayRoute(itemId, position, channelId, atUtcMs)) },
+                onOpenOnDemand = navController::openOnDemandDetails,
                 onAddToChannel = addToChannel,
                 onOpenSettings = openSettings,
             )
@@ -270,6 +329,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                         navController.navigate(OnDemandEpisodeRoute(it, page.channelId, page.atUtcMs)) { popUpTo<OnDemandEpisodeRoute> { inclusive = true } }
                     },
                     onOpenChannel = { navController.navigate(OnDemandChannelRoute(it)) { popUpTo<OnDemandEpisodeRoute> { inclusive = true } } },
+                    onOpenSeries = navController::openOnDemandSeries,
                     onAddToChannel = addToChannel,
                     onGone = { navController.popBackStack() },
                 )
@@ -287,6 +347,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onStartOver = { navController.navigate(PlayerRoute(it, restart = true)) },
                     onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position, page.channelId, page.atUtcMs)) },
                     onOpenEpisode = { navController.navigate(OnDemandEpisodeRoute(it, page.channelId, page.atUtcMs)) },
+                    onOpenOnDemand = navController::openOnDemandDetails,
                     onAddToChannel = addToChannel,
                     onGone = { navController.popBackStack() },
                 )
@@ -294,26 +355,9 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         }
         composable<OnDemandPlayRoute> { entry ->
             val playing = entry.toRoute<OnDemandPlayRoute>()
-            // Back to the page it was picked on (the channel's, or an episode's opened from it), or the channel's page in the player's place.
-            val openOnDemand: (() -> Unit)? = if (playing.channelId == 0L) {
-                null
-            } else {
-                {
-                    val from = navController.previousBackStackEntry
-                    val onPage = from != null && (
-                        from.destination.hasRoute(OnDemandEpisodeRoute::class) ||
-                            from.destination.hasRoute(OnDemandChannelRoute::class) && from.toRoute<OnDemandChannelRoute>().channelId == playing.channelId
-                        )
-                    if (onPage) {
-                        navController.popBackStack()
-                    } else {
-                        navController.navigate(OnDemandChannelRoute(playing.channelId, playing.atUtcMs)) { popUpTo<OnDemandPlayRoute> { inclusive = true } }
-                    }
-                }
-            }
-            // Registered before the player's own, which wins while its overlay or a panel is open.
-            if (openOnDemand != null) BackHandler { openOnDemand() }
-            OnDemandPlayerScreen()
+            OnDemandPlayerScreen(onExit = { itemId, isEpisode ->
+                navController.leaveOnDemandPlayer(playing, itemId, isEpisode)
+            })
         }
         adminOnly<AddToChannelRoute>(navController) { AddToChannelScreen(onGone = { navController.popBackStack() }) }
         composable<DashboardRoute> { DashboardScreen(onTurnedOff = { navController.navigateTopLevel(TopLevelDestination.Guide) }) }
@@ -422,6 +466,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                 onPlayOnDemand = { itemId, position, channelId, atUtcMs ->
                     navController.navigate(OnDemandPlayRoute(itemId, position, channelId, atUtcMs)) { popUpTo<PlayerRoute> { inclusive = true } }
                 },
+                onOpenOnDemand = navController::openOnDemandDetails,
             )
         }
     }

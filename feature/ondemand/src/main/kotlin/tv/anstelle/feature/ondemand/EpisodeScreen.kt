@@ -32,12 +32,13 @@ import tv.anstelle.core.data.ondemand.EpisodeEntry
 import tv.anstelle.core.data.ondemand.EpisodePage
 import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.ondemand.WatchChoices
-import tv.anstelle.core.data.ondemand.WatchKind
+import tv.anstelle.core.model.WatchKind
 import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.data.playback.PlaybackReporter
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
-import tv.anstelle.core.theme.components.DialogAction
+import tv.anstelle.core.theme.components.dialogActions
+import tv.anstelle.core.theme.components.goToSeriesAction
 import tv.anstelle.core.theme.components.WatchIcons
 import tv.anstelle.core.theme.components.requestWhenReady
 import tv.anstelle.core.theme.components.WatchStrip
@@ -113,7 +114,7 @@ class EpisodeViewModel @Inject constructor(
  * An episode's own page, opened from its show's carousel on a channel's or series' page: the
  * channel page's sheet without the channel. Its still with what was watched at its foot, the
  * show's logo, the episode, a readout of what was watched and what it is, Resume (or Play) and
- * From the start as bars, the whole synopsis, then the season's carousel opened on this episode,
+ * From the start and Go to Series as bars, the whole synopsis, then the season's carousel opened on this episode,
  * so the next one is a press away. OK on another episode opens its page in this one's place, so
  * Back still returns to the page that opened the first.
  */
@@ -122,6 +123,7 @@ fun EpisodeScreen(
     onPlay: (itemId: Long, positionMs: Long) -> Unit,
     onOpenEpisode: (itemId: Long) -> Unit,
     onOpenChannel: (channelId: Long) -> Unit,
+    onOpenSeries: (seriesId: Long) -> Unit,
     /** Null for a member: adding to a channel is the owner's and admins'. */
     onAddToChannel: ((itemId: Long) -> Unit)?,
     onGone: () -> Unit,
@@ -139,7 +141,7 @@ fun EpisodeScreen(
         return
     }
     val isTv = LocalIsTv.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     // An episode airing on a channel right now opens that channel's page, not its own.
     val openEpisode: (Long) -> Unit = { id ->
         scope.launch {
@@ -176,6 +178,7 @@ fun EpisodeScreen(
         } else {
             SheetAction("Play", WatchIcons.play(0, false)) { onPlay(item.id, 0) }
         },
+        page.seriesId?.let { seriesId -> SheetAction(goToSeriesAction { onOpenSeries(seriesId) }) },
         SheetAction("From the start", WatchIcons.StartOver) { onPlay(item.id, 0) }.takeIf { resume > 0 },
         watchedAction(watched, edit.saving, watch.known) { viewModel.setWatched(!watched) },
         SheetAction("Add to a channel", WatchIcons.AddToChannel) { onAddToChannel?.invoke(item.id) }.takeIf { onAddToChannel != null },
@@ -252,37 +255,21 @@ fun EpisodeScreen(
 
     holding?.let { episode ->
         val held = watch.resumeMs(episode.id, episode.durationMs)
-        val choices = listOfNotNull(
-            held.takeIf { it > 0 }?.let(WatchChoices::resume),
-            WatchChoices.playFromStart,
-            WatchChoices.addToChannel(isMovie = false).takeIf { onAddToChannel != null },
-        )
+        val choices = WatchChoices.episodeActions(held, canAddToChannel = onAddToChannel != null)
         val dismiss = {
             holding = null
             runCatching { returnFocus.requestFocus() }
             Unit
         }
         ActionDialog(
-            actions = choices.map { choice ->
-                DialogAction(choice.title, choice.detail, choice.icon()) {
-                    holding = null
-                    when (choice.kind) {
-                        WatchKind.ADD_TO_CHANNEL -> onAddToChannel?.invoke(episode.id)
-                        else -> onPlay(episode.id, choice.positionMs)
-                    }
+            actions = choices.dialogActions { choice ->
+                holding = null
+                when (choice.kind) {
+                    WatchKind.ADD_TO_CHANNEL -> onAddToChannel?.invoke(episode.id)
+                    else -> onPlay(episode.id, choice.positionMs)
                 }
             },
             onDismiss = dismiss,
         ) { EpisodeDialogHeader(item.title, episode) }
     }
-}
-
-/** An episode's readout, as its channel page's without the airing: year, rated, genre. */
-private fun episodeReadout(page: EpisodePage): List<Segment> {
-    val item = page.item
-    return listOfNotNull(
-        item.year?.let { Segment("Year", "$it") },
-        item.rating?.let { Segment("Rated", it) },
-        item.genres.take(2).takeIf { it.isNotEmpty() }?.let { Segment("Genre", it.joinToString(", ")) },
-    )
 }

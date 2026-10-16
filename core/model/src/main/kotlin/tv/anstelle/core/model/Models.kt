@@ -145,14 +145,24 @@ object ProfileRights {
         target.role == ProfileRole.MEMBER && viewer.role != ProfileRole.MEMBER && canEdit(viewer, target)
 
     /** Only the owner makes admins. */
-    fun canSetAdmin(viewer: Profile, target: Profile): Boolean =
-        viewer.role == ProfileRole.OWNER && target.id != viewer.id
+    fun canSetAdmin(viewer: Profile, target: Profile, ownsServer: Boolean = false): Boolean =
+        viewer.role == ProfileRole.OWNER && target.id != viewer.id && !(ownsServer && target.role == ProfileRole.ADMIN)
 
     fun canTransferOwnership(viewer: Profile, target: Profile): Boolean = canSetAdmin(viewer, target)
 
     /** The owner is never deleted, and no profile deletes itself. */
-    fun canDelete(viewer: Profile, target: Profile): Boolean =
-        target.role != ProfileRole.OWNER && viewer.id != target.id && canEdit(viewer, target)
+    fun canDelete(viewer: Profile, target: Profile, ownsServer: Boolean = false): Boolean =
+        target.role != ProfileRole.OWNER && viewer.id != target.id && !ownsServer && canEdit(viewer, target)
+
+    /** Signing out removes one's local profile; a server must never lose its owning profile. */
+    fun canSignOut(viewer: Profile, target: Profile, ownsServer: Boolean): Boolean =
+        viewer.id == target.id && target.role != ProfileRole.OWNER && !ownsServer
+}
+
+/** Server ownership belongs to its connection's Jellyfin user, independently of playback sign-ins. */
+object ServerRights {
+    fun canRemove(viewerId: Long, ownerId: Long?, serverOwnerId: Long?): Boolean =
+        viewerId == ownerId || viewerId == serverOwnerId
 }
 
 /**
@@ -208,6 +218,8 @@ data class MediaServer(
     val lastSyncError: String?,
     /** False when no usable access token is stored, so the user must sign in again. */
     val isSignedIn: Boolean,
+    /** The profile used for the server's connection sign-in; playback sign-ins do not grant ownership. */
+    val ownerProfileId: Long? = null,
 )
 
 /** What `/System/Info/Public` reports for a server, plus the address that answered. */
@@ -235,6 +247,7 @@ enum class ServerProblem {
     /** A stored token was rejected; the user has to sign in again. */
     SIGNED_OUT,
     QUICK_CONNECT_DISABLED,
+    FORBIDDEN,
     SERVER_ERROR,
 }
 

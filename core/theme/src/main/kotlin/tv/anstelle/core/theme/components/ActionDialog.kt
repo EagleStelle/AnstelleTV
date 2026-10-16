@@ -6,11 +6,16 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -18,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +31,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -35,6 +42,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
+import kotlinx.coroutines.launch
 
 private val HeldKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter)
 
@@ -76,6 +84,7 @@ fun ActionDialog(actions: List<DialogAction>, onDismiss: () -> Unit, header: @Co
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val first = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
     // A dialog opened by holding OK appears while OK is still down; its repeats and release
     // must not reach the focused row, so the first choice waits for a fresh press.
     var armed by remember { mutableStateOf(false) }
@@ -103,6 +112,7 @@ fun ActionDialog(actions: List<DialogAction>, onDismiss: () -> Unit, header: @Co
                     }
                 }
                 .background(theme.background.copy(alpha = BACKDROP_WASH))
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .pointerInput(Unit) { detectTapGestures { onDismiss() } }
                 // The page behind takes no focus while the dialog is up; closing it hands focus back by request.
                 .focusProperties { onExit = { if (requestedFocusDirection in TrappedMoves) cancelFocusChange() } }
@@ -122,6 +132,7 @@ fun ActionDialog(actions: List<DialogAction>, onDismiss: () -> Unit, header: @Co
                 val picking = actions.any { it.selected }
                 val lead = if (picking) actions.indexOfFirst { it.selected } else 0
                 actions.forEachIndexed { i, action ->
+                    val row = remember { BringIntoViewRequester() }
                     FocusTile(
                         title = action.title,
                         subtitle = action.detail,
@@ -130,7 +141,11 @@ fun ActionDialog(actions: List<DialogAction>, onDismiss: () -> Unit, header: @Co
                         primary = i == 0 && !isTv && !action.danger && !picking,
                         danger = action.danger,
                         selected = action.selected,
-                        modifier = Modifier.fillMaxWidth().let { if (i == lead) it.focusRequester(first) else it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bringIntoViewRequester(row)
+                            .onFocusChanged { if (it.isFocused) scope.launch { row.bringIntoView() } }
+                            .let { if (i == lead) it.focusRequester(first) else it },
                     )
                 }
             }

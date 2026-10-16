@@ -4,6 +4,8 @@ import java.text.DateFormat
 import java.util.Date
 import tv.anstelle.core.model.MediaProgress.Companion.span
 import tv.anstelle.core.model.MediaProgress
+import tv.anstelle.core.model.WatchChoice
+import tv.anstelle.core.model.WatchKind
 
 /** Where an airing sits against the clock. */
 enum class AiringTense {
@@ -22,33 +24,14 @@ enum class AiringTense {
 }
 
 /**
- * What a choice does: [LIVE] tunes the channel; [RESTART] tunes it and takes its program back
- * to the start, moving the schedule like the player's Restart key; [PLAY] opens the on-demand
- * player; [ADD_TO_CHANNEL] opens Add to channel.
- */
-enum class WatchKind { LIVE, RESTART, PLAY, ADD_TO_CHANNEL }
-
-/**
- * One way to watch a program: what the control says, one line on what happens, and for
- * [WatchKind.PLAY] where on-demand playback starts. [leavesChannel] marks *Watch on Demand* and
- * *Resume on Demand*, the program on now leaving its channel, so they wear On Demand's icon.
- */
-data class WatchChoice(
-    val kind: WatchKind,
-    val title: String,
-    val detail: String,
-    val positionMs: Long = 0,
-    val leavesChannel: Boolean = false,
-    val startsOver: Boolean = false,
-)
-
-/**
  * The words for every way to watch, shared by the guide's program actions and a channel's
  * page in On demand, so the same choice reads the same everywhere. Live and Start over stay on
  * the channel; the rest play on demand, where pause and rewind leave the channel as it is.
  * Each line fits one row beside its title, so none repeats the program's name.
  */
 object WatchChoices {
+    private const val WATCH_ON_DEMAND = "Watch on Demand"
+
     fun live(channelNumber: Int, channelName: String, endUtcMs: Long, nowUtcMs: Long) =
         WatchChoice(WatchKind.LIVE, "Watch live", "$channelNumber $channelName · ${span(endUtcMs - nowUtcMs, roundUp = true)} left")
 
@@ -66,34 +49,57 @@ object WatchChoices {
      * runs on into the show, a movie leaves the schedule behind.
      */
     fun onDemand(isEpisode: Boolean) =
-        WatchChoice(WatchKind.PLAY, "Watch on Demand", "From the start, ${onDemandAfter(isEpisode)}.", leavesChannel = true)
+        WatchChoice(WatchKind.PLAY, WATCH_ON_DEMAND, "From the start, ${onDemandAfter(isEpisode)}.", fromAiring = true)
 
     /** The program on now in the on-demand player, from the point the channel has reached. */
     fun resumeOnDemand(elapsedMs: Long, isEpisode: Boolean) =
-        WatchChoice(WatchKind.PLAY, "Resume on Demand", "From ${span(elapsedMs)} in, ${onDemandAfter(isEpisode)}.", elapsedMs, leavesChannel = true)
+        WatchChoice(WatchKind.PLAY, "Resume on Demand", "From ${span(elapsedMs)} in, ${onDemandAfter(isEpisode)}.", elapsedMs, fromAiring = true)
 
     private fun onDemandAfter(isEpisode: Boolean) = if (isEpisode) "then the next episodes" else "off the schedule"
+
+    /** On-demand playback choices for an airing, with one shared resume threshold. */
+    fun onDemandChoices(elapsedMs: Long, isEpisode: Boolean) = listOfNotNull(
+        onDemand(isEpisode),
+        elapsedMs.takeIf { it >= MIN_LIVE_POINT_MS }?.let { resumeOnDemand(it, isEpisode) },
+    )
 
     /**
      * The choices for a program on now, in order: the channel live, the channel from the start,
      * on demand from the start, and on demand from where the channel is once it has run long
      * enough for that to differ.
      */
-    fun onNow(channelNumber: Int, channelName: String, startUtcMs: Long, endUtcMs: Long, nowUtcMs: Long, isEpisode: Boolean) = listOfNotNull(
+    fun onNow(channelNumber: Int, channelName: String, startUtcMs: Long, endUtcMs: Long, nowUtcMs: Long, isEpisode: Boolean) = listOf(
         live(channelNumber, channelName, endUtcMs, nowUtcMs),
         restart,
-        onDemand(isEpisode),
-        (nowUtcMs - startUtcMs).takeIf { it >= MIN_LIVE_POINT_MS }?.let { resumeOnDemand(it, isEpisode) },
-    )
+    ) + onDemandChoices(nowUtcMs - startUtcMs, isEpisode)
+
+    /** Shared airing rules for guide actions and channel pages, including unavailable programs. */
+    fun airing(
+        tense: AiringTense,
+        channelNumber: Int,
+        channelName: String,
+        startUtcMs: Long,
+        endUtcMs: Long,
+        nowUtcMs: Long,
+        isEpisode: Boolean,
+        offAir: Boolean = false,
+        restrictionTitle: String? = null,
+    ): List<WatchChoice> = when {
+        offAir -> listOfNotNull(liveOffAir(endUtcMs).takeIf { tense == AiringTense.ON_NOW })
+        restrictionTitle != null -> listOfNotNull(liveRestricted(endUtcMs, restrictionTitle).takeIf { tense == AiringTense.ON_NOW })
+        tense == AiringTense.ON_NOW -> onNow(channelNumber, channelName, startUtcMs, endUtcMs, nowUtcMs, isEpisode)
+        else -> listOf(fromStart(tense, startUtcMs))
+    }
 
     /** A program that isn't on now: one play action, with airing context in its detail. */
     fun fromStart(tense: AiringTense, startUtcMs: Long) = WatchChoice(
         WatchKind.PLAY,
-        "Watch now",
+        WATCH_ON_DEMAND,
         when (tense) {
             AiringTense.LATER -> "Don't wait for ${clockTime(startUtcMs)}. On Demand from 0:00."
             else -> "Aired at ${clockTime(startUtcMs)}. On Demand from 0:00."
         },
+        fromAiring = true,
     )
 
     /** Plays from Jellyfin's resume point. */
@@ -131,6 +137,13 @@ object WatchChoices {
 
     /** An episode, from its start on demand. */
     val playFromStart = WatchChoice(WatchKind.PLAY, "Play from the start", "On Demand from 0:00.", startsOver = true)
+
+    /** Shared quick actions for an episode on a title, episode, or channel page. */
+    fun episodeActions(positionMs: Long, canAddToChannel: Boolean) = listOfNotNull(
+        positionMs.takeIf { it > 0 }?.let(::resume),
+        playFromStart,
+        addToChannel(isMovie = false).takeIf { canAddToChannel },
+    )
 
     fun addToChannel(isMovie: Boolean) = WatchChoice(
         WatchKind.ADD_TO_CHANNEL,

@@ -332,6 +332,6 @@ interface SettingDao {
     suspend fun remove(key: String)
 
     /** Removes every per-profile setting of [profileId]: their keys all end in `.<profileId>`. */
-    @Query("DELETE FROM setting WHERE `key` LIKE '%.' || :profileId")
-    suspend fun removeForProfile(profileId: Long)
+    @Query("DELETE FROM setting WHERE `key` LIKE '%.' || :profileId AND `key` NOT IN (:preserved)")
+    suspend fun removeForProfile(profileId: Long, preserved: List<String>)
 }

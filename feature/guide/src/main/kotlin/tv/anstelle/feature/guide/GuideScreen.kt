@@ -76,9 +76,9 @@ import tv.anstelle.core.data.guide.ProgramDetails
 import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.data.guide.ProgramStrip
 import tv.anstelle.core.data.ondemand.AiringTense
-import tv.anstelle.core.data.ondemand.WatchChoice
+import tv.anstelle.core.model.WatchChoice
 import tv.anstelle.core.data.ondemand.WatchChoices
-import tv.anstelle.core.data.ondemand.WatchKind
+import tv.anstelle.core.model.WatchKind
 import tv.anstelle.core.data.playback.PlaybackState
 import tv.anstelle.core.data.playback.TuneStatus
 import tv.anstelle.core.player.SubtitleOverlays
@@ -89,7 +89,7 @@ import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.Backdrop
 import tv.anstelle.core.theme.components.ChannelLogo
-import tv.anstelle.core.theme.components.DialogAction
+import tv.anstelle.core.theme.components.dialogActions
 import tv.anstelle.core.theme.components.NumberBlock
 import tv.anstelle.core.theme.components.OsdBadge
 import tv.anstelle.core.theme.components.OsdTab
@@ -98,7 +98,6 @@ import tv.anstelle.core.theme.components.screenEdge
 import tv.anstelle.core.theme.components.screenGap
 import tv.anstelle.core.theme.components.screenSide
 import tv.anstelle.core.theme.components.TitleLogo
-import tv.anstelle.core.theme.components.WatchIcons
 import tv.anstelle.core.theme.components.PlaceholderAction
 import tv.anstelle.core.theme.components.PlaceholderScreen
 
@@ -113,6 +112,7 @@ internal data class SelectedProgram(
     val endUtcMs: Long,
     /** Why the profile may not watch it ("Age restricted", "No access"), or null: then it is blacked out, and never played on demand. */
     val restrictedAs: String? = null,
+    val isEpisode: Boolean = false,
 ) {
     val restricted: Boolean get() = restrictedAs != null
 
@@ -133,6 +133,8 @@ fun GuideScreen(
     onStartOver: (channelNumber: Int) -> Unit,
     /** Plays [itemId] on demand; [channelId] and [atUtcMs] are the airing it was picked from. */
     onPlayOnDemand: (itemId: Long, positionMs: Long, channelId: Long, atUtcMs: Long) -> Unit,
+    /** Opens the selected movie's or episode's page in On Demand. */
+    onOpenOnDemand: (itemId: Long, isEpisode: Boolean) -> Unit,
     /** Null for a member: adding to a channel is the owner's and admins'. */
     onAddToChannel: ((itemId: Long) -> Unit)?,
     /** Null for a member, who has no channels or servers to set up. */
@@ -377,8 +379,8 @@ fun GuideScreen(
         }
         actions?.let { program ->
             val nowMs = remember(program) { System.currentTimeMillis() }
-            // A movie's year is its whole detail line; the loaded details say for sure when they match.
-            val isMovie = details?.takeIf { it.mediaItemId == program.mediaItemId }?.isEpisode?.not() ?: (program.detail?.toIntOrNull() != null)
+            // Use media identity even before details load; movies may have no year.
+            val isMovie = details?.takeIf { it.mediaItemId == program.mediaItemId }?.isEpisode?.not() ?: !program.isEpisode
             val choices = remember(program, isMovie) { programChoices(program, isMovie, nowMs, canAdd = onAddToChannel != null) }
             // Nothing to offer (a restricted program still to come, on a member's profile): no dialog.
             if (choices.isEmpty()) {
@@ -388,6 +390,7 @@ fun GuideScreen(
             ProgramActions(
                 program = program,
                 choices = choices,
+                isEpisode = !isMovie,
                 nowMs = nowMs,
                 onWatch = { openPlayer(program.channel.number) },
                 onStartOver = {
@@ -396,6 +399,10 @@ fun GuideScreen(
                 },
                 onPlay = { position -> onPlayOnDemand(program.mediaItemId, position, program.channel.id, program.startUtcMs) },
                 onAddToChannel = { onAddToChannel?.invoke(program.mediaItemId) },
+                onOpenDetails = {
+                    actions = null
+                    onOpenOnDemand(program.mediaItemId, !isMovie)
+                },
                 onDismiss = {
                     actions = null
                     runCatching { gridFocus.requestFocus() }
@@ -411,7 +418,11 @@ private fun selectedProgram(channels: List<GuideChannel>, strips: Map<Long, Prog
     val strip = strips[channel.id] ?: return null
     val i = strip.indexAt(grid.selectedTime)
     if (i < 0) return null
-    return SelectedProgram(channel, strip.items[i], strip.titles[i], strip.details[i], strip.starts[i], strip.ends[i], Restriction.titleFor(strip.items[i], access).takeIf { strip.isRestricted(i, access) })
+    return SelectedProgram(
+        channel, strip.items[i], strip.titles[i], strip.details[i], strip.starts[i], strip.ends[i],
+        Restriction.titleFor(strip.items[i], access).takeIf { strip.isRestricted(i, access) },
+        isEpisode = strip.shows[i] != strip.items[i],
+    )
 }
 
 /** What the preview plays, as a program in the guide; null before it has tuned. */
@@ -426,6 +437,7 @@ private fun playingProgram(playback: PlaybackState): SelectedProgram? {
         on.startUtcMs,
         on.endUtcMs,
         playback.restriction?.title,
+        isEpisode = on.isEpisode,
     )
 }
 
@@ -778,19 +790,14 @@ private fun Tabs(tabs: List<GuideTab>, open: String, onSelect: (String) -> Unit,
 private fun programChoices(program: SelectedProgram, isMovie: Boolean, nowMs: Long, canAdd: Boolean): List<WatchChoice> {
     val tense = AiringTense.of(program.startUtcMs, program.endUtcMs, nowMs)
     val channel = program.channel
-    if (program.mediaItemId == 0L) {
-        return if (tense == AiringTense.ON_NOW) listOf(WatchChoices.liveOffAir(program.endUtcMs)) else emptyList()
-    }
-    val add = WatchChoices.addToChannel(isMovie).takeIf { canAdd }
+    val add = WatchChoices.addToChannel(isMovie).takeIf { canAdd && program.mediaItemId != 0L }
     // Something the profile may not watch: the channel stays dark, and nothing plays on demand.
-    if (program.restricted) {
-        return listOfNotNull(WatchChoices.liveRestricted(program.endUtcMs, program.restrictedAs ?: Restriction.AGE_TITLE).takeIf { tense == AiringTense.ON_NOW }, add)
-    }
-    val watch = if (tense == AiringTense.ON_NOW) {
-        WatchChoices.onNow(channel.number, channel.name, program.startUtcMs, program.endUtcMs, nowMs, isEpisode = !isMovie)
-    } else {
-        listOf(WatchChoices.fromStart(tense, program.startUtcMs))
-    }
+    val watch = WatchChoices.airing(
+        tense, channel.number, channel.name, program.startUtcMs, program.endUtcMs, nowMs,
+        isEpisode = !isMovie,
+        offAir = program.mediaItemId == 0L,
+        restrictionTitle = program.restrictedAs,
+    )
     return watch + listOfNotNull(add)
 }
 
@@ -799,20 +806,22 @@ private fun programChoices(program: SelectedProgram, isMovie: Boolean, nowMs: Lo
 private fun ProgramActions(
     program: SelectedProgram,
     choices: List<WatchChoice>,
+    isEpisode: Boolean,
     nowMs: Long,
     onWatch: () -> Unit,
     onStartOver: () -> Unit,
     onPlay: (positionMs: Long) -> Unit,
     onAddToChannel: () -> Unit,
+    onOpenDetails: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val theme = LocalAnstelleTheme.current
-    val actions = choices.map { choice ->
+    val actions = choices.dialogActions(isEpisode, onOpenDetails) { choice ->
         when (choice.kind) {
-            WatchKind.LIVE -> DialogAction(choice.title, choice.detail, WatchIcons.Live, onWatch)
-            WatchKind.RESTART -> DialogAction(choice.title, choice.detail, WatchIcons.StartOver, onStartOver)
-            WatchKind.PLAY -> DialogAction(choice.title, choice.detail, WatchIcons.play(choice.positionMs, choice.leavesChannel)) { onPlay(choice.positionMs) }
-            WatchKind.ADD_TO_CHANNEL -> DialogAction(choice.title, choice.detail, WatchIcons.AddToChannel, onAddToChannel)
+            WatchKind.LIVE -> onWatch()
+            WatchKind.RESTART -> onStartOver()
+            WatchKind.PLAY -> onPlay(choice.positionMs)
+            WatchKind.ADD_TO_CHANNEL -> onAddToChannel()
         }
     }
     ActionDialog(actions, onDismiss) {

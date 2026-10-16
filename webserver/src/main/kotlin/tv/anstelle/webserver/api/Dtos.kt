@@ -139,7 +139,13 @@ data class ServerDetailDto(val server: ServerDto, val counts: List<CountDto>, va
 data class RemovalAdminDto(val id: Long, val name: String)
 
 @Serializable
-data class ServerRemovalDto(val resetsApp: Boolean, val requiresTransfer: Boolean, val admins: List<RemovalAdminDto>)
+data class ServerRemovalDto(
+    val resetsApp: Boolean,
+    val requiresTransfer: Boolean,
+    val admins: List<RemovalAdminDto>,
+    val canRemove: Boolean,
+    val explanation: String,
+)
 
 @Serializable
 data class SyncRequest(val full: Boolean = false)

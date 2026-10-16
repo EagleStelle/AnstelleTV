@@ -88,7 +88,8 @@ class StartupViewModel @Inject constructor(
                     profiles.observeActiveProfile().map { it.id to ProfileRights.canManageApp(it) }.distinctUntilChanged().collect { (id, manages) ->
                         val previous = _session.value
                         if (previous != null && previous.profileId != id) channelPlayer.stop()
-                        _session.value = AppSession(id, launchPicker = previous?.launchPicker ?: picker, canManageApp = manages)
+                        val removed = previous != null && previous.profileId != id && profiles.observeProfile(previous.profileId).first() == null
+                        _session.value = AppSession(id, launchPicker = removed || (previous?.launchPicker ?: picker), canManageApp = manages)
                     }
                 }
             }

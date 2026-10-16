@@ -105,6 +105,9 @@ interface MediaServerDao {
     @Upsert
     suspend fun upsert(server: MediaServerEntity): Long
 
+    @Query("UPDATE media_server SET ownerProfileId = :profileId WHERE id = :serverId")
+    suspend fun setOwner(serverId: Long, profileId: Long)
+
     @Query("UPDATE media_server SET name = :name, serverVersion = :version WHERE id = :id")
     suspend fun setNameAndVersion(id: Long, name: String, version: String?)
 

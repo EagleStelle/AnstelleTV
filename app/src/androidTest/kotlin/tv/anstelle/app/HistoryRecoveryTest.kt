@@ -43,7 +43,10 @@ class HistoryRecoveryTest {
         val serverUser = graph.auth().currentUser(server.baseUrl, serverToken)
         assertEquals("Server credentials must match the stored user", server.userId, serverUser.id)
         val account = graph.profiles().watchAccount(profile.id, server, serverToken)
-        assertEquals("Recovery must not switch Jellyfin users", serverUser.id, account?.userId)
+        // A linked account still identifies its user when its encrypted token is missing.
+        val linkedUser = graph.profiles().observeAccounts(profile.id).first()
+            .firstOrNull { it.serverId == server.id }?.userId
+        assertEquals("Recovery must not switch Jellyfin users", serverUser.id, linkedUser ?: account?.userId)
         var reconnect = account?.keepsHistory != true
         if (!reconnect) {
             try {

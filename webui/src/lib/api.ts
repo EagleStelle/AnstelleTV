@@ -118,7 +118,7 @@ export interface ServerDetail {
 	server: Server;
 	counts: { type: string; count: number }[];
 	libraries: Library[];
-	removal?: { resetsApp: boolean; requiresTransfer: boolean; admins: { id: number; name: string }[] };
+	removal?: { resetsApp: boolean; requiresTransfer: boolean; admins: { id: number; name: string }[]; canRemove: boolean; explanation: string };
 }
 
 export interface FoundServer {

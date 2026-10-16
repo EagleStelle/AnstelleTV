@@ -114,6 +114,9 @@ object Settings {
     fun fileDurations(serverId: Long) = SettingKey.StringKey("media.durations.$serverId", "")
     fun fileDurationAttempts(serverId: Long) = SettingKey.StringKey("media.durationAttempts.$serverId", "")
 
+    /** Server settings share numeric suffixes with profile settings, but have a separate lifetime. */
+    fun serverKeys(serverId: Long) = listOf(ratingTable(serverId).name, fileDurations(serverId).name, fileDurationAttempts(serverId).name)
+
     /** This device's own settings: a backup leaves them out and a restore keeps them. */
     val DeviceOnly = listOf(WebServerEnabled.name, WebServerPort.name, ActiveProfileId.name, BackupSaved.name, ThemesSeeded.name, SchedulesMadeFor.name)
 }
