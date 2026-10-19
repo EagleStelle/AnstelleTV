@@ -8,7 +8,6 @@ import kotlinx.coroutines.sync.withLock
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.database.entity.PairedClientEntity
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -55,7 +54,8 @@ sealed interface PairResult {
  *
  * New requests are limited to [MAX_STARTS] per [START_WINDOW_MS] so a LAN client cannot
  * cycle PINs quickly. Each new request replaces the PIN on screen, so the person at the
- * TV sees every attempt.
+ * TV sees every attempt. Wrong PINs count across requests: after [MAX_WRONG_PINS] within
+ * [WRONG_PIN_WINDOW_MS] pairing waits, so guessing stays slow while nobody watches the TV.
  */
 @Singleton
 class PairingManager @Inject constructor(
@@ -67,9 +67,7 @@ class PairingManager @Inject constructor(
     private val _activeRequest = MutableStateFlow<PairingRequest?>(null)
     private var attempts = 0
     private val recentStarts = ArrayDeque<Long>()
-
-    /** Cache of authenticated token hashes so `/api` calls rarely touch the database. */
-    private val authCache = ConcurrentHashMap<String, CachedClient>()
+    private val recentWrongPins = ArrayDeque<Long>()
 
     /** The request whose PIN the TV should show, or null. */
     val activeRequest: StateFlow<PairingRequest?> = _activeRequest.asStateFlow()
@@ -77,8 +75,8 @@ class PairingManager @Inject constructor(
     suspend fun start(clientName: String, address: String?, isDevice: Boolean = false): PairStartResult = mutex.withLock {
         if (gate.approver() == null) return@withLock PairStartResult.NotAllowed
         val now = time.nowUtcMs()
-        while (recentStarts.isNotEmpty() && now - recentStarts.first() > START_WINDOW_MS) recentStarts.removeFirst()
-        if (recentStarts.size >= MAX_STARTS) return@withLock PairStartResult.RateLimited
+        if (recentStarts.countSince(now, START_WINDOW_MS) >= MAX_STARTS ||
+            recentWrongPins.countSince(now, WRONG_PIN_WINDOW_MS) >= MAX_WRONG_PINS) return@withLock PairStartResult.RateLimited
         recentStarts.addLast(now)
 
         val request = PairingRequest(
@@ -108,7 +106,8 @@ class PairingManager @Inject constructor(
             }
             if (!Tokens.constantTimeEquals(request.pin, pin.trim())) {
                 attempts++
-                if (attempts >= MAX_ATTEMPTS) {
+                recentWrongPins.addLast(now)
+                if (attempts >= MAX_ATTEMPTS || recentWrongPins.countSince(now, WRONG_PIN_WINDOW_MS) >= MAX_WRONG_PINS) {
                     _activeRequest.value = null
                     AppLog.w(TAG, "Pairing from ${request.clientName} cancelled after $attempts wrong PINs")
                     return@withLock PairResult.TooManyAttempts
@@ -148,21 +147,10 @@ class PairingManager @Inject constructor(
      */
     suspend fun authenticate(token: String?, address: String?): Access? {
         if (token.isNullOrEmpty() || token.length > MAX_TOKEN_LENGTH) return null
-        val hash = Tokens.hash(token)
+        // Read every time: demoting a profile and restoring a backup delete pairings straight from the database.
+        val client = store.byTokenHash(Tokens.hash(token)) ?: return null
         val now = time.nowUtcMs()
-        val cached = authCache[hash]
-        val client = if (cached != null) {
-            if (now - cached.lastTouchUtcMs > TOUCH_INTERVAL_MS) {
-                authCache[hash] = cached.copy(lastTouchUtcMs = now)
-                store.touch(cached.client.id, now, address)
-            }
-            cached.client
-        } else {
-            val stored = store.byTokenHash(hash) ?: return null
-            authCache[hash] = CachedClient(stored, now)
-            store.touch(stored.id, now, address)
-            stored
-        }
+        if (now - client.lastSeenUtcMs > TOUCH_INTERVAL_MS) store.touch(client.id, now, address)
         val manager = gate.managers()[client.profileId] ?: return null
         return Access(client, manager)
     }
@@ -170,12 +158,13 @@ class PairingManager @Inject constructor(
     /** The owner and admins, each time they change. */
     fun observeManagers() = gate.observeManagers()
 
-    suspend fun revoke(clientId: Long) {
-        authCache.entries.removeIf { it.value.client.id == clientId }
-        store.delete(clientId)
-    }
+    suspend fun revoke(clientId: Long) = store.delete(clientId)
 
-    private data class CachedClient(val client: PairedClientEntity, val lastTouchUtcMs: Long)
+    /** Drops entries older than [windowMs] and counts the rest. */
+    private fun ArrayDeque<Long>.countSince(now: Long, windowMs: Long): Int {
+        while (isNotEmpty() && now - first() > windowMs) removeFirst()
+        return size
+    }
 
     /** A paired client and the profile it speaks for. */
     data class Access(val client: PairedClientEntity, val manager: Manager)
@@ -186,6 +175,8 @@ class PairingManager @Inject constructor(
         const val MAX_ATTEMPTS = 5
         const val MAX_STARTS = 10
         const val START_WINDOW_MS = 10 * 60 * 1000L
+        const val MAX_WRONG_PINS = 10
+        const val WRONG_PIN_WINDOW_MS = 60 * 60 * 1000L
         private const val TOUCH_INTERVAL_MS = 60 * 1000L
         private const val MAX_NAME_LENGTH = 64
         private const val MAX_AGENT_LENGTH = 256

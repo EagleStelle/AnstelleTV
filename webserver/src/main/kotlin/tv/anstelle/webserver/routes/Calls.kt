@@ -4,17 +4,20 @@ import io.ktor.http.ContentDisposition
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.origin
 import io.ktor.server.request.contentLength
 import io.ktor.server.request.header
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
-import io.ktor.utils.io.readRemaining
+import io.ktor.utils.io.readBuffer
 import kotlinx.io.readByteArray
+import kotlinx.serialization.SerializationException
 import tv.anstelle.core.model.ProfileRole
 import tv.anstelle.webserver.ServerDependencies
 import tv.anstelle.webserver.TOKEN_COOKIE
+import tv.anstelle.webserver.api.ApiJson
 import tv.anstelle.webserver.api.ErrorDto
 import tv.anstelle.webserver.pairing.PairingManager
 
@@ -59,12 +62,22 @@ internal suspend fun ApplicationCall.respondNotFound(error: String, message: Str
 /** The request body, or null after responding 413 when it is over [max] bytes. */
 internal suspend fun ApplicationCall.receiveBytes(max: Int, tooLarge: String): ByteArray? {
     val declared = request.contentLength()
-    val bytes = if (declared != null && declared > max) null else receiveChannel().readRemaining(max + 1L).readByteArray()
+    val bytes = if (declared != null && declared > max) null else receiveChannel().readBuffer(max + 1L).readByteArray()
     if (bytes == null || bytes.size > max) {
         respond(HttpStatusCode.PayloadTooLarge, ErrorDto("too_large", tooLarge))
         return null
     }
     return bytes
+}
+
+/** The JSON body as [T], or null after responding 413 when it is over [max] bytes. */
+internal suspend inline fun <reified T> ApplicationCall.receiveJson(max: Int): T? {
+    val bytes = receiveBytes(max, "That request is too big.") ?: return null
+    return try {
+        ApiJson.decodeFromString<T>(bytes.decodeToString())
+    } catch (e: SerializationException) {
+        throw BadRequestException("Malformed request body.", e)
+    }
 }
 
 /** Makes the response a file to save as [fileName]. */

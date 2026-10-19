@@ -163,6 +163,18 @@ class ServerRoutesTest {
     }
 
     @Test
+    fun openPairingRoutesRefuseLargeBodies() = serverTest { server ->
+        for (route in listOf("/api/pair/start", "/api/pair/confirm")) {
+            val response = client.post(route) {
+                contentType(ContentType.Application.Json)
+                setBody("""{"clientName":"${"x".repeat(PAIR_BODY_BYTES)}"}""")
+            }
+            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
+        }
+        assertEquals(null, server.pairing.activeRequest.value)
+    }
+
+    @Test
     fun channelLogosUploadServeAndClear() = serverTest { server ->
         val token = pair(server)
         val auth = "Bearer $token"

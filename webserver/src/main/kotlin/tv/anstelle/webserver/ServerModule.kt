@@ -17,7 +17,6 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.header
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
-import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
@@ -65,6 +64,7 @@ import tv.anstelle.webserver.pairing.PairStartResult
 import tv.anstelle.webserver.pairing.PairingManager
 import tv.anstelle.webserver.routes.channelRoutes
 import tv.anstelle.webserver.routes.deviceRoutes
+import tv.anstelle.webserver.routes.receiveJson
 import tv.anstelle.webserver.routes.requireManager
 import tv.anstelle.webserver.routes.serverRoutes
 import tv.anstelle.webserver.routes.themeRoutes
@@ -87,6 +87,7 @@ class ServerDependencies(
 
 const val TOKEN_COOKIE = "anstelle_token"
 private const val TOKEN_MAX_AGE_SECONDS = 365 * 24 * 60 * 60
+internal const val PAIR_BODY_BYTES = 4 * 1024
 
 /** Changes after which an open socket checks that its pairing still counts. */
 private val AccessTables = setOf("paired_client", "profile")
@@ -147,8 +148,9 @@ fun Application.anstelleModule(deps: ServerDependencies) {
                 call.respond(HealthDto(info.appName, info.versionName, info.deviceName, info.isTv))
             }
 
+            // Open to the whole LAN, so their bodies are read only up to a small cap.
             post("/pair/start") {
-                val body = call.receive<PairStartRequest>()
+                val body = call.receiveJson<PairStartRequest>(PAIR_BODY_BYTES) ?: return@post
                 when (val result = deps.pairing.start(body.clientName, call.request.origin.remoteAddress, isDevice = body.device)) {
                     is PairStartResult.Started -> call.respond(
                         PairStartResponse(
@@ -159,14 +161,14 @@ fun Application.anstelleModule(deps: ServerDependencies) {
                     )
                     PairStartResult.RateLimited -> call.respond(
                         HttpStatusCode.TooManyRequests,
-                        ErrorDto("rate_limited", "Too many pairing attempts. Try again in a few minutes."),
+                        ErrorDto("rate_limited", "Too many pairing attempts. Try again later."),
                     )
                     PairStartResult.NotAllowed -> call.respond(HttpStatusCode.Forbidden, NotAllowed)
                 }
             }
 
             post("/pair/confirm") {
-                val body = call.receive<PairConfirmRequest>()
+                val body = call.receiveJson<PairConfirmRequest>(PAIR_BODY_BYTES) ?: return@post
                 val result = deps.pairing.confirm(
                     requestId = body.requestId,
                     pin = body.pin,

@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import tv.anstelle.webserver.pairing.PairResult
 import tv.anstelle.webserver.pairing.PairStartResult
 import tv.anstelle.webserver.pairing.PairingManager
+import tv.anstelle.webserver.pairing.PairingRequest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -17,6 +18,8 @@ class PairingManagerTest {
 
     private suspend fun startPairing() =
         assertIs<PairStartResult.Started>(pairing.start("Laptop", "192.168.1.5")).request
+
+    private fun wrongPin(request: PairingRequest) = if (request.pin == "000000") "111111" else "000000"
 
     @Test
     fun correctPinIssuesTokenAndStoresOnlyItsHash() = runTest {
@@ -34,20 +37,33 @@ class PairingManagerTest {
     @Test
     fun wrongPinThenRightPinStillPairs() = runTest {
         val request = startPairing()
-        val wrong = if (request.pin == "000000") "111111" else "000000"
-        assertEquals(PairResult.WrongPin, pairing.confirm(request.id, wrong, null, null))
+        assertEquals(PairResult.WrongPin, pairing.confirm(request.id, wrongPin(request), null, null))
         assertIs<PairResult.Paired>(pairing.confirm(request.id, request.pin, null, null))
     }
 
     @Test
     fun tooManyWrongPinsCancelsRequest() = runTest {
         val request = startPairing()
-        val wrong = if (request.pin == "000000") "111111" else "000000"
         repeat(PairingManager.MAX_ATTEMPTS - 1) {
-            assertEquals(PairResult.WrongPin, pairing.confirm(request.id, wrong, null, null))
+            assertEquals(PairResult.WrongPin, pairing.confirm(request.id, wrongPin(request), null, null))
         }
-        assertEquals(PairResult.TooManyAttempts, pairing.confirm(request.id, wrong, null, null))
+        assertEquals(PairResult.TooManyAttempts, pairing.confirm(request.id, wrongPin(request), null, null))
         assertEquals(PairResult.NoRequest, pairing.confirm(request.id, request.pin, null, null))
+    }
+
+    @Test
+    fun wrongPinsAcrossRequestsHoldPairingOffForTheirWindow() = runTest {
+        var request = startPairing()
+        repeat(PairingManager.MAX_WRONG_PINS) { guess ->
+            val result = pairing.confirm(request.id, wrongPin(request), null, null)
+            if (guess == PairingManager.MAX_WRONG_PINS - 1) assertEquals(PairResult.TooManyAttempts, result)
+            else if (result == PairResult.TooManyAttempts) request = startPairing()
+        }
+        assertEquals(PairStartResult.RateLimited, pairing.start("Laptop", null))
+        server.clock.now += PairingManager.START_WINDOW_MS + 1
+        assertEquals(PairStartResult.RateLimited, pairing.start("Laptop", null))
+        server.clock.now += PairingManager.WRONG_PIN_WINDOW_MS
+        startPairing()
     }
 
     @Test
@@ -104,6 +120,16 @@ class PairingManagerTest {
         val request = startPairing()
         val paired = assertIs<PairResult.Paired>(pairing.confirm(request.id, request.pin, null, null))
         pairing.revoke(paired.client.id)
+        assertNull(pairing.authenticate(paired.token, null))
+    }
+
+    @Test
+    fun aPairingDeletedOutsideRevokeStopsCountingAtOnce() = runTest {
+        val request = startPairing()
+        val paired = assertIs<PairResult.Paired>(pairing.confirm(request.id, request.pin, null, null))
+        assertNotNull(pairing.authenticate(paired.token, null))
+        // Demoting its profile to a member or restoring a backup deletes the row directly.
+        server.store.clients.clear()
         assertNull(pairing.authenticate(paired.token, null))
     }
 }

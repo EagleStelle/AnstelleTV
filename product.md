@@ -163,9 +163,10 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - A remote-address guard allows only RFC 1918, link-local, ULA and loopback addresses.
 - Pairing:
   - The TV shows a 6-digit PIN. It lives 2 minutes and allows 5 attempts.
-  - At most 10 pairing starts are allowed per 10 minutes.
+  - At most 10 pairing starts are allowed per 10 minutes. Wrong PINs count across pairings: after 10 within an hour, pairing waits until the hour has passed, so guessing stays slow while nobody watches the TV.
+  - The open pairing routes read at most 4 KB of body; anything larger is refused before it is read.
   - On success the browser gets a 256-bit token as an HttpOnly, SameSite=Strict cookie. `Authorization: Bearer` is also accepted.
-  - Only the token's SHA-256 is stored.
+  - Only the token's SHA-256 is stored. Every request looks it up again (a unique index), so a pairing deleted outside web control — a profile made a member, a restore — stops counting at once.
 - Cross-origin writes and cross-origin `/ws` are rejected. Unpaired `/ws` gets a 401 before the upgrade.
 - Another AnstelleTV pairs the same way to copy this one's backup (`GET /api/backup/export`, see *Backup and LAN transfer*), so the PIN guards the backup too.
 - **A pairing belongs to a profile** (user decision: only the owner and admins use the web UI). The TV approves a pairing only while the owner's or an admin's profile is active (`PairingGate.approver`): on a member's profile `/api/pair/start` answers 403 `no_manager`, and neither the overlay nor the notification shows a PIN. The token is stored with the profile that approved it (`paired_client.profileId`, deleted with the profile), and it counts only while that profile is the owner or an admin, checked in memory on every request; making the profile a member deletes its pairings, so making it an admin again doesn't bring them back. Restore (`POST /api/backup/restore`) is the owner's alone, as in the app.
