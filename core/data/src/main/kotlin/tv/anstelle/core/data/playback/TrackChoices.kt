@@ -71,15 +71,8 @@ class TrackChoices @Inject constructor(
      */
     fun applyDefaults(pooled: PooledPlayer, prefs: TrackPrefs) {
         pooled.trackSelector.setPrefs(prefs)
-        val player = pooled.player
-        player.volume = 1f
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .clearOverrides()
-            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
-            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-            .setPreferredAudioLanguages(*prefs.audioLanguages.toTypedArray())
-            .build()
+        pooled.player.volume = 1f
+        pooled.resetTrackParameters(prefs)
     }
 
     /**

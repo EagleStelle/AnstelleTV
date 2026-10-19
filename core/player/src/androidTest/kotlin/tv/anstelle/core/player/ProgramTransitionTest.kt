@@ -8,12 +8,23 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.LoadControl
+import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.analytics.PlayerId
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.SinglePeriodTimeline
 import androidx.media3.exoplayer.video.PlaceholderSurface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import okhttp3.OkHttpClient
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.After
@@ -21,6 +32,7 @@ import org.junit.Before
 import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import tv.anstelle.core.model.TrackPrefs
 
 /** Actual Media3/libass playback with generated, anonymous H.264/AAC samples. */
 @RunWith(AndroidJUnit4::class)
@@ -32,6 +44,59 @@ class ProgramTransitionTest {
 
     @Before fun serveSamples() { server = TransitionSampleServer(context) }
     @After fun stopServer() { server.close() }
+
+    @Test fun canceledTraceCannotLaterCountAsARenderedTune() {
+        val canceled = TuneTrace.begin()
+        assertTrue(canceled.end() >= 0)
+        assertTrue(canceled.rendered() == -1L)
+        val rendered = TuneTrace.begin()
+        assertTrue(rendered.rendered() >= 0)
+        assertTrue(rendered.end() == -1L)
+    }
+
+    @Test fun liveStartsWithQuarterSecondButKeepsRecoveryProtectionAndOnDemandDefaults() {
+        instrumentation.runOnMainSync {
+            for (mode in PlaybackMode.entries) {
+                val pooled = factory().create(mode)
+                val id = PlayerId("buffer-test-$mode")
+                try {
+                    pooled.loadControl.onPrepared(id)
+                    val timeline = SinglePeriodTimeline(5_000_000L, true, false, false, null, sample("plain.mp4", "buffer"))
+                    fun buffered(us: Long, rebuffering: Boolean = false) = LoadControl.Parameters(
+                        id, timeline, MediaSource.MediaPeriodId(timeline.getUidOfPeriod(0)), 0, us, 1f,
+                        true, rebuffering, C.TIME_UNSET, C.TIME_UNSET,
+                    )
+                    assertFalse(pooled.loadControl.shouldStartPlayback(buffered(249_000)))
+                    assertTrue(pooled.loadControl.shouldStartPlayback(buffered(250_000)) == (mode == PlaybackMode.LIVE_TV))
+                    assertTrue(pooled.loadControl.shouldStartPlayback(buffered(1_000_000)))
+                    assertFalse(pooled.loadControl.shouldStartPlayback(buffered(1_999_000, rebuffering = true)))
+                    assertTrue(pooled.loadControl.shouldStartPlayback(buffered(2_000_000, rebuffering = true)))
+                } finally {
+                    pooled.loadControl.onReleased(id)
+                    pooled.release()
+                }
+            }
+        }
+    }
+
+    @Test fun standbyDefaultsNeverTemporarilyEnableVideoOrUnmute() {
+        instrumentation.runOnMainSync {
+            val pool = PlayerPool(factory())
+            try {
+                val standby = pool.standby
+                pool.quiet(standby, concurrentVideoDecoders = false)
+                val changes = mutableListOf<TrackSelectionParameters>()
+                standby.player.addListener(object : Player.Listener {
+                    override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) { changes += parameters }
+                })
+                pool.quiet(standby, concurrentVideoDecoders = false, TrackPrefs(audioLanguages = listOf("ja")))
+                assertTrue("Defaults did not reach the selector", changes.isNotEmpty())
+                assertTrue(changes.all { C.TRACK_TYPE_VIDEO in it.disabledTrackTypes })
+                assertTrue(standby.player.trackSelectionParameters.preferredAudioLanguages == listOf("ja"))
+                assertTrue(standby.player.volume == 0f && !standby.player.playWhenReady)
+            } finally { pool.release() }
+        }
+    }
 
     @Test fun poolCreatesStandbyOnlyWhenNeededAndReleasesItWhenIdle() {
         instrumentation.runOnMainSync {
@@ -46,6 +111,57 @@ class ProgramTransitionTest {
                 assertNull(pool.preparedStandby)
             } finally { pool.release() }
         }
+    }
+
+    @Test fun standbyFollowsTheLivePointAndSwapsInsideItsBuffer() {
+        val pool = onMain { PlayerPool(factory()) }
+        var loads = 0
+        try {
+            val standby = onMain {
+                pool.standby.also { standby ->
+                    pool.quiet(standby, concurrentVideoDecoders = false)
+                    standby.player.addAnalyticsListener(object : AnalyticsListener {
+                        override fun onLoadStarted(time: AnalyticsListener.EventTime, load: LoadEventInfo, media: MediaLoadData, retryCount: Int) { loads++ }
+                    })
+                    // One keyframe for all 6 s: a buffer that lost it can only seek by loading again.
+                    standby.player.setMediaItem(sample("plain.mp4", "standby"))
+                    standby.player.prepare()
+                }
+            }
+            fun settle(pooled: PooledPlayer) = assertTrue("Player never settled", awaitMain { pooled.player.playbackState == Player.STATE_READY && !pooled.player.isLoading })
+            settle(standby)
+            val loaded = onMain { loads }
+            val half = standby.loadControl.standbyBufferUs / 2_000
+            for (live in listOf(half, 2 * half)) {
+                onMain { pool.followLive(standby, live) }
+                settle(standby)
+            }
+            val active = onMain {
+                standby.player.seekTo(0, 2 * half + 1)
+                pool.swap().also { it.resetTrackParameters(TrackPrefs()) }
+            }
+            settle(active)
+            assertEquals("Following the live point or swapping loaded the media again", loaded, onMain { loads })
+            assertEquals("The swap left its keyframe", 0L, onMain { active.player.currentPosition })
+            assertEquals(SeekParameters.DEFAULT, onMain { active.player.seekParameters })
+        } finally {
+            onMain { pool.release() }
+        }
+    }
+
+    private fun <T> onMain(block: () -> T): T {
+        var result: Result<T>? = null
+        instrumentation.runOnMainSync { result = runCatching(block) }
+        return checkNotNull(result).getOrThrow()
+    }
+
+    private fun awaitMain(condition: () -> Boolean): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + 10_000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (onMain(condition)) return true
+            SystemClock.sleep(50)
+        }
+        return false
     }
 
     @Test

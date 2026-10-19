@@ -20,7 +20,9 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -171,7 +173,7 @@ internal fun GuideGrid(
 
     Column(modifier) {
         TimeHeader(grid, metrics, now)
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
@@ -244,7 +246,12 @@ internal fun GuideGrid(
                     },
                 ),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            // Even the final channel can be the first visible row when the guide opens.
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(bottom = (maxHeight - metrics.rowHeight).coerceAtLeast(0.dp)),
+                modifier = Modifier.fillMaxSize(),
+            ) {
                 items(channels, key = { it.id }, contentType = { "row" }) { channel ->
                     GuideRow(
                         channel = channel,
@@ -263,7 +270,12 @@ internal fun GuideGrid(
                             grid.tap(channel.id, x)
                             onActions()
                         },
-                        onChannelTap = { onChannelTap(channel) },
+                        onChannelTap = {
+                            // A channel preview always represents what is airing now. Keep the
+                            // grid selection, details, and backdrop on that same program.
+                            grid.selectNow(channel.id, System.currentTimeMillis())
+                            onChannelTap(channel)
+                        },
                     )
                 }
             }

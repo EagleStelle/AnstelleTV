@@ -5,6 +5,8 @@ import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
+import tv.anstelle.core.model.TrackPrefs
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,6 +20,19 @@ class PooledPlayer(
 ) {
     /** Channel this player is prepared for, or null. */
     var channelId: Long? = null
+
+    /** Resets per-program track picks and audio languages in one update, including any standby video limit. */
+    @MainThread
+    fun resetTrackParameters(prefs: TrackPrefs, videoDisabled: Boolean = false) {
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverrides()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, videoDisabled)
+            // Audio keeps the demuxer loading even on a stick with one video decoder.
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setPreferredAudioLanguages(*prefs.audioLanguages.toTypedArray())
+            .build()
+    }
 
     @MainThread
     fun release() {
@@ -44,10 +59,10 @@ class PlayerPool @Inject constructor(
     private var standbySlot: PooledPlayer? = null
 
     @get:MainThread
-    val active: PooledPlayer get() = activeSlot ?: factory.create().also { activeSlot = it }
+    val active: PooledPlayer get() = activeSlot ?: factory.create(PlaybackMode.LIVE_TV).also { activeSlot = it }
 
     @get:MainThread
-    val standby: PooledPlayer get() = standbySlot ?: factory.create().also {
+    val standby: PooledPlayer get() = standbySlot ?: factory.create(PlaybackMode.LIVE_TV).also {
         it.loadControl.standby = true
         standbySlot = it
     }
@@ -61,7 +76,10 @@ class PlayerPool @Inject constructor(
         standbySlot = null
     }
 
-    /** Makes the standby the active player. The old active player stops and becomes the standby. */
+    /**
+     * Makes the standby the active player, seeking exactly again on screen. The old active
+     * player stops and becomes the standby.
+     */
     @MainThread
     fun swap(): PooledPlayer {
         val next = standby
@@ -69,25 +87,36 @@ class PlayerPool @Inject constructor(
         activeSlot = next
         standbySlot = previous
         next.loadControl.standby = false
+        next.player.setSeekParameters(SeekParameters.DEFAULT)
         previous.loadControl.standby = true
         stop(previous)
         return next
     }
 
     /**
-     * Prepares a muted standby: video stays off unless the
-     * device can run a second video decoder (Fire TV sticks can't).
+     * Prepares a muted standby: video stays off unless the device can run a second video
+     * decoder (Fire TV sticks can't). It seeks to keyframes, where its buffer starts, so every
+     * seek it makes, the swap's included, stays inside that buffer.
      */
     @MainThread
-    fun quiet(player: PooledPlayer, concurrentVideoDecoders: Boolean) {
+    fun quiet(player: PooledPlayer, concurrentVideoDecoders: Boolean, prefs: TrackPrefs = TrackPrefs()) {
         player.player.playWhenReady = false
         player.player.volume = 0f
-        player.player.trackSelectionParameters = player.player.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, factory.lowMemory || !concurrentVideoDecoders)
-            // Audio keeps the demuxer loading even on a stick with one video decoder.
-            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-            .build()
+        player.player.setSeekParameters(SeekParameters.PREVIOUS_SYNC)
+        player.trackSelector.setPrefs(prefs)
+        // Apply defaults and decoder limits together; never enable an old standby's video first.
+        player.resetTrackParameters(prefs, videoDisabled = factory.lowMemory || !concurrentVideoDecoders)
+    }
+
+    /**
+     * Keeps the paused [standby] at the keyframe before [liveMs], where its program airs now. It
+     * holds only seconds of buffer, so it moves before falling half of that behind: a swap's seek
+     * then lands inside the buffer instead of downloading again. A seek that lands on the
+     * keyframe it already waits at does nothing.
+     */
+    @MainThread
+    fun followLive(standby: PooledPlayer, liveMs: Long) {
+        if (liveMs - standby.player.currentPosition >= standby.loadControl.standbyBufferUs / 2_000) standby.player.seekTo(0, liveMs)
     }
 
     @MainThread
@@ -109,7 +138,7 @@ class PlayerPool @Inject constructor(
         if (player.subtitles.fontBytes <= budget) return player
         val isStandby = player === standbySlot
         player.release()
-        return factory.create().also {
+        return factory.create(PlaybackMode.LIVE_TV).also {
             it.loadControl.standby = isStandby
             if (isStandby) standbySlot = it else activeSlot = it
         }

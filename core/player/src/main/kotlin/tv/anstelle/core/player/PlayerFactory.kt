@@ -66,7 +66,9 @@ class PlayerFactory @Inject constructor(
         spec.withAdditionalHeaders(mapOf("Authorization" to header))
     }
 
-    fun create(): PooledPlayer {
+    fun create(): PooledPlayer = create(PlaybackMode.ON_DEMAND)
+
+    internal fun create(mode: PlaybackMode): PooledPlayer {
         val subtitles = PlayerSubtitles()
         val renderersFactory = AssRenderersFactory(
             subtitles.handler,
@@ -77,7 +79,10 @@ class PlayerFactory @Inject constructor(
         val trackSelector = LanguageTrackSelector(context)
         val loadControl = PoolLoadControl(
             DefaultLoadControl.Builder()
-                .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, START_BUFFER_MS, REBUFFER_MS)
+                .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, mode.startBufferMs, REBUFFER_MS)
+                // The buffer starts at a keyframe, so a seek inside it (a standby following the
+                // live point, its swap) decodes from there instead of downloading again.
+                .setBackBuffer(0, true)
                 // The default target is about 125 MB of heap per player; a stick's heap is 256 MB.
                 .setTargetBufferBytes(if (lowMemory) 32 * 1024 * 1024 else TARGET_BUFFER_BYTES)
                 .build(),
@@ -106,9 +111,14 @@ class PlayerFactory @Inject constructor(
         const val MIN_BUFFER_MS = 15_000
         const val MAX_BUFFER_MS = 30_000
         const val TARGET_BUFFER_BYTES = 64 * 1024 * 1024
-        const val START_BUFFER_MS = 1_000
         const val REBUFFER_MS = 2_000
     }
+}
+
+/** Only channel playback trades a little initial buffering protection for faster tuning. */
+internal enum class PlaybackMode(val startBufferMs: Int) {
+    ON_DEMAND(1_000),
+    LIVE_TV(250),
 }
 
 /**
@@ -119,7 +129,7 @@ class PlayerFactory @Inject constructor(
 @OptIn(UnstableApi::class)
 class PoolLoadControl(
     private val base: DefaultLoadControl,
-    private val standbyBufferUs: Long = 4_000_000L,
+    internal val standbyBufferUs: Long = 4_000_000L,
     private val standbyBufferBytes: Int = 8 * 1024 * 1024,
     private val activeBufferBytes: Int = 64 * 1024 * 1024,
 ) : LoadControl {

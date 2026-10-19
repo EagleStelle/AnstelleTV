@@ -12,7 +12,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -98,22 +100,22 @@ data class PlaybackState(
 )
 
 /** One scheduled program, ready to play as [account]. */
-private class Program(
+internal class Program(
     val slot: ScheduleSlotEntity,
     val item: MediaItemEntity,
     val server: MediaServerEntity,
     val account: WatchAccount,
     val stream: ProgramStream,
     val logoUrl: String?,
+    // Schedule shifts must retain the identity already installed in the player's playlist.
+    val mediaItem: MediaItem = stream.mediaItem("${slot.channelId}@${slot.startUtcMs}"),
 ) {
-    val mediaItem: MediaItem = stream.mediaItem("${slot.channelId}@${slot.startUtcMs}")
-
     val info: ProgramInfo = programInfo(item, slot.startUtcMs, slot.endUtcMs, logoUrl)
 
     val facts: StreamFacts = StreamFacts.of(item, server.name, stream.transcoded)
 
     /** The same program after its airing moved by [deltaMs]. */
-    fun shifted(deltaMs: Long) = Program(slot.copy(startUtcMs = slot.startUtcMs + deltaMs, endUtcMs = slot.endUtcMs + deltaMs), item, server, account, stream, logoUrl)
+    fun shifted(deltaMs: Long) = Program(slot.copy(startUtcMs = slot.startUtcMs + deltaMs, endUtcMs = slot.endUtcMs + deltaMs), item, server, account, stream, logoUrl, mediaItem)
 }
 
 /**
@@ -208,6 +210,8 @@ class ChannelPlayer @Inject constructor(
     /** Last item's end position, captured before an automatic playlist transition resets it. */
     private var leftAtMs: Long? = null
     private var trace: TuneTrace? = null
+    private var tuneGeneration = 0L
+    private var listener: Player.Listener? = null
     private var retriedSlot = Long.MIN_VALUE
 
     /** The program on now's last position sample, which tells its real length when it ends. */
@@ -261,7 +265,7 @@ class ChannelPlayer @Inject constructor(
         lineup.firstOrNull { it.id == channelId }?.let { tuneTo(it, surf = 0) }
     }
 
-    /** Pre-warms [channelId] on the standby player, e.g. while the guide has it focused. */
+    /** Readies [channelId] on the standby player as the next likely tune, e.g. the guide row browsing heads to. */
     fun prewarm(channelId: Long) {
         if (channelId == current?.id) return
         if (nextOnStandby != null || boundaryJob?.isActive == true) return
@@ -381,6 +385,7 @@ class ChannelPlayer @Inject constructor(
 
     /** Stops playback, e.g. when the player screen closes or the app goes to the background. */
     fun stop() {
+        tuneGeneration++
         queueJob?.cancel()
         boundaryJob?.cancel()
         prewarmJob?.cancel()
@@ -390,12 +395,14 @@ class ChannelPlayer @Inject constructor(
         tickJob?.cancel()
         scheduleCheckJob?.cancel()
         endSession(atEnd = false)
+        trace?.end()
         trace = null
         sample = null
         detach()
         pool.stopAll()
         queue.clear()
         standbyQueue = emptyList()
+        current = null
         _state.update { PlaybackState(tuneCount = it.tuneCount) }
     }
 
@@ -419,6 +426,10 @@ class ChannelPlayer @Inject constructor(
      * then had nothing queued behind it, to the program that follows it.
      */
     private suspend fun tuneNow(channel: Channel, after: Long? = null) {
+        tuneGeneration++
+        detachListener()
+        tickJob?.cancel()
+        scheduleCheckJob?.cancel()
         queueJob?.cancel()
         prewarmJob?.cancel()
         endSession(atEnd = false)
@@ -463,8 +474,10 @@ class ChannelPlayer @Inject constructor(
             serverDao.byId(cached.server.id) == cached.server && withContext(io) { tokens.get(cached.server.jellyfinServerId) }
                 ?.let { profiles.watchAccount(profileId, cached.server, it) } == cached.account
         }
+        if (prepared == null) stopStandby()
         val resolving = TuneTrace.begin("TuneResolve")
         val program = try { prepared ?: resolve(slot, forceTranscode = false) } finally { resolving.end() }
+        currentCoroutineContext().ensureActive()
         if (program == null) {
             failAndRetry("This program can't be played. Check the server's and the profile's sign-in.")
             return
@@ -472,12 +485,16 @@ class ChannelPlayer @Inject constructor(
         val swapped = prepared != null
         val pooled = if (swapped) {
             detach()
+            // The standby waited at a keyframe; it catches up with the wall clock at the newest
+            // one, inside its buffer, so the first frame needs no decoding up to the exact spot.
+            pool.standby.player.seekTo(0, (time.nowUtcMs() - slot.startUtcMs).coerceAtLeast(0))
             pool.swap().also {
                 queue.clear()
                 queue.addAll(standbyQueue)
                 standbyQueue = emptyList()
             }
         } else {
+            // Keep the active player reusable; replacing its media stops the old stream.
             pool.renewIfFull(pool.active).also {
                 val programs = listOf(program)
                 load(it, programs, slot)
@@ -488,8 +505,6 @@ class ChannelPlayer @Inject constructor(
         pooled.channelId = channel.id
         val player = pooled.player
         tracks.applyDefaults(pooled, prefs)
-        // The standby waited; catch up with the wall clock.
-        if (swapped) player.seekTo(0, (time.nowUtcMs() - slot.startUtcMs).coerceAtLeast(0))
         attach(player)
         player.playWhenReady = true
         retriedSlot = Long.MIN_VALUE
@@ -522,6 +537,7 @@ class ChannelPlayer @Inject constructor(
     ): Boolean {
         val fetching = TuneTrace.begin("TuneFonts")
         val fontFiles = try { fonts.load(programs.first().stream) } finally { fetching.end() }
+        currentCoroutineContext().ensureActive()
         if (!stillWanted()) return false
         pooled.player.setMediaItems(programs.map { it.mediaItem }, 0, (time.nowUtcMs() - slot.startUtcMs).coerceAtLeast(0))
         pooled.subtitles.addFonts(fontFiles)
@@ -593,12 +609,15 @@ class ChannelPlayer @Inject constructor(
 
     private suspend fun offAir(channel: Channel, slot: ScheduleSlotEntity) {
         stopActive()
+        trace?.end()
         trace = null
+        val next = upcoming(slot)
+        currentCoroutineContext().ensureActive()
         _state.update {
             it.copy(
                 status = TuneStatus.OFF_AIR,
                 now = ProgramInfo(OFF_AIR_TITLE, null, slot.startUtcMs, slot.endUtcMs),
-                next = upcoming(slot),
+                next = next,
             )
         }
         waitJob = scope.launch {
@@ -613,16 +632,20 @@ class ChannelPlayer @Inject constructor(
      */
     private suspend fun restricted(channel: Channel, slot: ScheduleSlotEntity, item: MediaItemEntity) {
         stopActive()
+        trace?.end()
         trace = null
         val until = runEnd(slot)
         val server = serverDao.byId(item.serverId)
         val restriction = Restriction.of(item.id, item.ratingScore, access)
+        val info = programInfo(item, slot.startUtcMs, until, server?.let { s -> logoUrl(item, s) }, restricted = true)
+        val next = upcomingAt(slot.channelId, until)
+        currentCoroutineContext().ensureActive()
         _state.update {
             it.copy(
                 status = TuneStatus.RESTRICTED,
                 // The picture is blacked out; the banner blurs the title and logo.
-                now = programInfo(item, slot.startUtcMs, until, server?.let { s -> logoUrl(item, s) }, restricted = true),
-                next = upcomingAt(slot.channelId, until),
+                now = info,
+                next = next,
                 restriction = restriction,
             )
         }
@@ -642,6 +665,7 @@ class ChannelPlayer @Inject constructor(
     private fun failAndRetry(message: String) {
         endSession(atEnd = false)
         stopActive()
+        trace?.end()
         trace = null
         _state.update { it.copy(status = TuneStatus.ERROR, message = message) }
         val channel = current ?: return
@@ -653,13 +677,19 @@ class ChannelPlayer @Inject constructor(
     }
 
     private suspend fun retryAsHls(failed: Program) {
+        val generation = tuneGeneration
         val pooled = pool.active
         if (_player.value !== pooled.player) return
-        val program = resolve(failed.slot, forceTranscode = true) ?: return failAndRetry("This program can't be played.")
+        val program = resolve(failed.slot, forceTranscode = true)
+        currentCoroutineContext().ensureActive()
+        if (generation != tuneGeneration) return
+        if (program == null) return failAndRetry("This program can't be played.")
         val programs = listOfNotNull(program, queue.getOrNull(1)?.takeIf { program.stream.chainsWith(it.stream) })
-        if (!load(pooled, programs, program.slot) { pool.active === pooled && _player.value === pooled.player }) return
+        detachListener()
+        if (!load(pooled, programs, program.slot) { generation == tuneGeneration && pool.active === pooled && _player.value === pooled.player }) return
         queue.clear()
         queue.addAll(programs)
+        attach(pooled.player)
         session?.let { reporter.restream(it, program.stream.playSessionId, program.stream.transcoded) }
         pooled.player.playWhenReady = true
         _state.update { it.copy(status = TuneStatus.PLAYING, stream = program.facts, message = null) }
@@ -689,6 +719,15 @@ class ChannelPlayer @Inject constructor(
         if (ticks % 10 == 0) checkSchedule()
         prepareBoundary()
         if (ticks % STANDBY_TICKS == 0) refreshStandby()
+        followStandby()
+    }
+
+    /** The surfing standby's program airs on while it waits; the standby follows it inside its buffer. */
+    private fun followStandby() {
+        val program = standbyQueue.firstOrNull() ?: return
+        val now = time.nowUtcMs()
+        if (now >= program.slot.endUtcMs) return
+        pool.preparedStandby?.takeIf { it.channelId == program.slot.channelId }?.let { pool.followLive(it, now - program.slot.startUtcMs) }
     }
 
     /** A measured duration can replace the airing being watched; follow that repair without waiting for a bad header's end. */
@@ -724,9 +763,13 @@ class ChannelPlayer @Inject constructor(
         prewarmJob = scope.launch { prewarm(target) }
     }
 
-    /** Only the final 30 seconds need a second stream; no extra player or decoder is created. */
+    /**
+     * Only the final 30 seconds need a second stream; no extra player or decoder is created.
+     * While someone surfs, the standby stays theirs until they rest on the channel.
+     */
     private fun prepareBoundary() {
         if (_player.value?.isPlaying != true || _state.value.buffering) return
+        if (time.nowUtcMs() - surfedAtMs < SURF_REST_MS) return
         val player = pool.active.player
         val program = queue.firstOrNull() ?: return
         if (queue.size > 1 || nextOnStandby != null || boundaryJob?.isActive == true) return
@@ -737,8 +780,7 @@ class ChannelPlayer @Inject constructor(
             val next = nextProgram(program.slot) ?: return@launch
             if (queue.firstOrNull() !== program) return@launch
             val standby = pool.renewIfFull(pool.standby)
-            tracks.applyDefaults(standby, prefs)
-            pool.quiet(standby, withContext(io) { probe.capabilities }.concurrentVideoDecoders)
+            pool.quiet(standby, withContext(io) { probe.capabilities }.concurrentVideoDecoders, prefs)
             val fontFiles = fonts.load(next.stream)
             if (queue.firstOrNull() !== program || pool.preparedStandby !== standby) return@launch
             standby.player.setMediaItems(listOf(next.mediaItem), 0, 0)
@@ -790,19 +832,15 @@ class ChannelPlayer @Inject constructor(
             standbyQueue = emptyList()
             return
         }
-        if (standby.channelId == channel.id && standbyQueue.firstOrNull()?.slot?.startUtcMs == slot.startUtcMs) {
-            // Keep its buffer near the live position.
-            standby.player.seekTo(0, now - slot.startUtcMs)
-            return
-        }
+        // Already ready: [followStandby] keeps it at the live position.
+        if (standby.channelId == channel.id && standbyQueue.firstOrNull()?.slot?.startUtcMs == slot.startUtcMs) return
         val program = resolve(slot, forceTranscode = false)?.takeIf { allowed(it.item) }
         if (program == null) {
             pool.stop(standby)
             standbyQueue = emptyList()
             return
         }
-        tracks.applyDefaults(standby, prefs)
-        pool.quiet(standby, withContext(io) { probe.capabilities }.concurrentVideoDecoders)
+        pool.quiet(standby, withContext(io) { probe.capabilities }.concurrentVideoDecoders, prefs)
         val programs = listOf(program)
         // A tune may swap the pool while fonts load; then this player is on screen.
         if (!load(standby, programs, slot) { pool.preparedStandby === standby }) return
@@ -847,24 +885,43 @@ class ChannelPlayer @Inject constructor(
     private fun stopActive() {
         detach()
         pool.stop(pool.active)
+        stopStandby()
         queue.clear()
     }
 
+    private fun stopStandby() {
+        prewarmJob?.cancel()
+        boundaryJob?.cancel()
+        nextOnStandby = null
+        pool.preparedStandby?.let(pool::stop)
+        standbyQueue = emptyList()
+    }
+
     private fun attach(player: Player) {
-        val old = _player.value
-        if (old === player) return
-        old?.removeListener(listener)
-        player.addListener(listener)
+        detachListener()
+        val attached = playbackListener(player, tuneGeneration)
+        listener = attached
         _player.value = player
+        player.addListener(attached)
+    }
+
+    private fun detachListener() {
+        listener?.let { _player.value?.removeListener(it) }
+        listener = null
     }
 
     private fun detach() {
-        _player.value?.removeListener(listener)
+        detachListener()
         _player.value = null
     }
 
-    private val listener = object : Player.Listener {
+    private fun playbackListener(owner: Player, generation: Long) = object : Player.Listener {
+        private fun ownsPlayback(): Boolean = listener === this && generation == tuneGeneration &&
+            _player.value === owner && _state.value.status == TuneStatus.PLAYING &&
+            queue.any { it.mediaItem.mediaId == owner.currentMediaItem?.mediaId }
+
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (!ownsPlayback()) return
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) return
             val player = _player.value ?: return
             val finished = queue.removeFirstOrNull()
@@ -896,12 +953,14 @@ class ChannelPlayer @Inject constructor(
         }
 
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            if (!ownsPlayback()) return
             if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION && oldPosition.mediaItemIndex != newPosition.mediaItemIndex) {
                 leftAtMs = oldPosition.positionMs
             }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (!ownsPlayback()) return
             when (playbackState) {
                 // Nothing more is queued: the next program wasn't chained, the channel goes off
                 // air, or the schedule ran out.
@@ -937,6 +996,7 @@ class ChannelPlayer @Inject constructor(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (!ownsPlayback()) return
             session?.let {
                 reporter.playingChanged(it, isPlaying)
                 reporter.progress(it, _player.value?.currentPosition ?: 0, paused = !isPlaying)
@@ -947,25 +1007,25 @@ class ChannelPlayer @Inject constructor(
         }
 
         override fun onRenderedFirstFrame() {
-            if (_state.value.status != TuneStatus.PLAYING) return
+            if (!ownsPlayback()) return
             val tuned = trace
             trace = null
             val program = queue.firstOrNull() ?: return
             if (tuned != null) {
-                AppLog.i(TAG, "Tune: first frame on ${current?.number} after ${tuned.end()} ms (${if (program.stream.transcoded) "HLS" else "direct play"})")
+                AppLog.i(TAG, "Tune: first frame on ${current?.number} after ${tuned.rendered()} ms (${if (program.stream.transcoded) "HLS" else "direct play"})")
             }
             // Also the first frame after an HLS fallback that came before any session.
             if (session == null) startSession(program, _player.value?.currentPosition ?: 0)
             if (tuned != null) {
+                // The next surf matters more than the next program, whose lookup takes a while.
+                refreshStandby()
                 queueJob?.cancel()
-                queueJob = scope.launch {
-                    if (queue.size == 1) queueAfter(program)
-                    if (queue.firstOrNull() === program) refreshStandby()
-                }
+                if (queue.size == 1) queueJob = scope.launch { queueAfter(program) }
             }
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            if (!ownsPlayback()) return
             val program = queue.firstOrNull() ?: return
             AppLog.w(TAG, "Playback failed on ${current?.number}: ${error.errorCodeName}", error)
             if (!program.stream.transcoded && error.errorCode in FormatErrors && retriedSlot != program.slot.startUtcMs) {
@@ -981,6 +1041,8 @@ class ChannelPlayer @Inject constructor(
 
     private suspend fun queueAfter(program: Program) {
         val next = nextProgram(program.slot)
+        val nextInfo = next?.info ?: upcoming(program.slot)
+        currentCoroutineContext().ensureActive()
         if (queue.lastOrNull() !== program) return
         val player = _player.value ?: return
         if (next != null && program.stream.chainsWith(next.stream)) {
@@ -988,7 +1050,7 @@ class ChannelPlayer @Inject constructor(
             queue.add(next)
             _state.update { it.copy(next = next.info) }
         } else {
-            _state.update { it.copy(next = next?.info ?: upcoming(program.slot)) }
+            _state.update { it.copy(next = nextInfo) }
         }
     }
 
@@ -1016,6 +1078,9 @@ class ChannelPlayer @Inject constructor(
         /** How long after the last tune or guide focus the standby is kept warm. */
         const val STANDBY_IDLE_MS = 2 * 60_000L
         const val NEXT_PREPARE_MS = 30_000L
+
+        /** How long after the last tune or guide move the viewer counts as resting on a channel. */
+        const val SURF_REST_MS = 10_000L
     }
 }
 

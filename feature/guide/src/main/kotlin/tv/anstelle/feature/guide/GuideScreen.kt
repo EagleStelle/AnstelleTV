@@ -65,7 +65,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -150,6 +153,7 @@ fun GuideScreen(
     val follow by viewModel.follow.collectAsStateWithLifecycle()
     val isTv = LocalIsTv.current
     val theme = LocalAnstelleTheme.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     LifecycleStartEffect(viewModel) {
         viewModel.startPreview()
@@ -204,7 +208,8 @@ fun GuideScreen(
 
     LaunchedEffect(grid) { grid.catchUp(now.value) }
     // A new tab (or the first load) selects what airs now on the channel in the preview, when the tab has it, or on the first one.
-    LaunchedEffect(state.channels) {
+    LaunchedEffect(state.channels, follow) {
+        if (follow != null) return@LaunchedEffect
         if (state.channels.none { it.id == grid.selectedChannel }) {
             val playing = viewModel.playbackState.value.channel?.id
             val index = state.channels.indexOfFirst { it.id == playing }.coerceAtLeast(0)
@@ -213,14 +218,20 @@ fun GuideScreen(
         }
     }
     // The preview opened on a channel (at launch, or back from the full-screen player): the selection follows it, its row at the top.
-    LaunchedEffect(follow, state.channels) {
+    LaunchedEffect(lifecycleOwner, follow, state.channels, state.tab) {
         val channelId = follow ?: return@LaunchedEffect
-        val index = state.channels.indexOfFirst { it.id == channelId }
-        if (index >= 0) {
-            grid.selectNow(channelId, System.currentTimeMillis())
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            val index = state.channels.indexOfFirst { it.id == channelId }
+            if (index < 0) {
+                if (state.tab != GuideViewModel.TAB_ALL) viewModel.selectTab(GuideViewModel.TAB_ALL)
+                return@repeatOnLifecycle
+            }
+            val nowMs = System.currentTimeMillis()
+            grid.catchUp(nowMs)
+            grid.selectNow(channelId, nowMs)
             listState.scrollToItem(index)
+            viewModel.followed()
         }
-        viewModel.followed()
     }
     LaunchedEffect(grid) {
         androidx.compose.runtime.snapshotFlow { grid.windowStart to grid.spanMs }.collect { (start, span) ->
@@ -229,18 +240,15 @@ fun GuideScreen(
     }
     // Every time the guide opens, what airs now on the selected channel is selected, and on TV highlighted with focus.
     val hasChannels = state.channels.isNotEmpty()
-    LaunchedEffect(hasChannels) {
+    LaunchedEffect(lifecycleOwner, hasChannels) {
         if (!hasChannels) return@LaunchedEffect
-        if (follow == null) {
-            val channelId = state.channels.firstOrNull { it.id == grid.selectedChannel }?.id
-                ?: state.channels.first().id
-            grid.selectNow(channelId, System.currentTimeMillis())
-        }
-        if (isTv) {
-            // The grid composes after the channels arrive; take focus once it is there.
-            repeat(20) {
-                withFrameNanos { }
-                if (runCatching { gridFocus.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (isTv) {
+                // The grid composes after the channels arrive; take focus once it is there.
+                repeat(20) {
+                    withFrameNanos { }
+                    if (runCatching { gridFocus.requestFocus() }.getOrDefault(false)) return@repeatOnLifecycle
+                }
             }
         }
     }
@@ -248,16 +256,17 @@ fun GuideScreen(
     val selected by remember(state.channels, state.access) {
         derivedStateOf { selectedProgram(state.channels, strips.value, grid, state.access) }
     }
-    LaunchedEffect(selected?.channel?.id) {
-        selected?.let { viewModel.focus(it.channel.id) }
-    }
     // Browsing that rests on a program airing now shows its channel in the preview.
-    LaunchedEffect(selected?.channel?.id, selected?.startUtcMs, actions == null) {
+    LaunchedEffect(lifecycleOwner, selected?.channel?.id, selected?.startUtcMs, actions == null, follow) {
         val program = selected ?: return@LaunchedEffect
-        if (actions != null) return@LaunchedEffect
-        delay(AUTO_PREVIEW_MS)
-        if (program.isOn(System.currentTimeMillis()) && viewModel.playbackState.value.channel?.id != program.channel.id) {
-            viewModel.preview(program.channel.id)
+        if (actions != null || follow != null) return@LaunchedEffect
+        lifecycleOwner.lifecycle.autoPreview {
+            if (actions != null || !lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@autoPreview
+            val latest = selected ?: return@autoPreview
+            if (latest.channel.id == program.channel.id && latest.startUtcMs == program.startUtcMs &&
+                latest.isOn(System.currentTimeMillis()) && viewModel.playbackState.value.channel?.id != latest.channel.id) {
+                viewModel.preview(latest.channel.id)
+            }
         }
     }
     // A selection on the program airing now moves on with it when it ends, so OK keeps watching the channel live.
@@ -861,8 +870,6 @@ private fun timeRange(startUtcMs: Long, endUtcMs: Long) = WatchChoices.clockRang
 
 private const val CLOCK_MS = 30_000L
 
-/** How long browsing rests on a program airing now before its channel shows in the preview. */
-private const val AUTO_PREVIEW_MS = 2_000L
 
 /**
  * Lines kept for the selected program's overview. TV keeps fewer, paying for a logo large

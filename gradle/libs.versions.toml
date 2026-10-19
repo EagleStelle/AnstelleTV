@@ -50,6 +50,7 @@ kxml2 = "2.3.0"
 
 # Testing
 junit = "4.13.2"
+mockito = "5.20.0"
 # The Jellyfin SDK logs through kotlin-logging, which needs SLF4J on the plain JVM (unit tests).
 slf4j = "2.0.20"
 
@@ -140,6 +141,9 @@ kxml2 = { group = "net.sf.kxml", name = "kxml2", version.ref = "kxml2" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 slf4j-nop = { group = "org.slf4j", name = "slf4j-nop", version.ref = "slf4j" }
 kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test-junit", version.ref = "kotlin" }
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }

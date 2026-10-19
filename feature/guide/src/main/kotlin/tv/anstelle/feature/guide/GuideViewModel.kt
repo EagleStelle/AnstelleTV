@@ -101,7 +101,7 @@ class GuideViewModel @Inject constructor(
     /**
      * A channel the preview opened on at launch, came back on from the full-screen player, or
      * changed to while the guide was out of view; the selection moves to it, its row to the
-     * top. Cleared by [followed].
+     * top. Requested on every entry, even when playback is unchanged. Cleared by [followed].
      */
     val follow: StateFlow<Long?> = _follow.asStateFlow()
 
@@ -117,9 +117,6 @@ class GuideViewModel @Inject constructor(
     /** The schedule, library or lineup changed while the guide was out of view: its windows load again when it shows. */
     private var stale = false
 
-    /** The channel in the preview when the guide last went out of view; null before it was first shown. */
-    private var hiddenOn: Long? = null
-
     /** True while the full-screen player the guide opened is on top of it. */
     private var inPlayer = false
 
@@ -130,7 +127,7 @@ class GuideViewModel @Inject constructor(
     private var wantedTo = 0L
     private var generation = 0
     private var detailsJob: Job? = null
-    private var prewarmJob: Job? = null
+    private var previewJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -268,15 +265,6 @@ class GuideViewModel @Inject constructor(
         }
     }
 
-    /** The grid focused a cell on [channelId]: pre-warm the channel on the standby player once focus rests there. */
-    fun focus(channelId: Long) {
-        prewarmJob?.cancel()
-        prewarmJob = viewModelScope.launch {
-            delay(PREWARM_DEBOUNCE_MS)
-            playback.prewarm(channelId)
-        }
-    }
-
     /** The guide is on screen: the preview window plays the channel on now, or the last one watched. */
     fun startPreview() {
         previewWanted = true
@@ -287,24 +275,23 @@ class GuideViewModel @Inject constructor(
         if (previewStarted || tunable.isEmpty()) return
         previewStarted = true
         playback.acquire()
-        val left = hiddenOn
-        val fromPlayer = inPlayer
-        hiddenOn = null
         inPlayer = false
-        viewModelScope.launch {
+        previewJob = viewModelScope.launch {
             val last = settings.get(Settings.lastChannel(profileId))
+            if (!previewWanted || inPlayer) return@launch
             val channel = playback.state.value.channel?.takeIf { on -> tunable.any { it.id == on.id } }
                 ?: tunable.firstOrNull { it.id == last }
-                ?: tunable.first()
+                ?: tunable.firstOrNull() ?: return@launch
             playback.tune(channel.id)
             // At launch the grid picked its first selection without waiting for the last channel to be read.
-            if (left != channel.id || fromPlayer) _follow.value = channel.id
+            _follow.value = channel.id
         }
     }
 
     /** The guide is opening the full-screen player; back from it, the grid returns to the channel left on. */
     fun openingPlayer() {
         inPlayer = true
+        previewJob?.cancel()
     }
 
     /** The selection moved to [follow]'s channel. */
@@ -312,18 +299,22 @@ class GuideViewModel @Inject constructor(
         _follow.value = null
     }
 
-    /** Shows [channelId] in the preview window. */
+    /** Shows [channelId] in the preview window and readies the row browsing heads to next. */
     fun preview(channelId: Long) {
-        prewarmJob?.cancel()
+        if (previewJob?.isActive == true || _follow.value != null) return
+        if (!previewWanted || !previewStarted || inPlayer) return
+        val next = nextRow(_state.value.channels, from = playback.state.value.channel?.id, to = channelId)
         playback.tune(channelId)
+        next?.let(playback::prewarm)
     }
 
     fun stopPreview() {
         previewWanted = false
+        previewJob?.cancel()
+        // The channel in the preview when the guide last went out of view is followed again on every entry.
+        _follow.value = null
         if (!previewStarted) return
         previewStarted = false
-        hiddenOn = playback.state.value.channel?.id
-        prewarmJob?.cancel()
         playback.release()
     }
 
@@ -332,6 +323,7 @@ class GuideViewModel @Inject constructor(
     /**
      * The grid's hours and selection. They live here so the guide keeps its place while the
      * full-screen player or another page is on top; a new launch opens at the current half hour.
+     * Each return follows the playing channel and selects what is airing now.
      */
     fun grid(pxPerMs: Float): GuideGridState =
         gridState?.takeIf { it.pxPerMs == pxPerMs }
@@ -350,11 +342,18 @@ class GuideViewModel @Inject constructor(
         private const val MAX_WINDOWS = 8
         private const val RELOAD_DEBOUNCE_MS = 1_500L
         private const val DETAILS_DEBOUNCE_MS = 120L
-        private const val PREWARM_DEBOUNCE_MS = 1_000L
         private val GuideTables = setOf("schedule_slot", "media_item")
 
         private fun groupTab(groupId: Long) = "$GROUP_PREFIX$groupId"
     }
+}
+
+/** The row after [to] in the direction browsing moved from [from] (down when [from] isn't a row); null at either end. */
+internal fun nextRow(rows: List<GuideChannel>, from: Long?, to: Long): Long? {
+    val target = rows.indexOfFirst { it.id == to }
+    if (target < 0) return null
+    val step = if (rows.indexOfFirst { it.id == from } > target) -1 else 1
+    return rows.getOrNull(target + step)?.id
 }
 
 /** What the guide's rows are made from. */

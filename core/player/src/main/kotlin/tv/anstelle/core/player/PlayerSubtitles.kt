@@ -1,5 +1,6 @@
 package tv.anstelle.core.player
 
+import android.view.View
 import android.view.ViewGroup
 import androidx.annotation.MainThread
 import androidx.annotation.OptIn
@@ -173,6 +174,7 @@ object SubtitleOverlays {
         detach(container)
         if (subtitles == null) return
         val view = AssSubtitleView(container.context, subtitles.handler)
+        view.addOnAttachStateChangeListener(FramesBeforeRenderThread(subtitles.handler))
         container.addView(view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         views[container] = view
         owners[view] = subtitles
@@ -190,5 +192,22 @@ object SubtitleOverlays {
         val params = other.layoutParams
         parent.removeView(other)
         parent.addView(other, params)
+    }
+
+    /**
+     * libass' GL view publishes its render thread before starting it, so a video frame arriving
+     * in between asks a thread without a handler to draw, and playback fails. Each attach sets
+     * libass' frame callback; this wraps it so such a frame only skips its subtitles.
+     * shortcut: works around a race inside ass-media 0.5.1; drop once libass starts the thread before publishing it.
+     */
+    private class FramesBeforeRenderThread(private val handler: AssHandler) : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(view: View) {
+            val draw = handler.videoTimeCallback ?: return
+            handler.videoTimeCallback = { time ->
+                try { draw(time) } catch (_: UninitializedPropertyAccessException) {}
+            }
+        }
+
+        override fun onViewDetachedFromWindow(view: View) = Unit
     }
 }
