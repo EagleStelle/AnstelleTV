@@ -13,12 +13,8 @@
         "onAccent": "#0E0E0E",
         "accentContainer": "#303030",
         "onAccentContainer": "#DDDDDD",
-        "guideCell": "#191919",
         "guideCellPast": "#141414",
-        "guideRuns": ["#1D3537", "#382E1F", "#283040", "#263428"],
-        "nowLine": "#F5F5F5",
-        "banner": "#191919",
-        "bannerText": "#F3F3F3"
+        "guideRuns": ["#1D3537", "#382E1F", "#283040", "#263428"]
     },
     "typography": {
         "display": "CONDENSED",
@@ -26,8 +22,7 @@
         "scale": 1.0
     },
     "guide": {
-        "density": "COMFORTABLE",
-        "cellRadiusDp": 2
+        "density": "COMFORTABLE"
     },
     "effects": {
         "scanlines": false,

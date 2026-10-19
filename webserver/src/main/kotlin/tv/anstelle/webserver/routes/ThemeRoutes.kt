@@ -13,6 +13,7 @@ import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import tv.anstelle.webserver.ServerDependencies
 import tv.anstelle.webserver.api.CreatedDto
+import tv.anstelle.webserver.api.ThemeCheckRequest
 import tv.anstelle.webserver.api.ThemeSaveRequest
 import tv.anstelle.webserver.api.UseThemeRequest
 
@@ -92,6 +93,14 @@ internal fun Route.themeRoutes(deps: ServerDependencies) {
                 val id = call.idOrNotFound(NO_THEME, NO_THEME_TEXT) ?: return@put
                 val spec = call.receive<ThemeSaveRequest>().spec
                 call.respond(api.save(id, spec.toString()) ?: return@put call.respondNotFound(NO_THEME, NO_THEME_TEXT))
+            }
+
+            // Edits not saved yet, read back: readability follows each edit, and a Type or Screen pick is applied here.
+            post("/spec/check") {
+                call.requireManager(deps) ?: return@post
+                val id = call.idOrNotFound(NO_THEME, NO_THEME_TEXT) ?: return@post
+                val request = call.receive<ThemeCheckRequest>()
+                call.respond(api.check(id, request.spec.toString(), request.choice, request.index) ?: return@post call.respondNotFound(NO_THEME, NO_THEME_TEXT))
             }
         }
     }

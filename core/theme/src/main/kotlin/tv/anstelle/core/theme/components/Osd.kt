@@ -75,6 +75,25 @@ val screenEdge: Dp @Composable get() = if (LocalIsTv.current) 12.dp else 8.dp
 /** The guide's gap between its bands (preview, tabs, grid); On demand's between its rows. */
 val screenGap: Dp @Composable get() = if (LocalIsTv.current) 8.dp else 6.dp
 
+/** A short tag in the field voice on a flat fill: a profile's role, the default theme. */
+@Composable
+fun OsdChip(text: String, fill: Color, ink: Color, modifier: Modifier = Modifier) {
+    androidx.compose.material3.Text(
+        text,
+        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+        color = ink,
+        maxLines = 1,
+        modifier = modifier.background(fill, ControlShape).padding(horizontal = 5.dp, vertical = 1.dp),
+    )
+}
+
+/** A browse row's or grid's heading, in the OSD's field voice. */
+val browseHeading: TextStyle
+    @Composable get() {
+        val theme = LocalAnstelleTheme.current
+        return androidx.compose.material3.MaterialTheme.typography.labelMedium.copy(fontSize = theme.sp(if (LocalIsTv.current) 15f else 13f), lineHeight = theme.sp(18f))
+    }
+
 /** A screen's title, an optional line under it and a hairline that closes the header. */
 @Composable
 fun PageHeader(title: String, modifier: Modifier = Modifier, subtitle: String? = null) {
@@ -527,7 +546,7 @@ fun OsdPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() 
     val theme = LocalAnstelleTheme.current
     Column(
         modifier
-            .background(theme.banner, PanelShape)
+            .background(theme.surface, PanelShape)
             .border(1.dp, theme.line, PanelShape)
             .padding(if (LocalIsTv.current) 24.dp else 18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),

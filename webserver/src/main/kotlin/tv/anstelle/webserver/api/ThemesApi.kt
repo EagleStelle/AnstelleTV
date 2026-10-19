@@ -7,23 +7,15 @@ import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ThemeImportException
 import tv.anstelle.core.data.ThemeRepository
 import tv.anstelle.core.data.ThemeSummary
-import tv.anstelle.core.data.themes.Scanlines
-import tv.anstelle.core.data.themes.TextSizes
 import tv.anstelle.core.data.themes.colorRoles
-import tv.anstelle.core.data.themes.label
-import tv.anstelle.core.data.themes.of
 import tv.anstelle.core.data.themes.readability
-import tv.anstelle.core.model.FontChoice
-import tv.anstelle.core.model.GuideDensity
-import tv.anstelle.core.model.MAX_RADIUS_DP
-import tv.anstelle.core.model.ThemeColors
+import tv.anstelle.core.data.themes.themeChoices
 import tv.anstelle.core.model.ThemeContrast
 import tv.anstelle.core.model.ThemeSpec
 import javax.inject.Inject
-import kotlin.math.roundToInt
 
 /** Thrown when a change targets a built-in theme, which never changes. */
-class BuiltInThemeException : IllegalStateException("Built-in themes can't change. Copy one to make it your own.")
+class BuiltInThemeException : IllegalStateException("Built-in themes can't be edited. Copy one to make it your own.")
 
 /**
  * The theme library and the designer, for the web UI, and the theme the paired profile wears:
@@ -52,6 +44,12 @@ interface ThemesApi {
     suspend fun delete(themeId: Long): Boolean
     suspend fun design(themeId: Long): ThemeDesignDto?
 
+    /**
+     * The designer's readout for [specJson] as edited, with value [index] of [choice] picked when
+     * one is given, without saving it; throws [IllegalArgumentException] for a value it can't have.
+     */
+    suspend fun check(themeId: Long, specJson: String, choice: String? = null, index: Int = 0): ThemeDesignDto?
+
     /** Saves [specJson] over a theme of the user's own; throws [IllegalArgumentException] for a value it can't have. */
     suspend fun save(themeId: Long, specJson: String): ThemeDesignDto?
 }
@@ -63,7 +61,7 @@ internal class RoomThemesApi @Inject constructor(
     override suspend fun themes(profileId: Long): List<ThemeDto> {
         val worn = wornSummary(profileId)?.id
         return themes.observeThemes().first()
-            .sortedWith(compareBy<ThemeSummary>({ !it.isBuiltIn }, { it.spec.key != ThemeRepository.DEFAULT_KEY }, { it.spec.name.lowercase() }))
+            .sortedWith(compareBy<ThemeSummary>({ !it.isBuiltIn }, { !it.isDefault }, { it.spec.name.lowercase() }))
             .map { summary ->
                 val colors = summary.spec.colors
                 ThemeDto(
@@ -72,6 +70,7 @@ internal class RoomThemesApi @Inject constructor(
                     summary.isBuiltIn,
                     listOf(colors.background, colors.surface, colors.text, colors.accent),
                     inUse = summary.id == worn,
+                    isDefault = summary.isDefault,
                     spec = ApiJson.parseToJsonElement(summary.spec.toJson()).jsonObject,
                 )
             }
@@ -85,7 +84,7 @@ internal class RoomThemesApi @Inject constructor(
     override suspend fun use(profileId: Long, themeId: Long): Boolean {
         val theme = themes.observeTheme(themeId).first() ?: return false
         // The default is stored as no pick, so it follows whatever the default becomes.
-        themes.use(profileId, if (theme.spec.key == ThemeRepository.DEFAULT_KEY) null else themeId)
+        themes.use(profileId, if (theme.isDefault) null else themeId)
         return true
     }
 
@@ -94,7 +93,7 @@ internal class RoomThemesApi @Inject constructor(
         themes.seedBuiltIns()
         val all = themes.observeThemes().first()
         val picked = profiles.observeProfile(profileId).first()?.themeId
-        return all.firstOrNull { it.id == picked } ?: all.firstOrNull { it.spec.key == ThemeRepository.DEFAULT_KEY }
+        return all.firstOrNull { it.id == picked } ?: all.firstOrNull { it.isDefault }
     }
 
     override suspend fun themeFile(themeId: Long): Pair<String, String>? {
@@ -111,7 +110,7 @@ internal class RoomThemesApi @Inject constructor(
 
     override suspend fun create(): Long {
         themes.seedBuiltIns()
-        val default = themes.observeThemes().first().firstOrNull { it.spec.key == ThemeRepository.DEFAULT_KEY }
+        val default = themes.observeThemes().first().firstOrNull { it.isDefault }
             ?: throw ThemeImportException("The default theme is missing")
         return themes.duplicate(default.id)
     }
@@ -130,9 +129,29 @@ internal class RoomThemesApi @Inject constructor(
 
     override suspend fun design(themeId: Long): ThemeDesignDto? = themes.observeTheme(themeId).first()?.let(::designOf)
 
+    override suspend fun check(themeId: Long, specJson: String, choice: String?, index: Int): ThemeDesignDto? {
+        val theme = themes.observeTheme(themeId).first() ?: return null
+        val edited = parse(theme, specJson)
+        val spec = if (choice == null) {
+            edited
+        } else {
+            val setting = requireNotNull(themeChoices.firstOrNull { it.key == choice }) { "There is no such setting." }
+            require(index in setting.labels.indices) { "That setting has no such value." }
+            setting.apply(edited, index)
+        }
+        return designOf(theme.copy(spec = spec))
+    }
+
     override suspend fun save(themeId: Long, specJson: String): ThemeDesignDto? {
         val theme = themes.observeTheme(themeId).first() ?: return null
         if (theme.isBuiltIn) throw BuiltInThemeException()
+        val spec = parse(theme, specJson)
+        themes.save(themeId, spec)
+        return designOf(theme.copy(spec = spec))
+    }
+
+    /** [specJson] as [theme]'s new spec, keeping its key; throws [IllegalArgumentException] for a value it can't have. */
+    private fun parse(theme: ThemeSummary, specJson: String): ThemeSpec {
         val spec = try {
             ThemeSpec.parse(specJson)
         } catch (e: SerializationException) {
@@ -140,8 +159,7 @@ internal class RoomThemesApi @Inject constructor(
         }.copy(key = theme.spec.key)
         require(spec.name.isNotBlank()) { "Give the theme a name." }
         spec.validate()
-        themes.save(themeId, spec)
-        return designOf(theme.copy(spec = spec))
+        return spec
     }
 
     private fun designOf(theme: ThemeSummary): ThemeDesignDto {
@@ -150,33 +168,18 @@ internal class RoomThemesApi @Inject constructor(
             id = theme.id,
             isBuiltIn = theme.isBuiltIn,
             spec = ApiJson.parseToJsonElement(theme.spec.toJson()).jsonObject,
-            roles = colorRoles(colors).map { ColorRoleDto(it.key, it.label, it.about, colors.of(it.key).uppercase()) },
-            readability = floors(colors).map { floor ->
+            roles = colorRoles(colors).map { ColorRoleDto(it.key, it.label, it.about) },
+            readability = ThemeContrast.floors(colors).map { floor ->
                 ReadabilityDto(
                     foreground = floor.foreground,
                     background = floor.background,
-                    ok = ThemeContrast.ratio(colors.of(floor.foreground), colors.of(floor.background)) >= floor.minimum,
+                    ok = ThemeContrast.ratio(floor, colors) >= floor.minimum,
                     text = readability(floor, colors),
                     inForeground = readability(floor, colors, open = floor.foreground),
                     inBackground = readability(floor, colors, open = floor.background),
                 )
             },
-            choices = Choices,
-        )
-    }
-
-    /** Every pair that must read, the guide's later runs included. */
-    private fun floors(colors: ThemeColors): List<ThemeContrast.Floor> = ThemeContrast.Floors +
-        colors.guideRuns.indices.map { i -> ThemeContrast.Floor("text", "guideRuns[$i]", ThemeContrast.RUN_MINIMUM, "Text on Guide: later ${i + 1}") }
-
-    private companion object {
-        val Choices = DesignChoicesDto(
-            fonts = FontChoice.entries.map { LabelledName(it.name, it.label) },
-            textSizes = TextSizes.sizes.map { LabelledFloat(it, "${(it * 100).roundToInt()}%") },
-            densities = GuideDensity.entries.map { LabelledName(it.name, it.label) },
-            radii = (0..MAX_RADIUS_DP).map { LabelledInt(it, "$it dp") },
-            scanlines = Scanlines.map { (name, alpha) -> LabelledFloat(alpha, name) },
-            segmentFrequencies = tv.anstelle.core.model.ProgressStyle.frequencies.map { LabelledInt(it, "$it") },
+            choices = themeChoices.map { DesignChoiceDto(it.key, it.section, it.title, it.labels, it.selected(theme.spec)) },
         )
     }
 }

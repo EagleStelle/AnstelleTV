@@ -35,11 +35,10 @@ data class ThemeSpec(
 
     /** Throws [IllegalArgumentException] naming the first value a theme can't have. */
     fun validate() {
-        require(name.isNotBlank()) { "The theme has no name" }
+        require(name.isNotBlank()) { "The theme needs a name" }
         colors.all().forEach { (role, hex) -> require(ThemeContrast.isColor(hex)) { "$role is not a color: $hex" } }
         require(colors.guideRuns.size >= 2) { "guideRuns needs at least two colors" }
         require(typography.scale in MIN_SCALE..MAX_SCALE) { "Text size must be ${MIN_SCALE}–${MAX_SCALE}" }
-        require(guide.cellRadiusDp in 0..MAX_RADIUS_DP) { "Guide corners must be 0–$MAX_RADIUS_DP" }
         require(effects.scanlineAlpha in 0f..MAX_SCANLINE_ALPHA) { "Scanline strength must be 0–$MAX_SCANLINE_ALPHA" }
         require(progress.segmentFrequency in MIN_PROGRESS_FREQUENCY..MAX_PROGRESS_FREQUENCY) { "Progress cut frequency must be $MIN_PROGRESS_FREQUENCY–$MAX_PROGRESS_FREQUENCY" }
     }
@@ -47,7 +46,6 @@ data class ThemeSpec(
 
 const val MIN_SCALE = 0.9f
 const val MAX_SCALE = 1.3f
-const val MAX_RADIUS_DP = 4
 const val MAX_SCANLINE_ALPHA = 0.4f
 const val MIN_PROGRESS_FREQUENCY = 4
 const val MAX_PROGRESS_FREQUENCY = 64
@@ -72,7 +70,7 @@ data class ProgressStyle(val segmentFrequency: Int = 20) {
 data class ThemeColors(
     /** The ground every screen sits on. */
     val background: String,
-    /** Rows, cells and panels one step up from the ground. */
+    /** Rows, panels, on-air guide cells and the player's shades: one step up from the ground. */
     val surface: String,
     /** A second step: pressed rows, raised panels. */
     val surfaceHigh: String,
@@ -87,19 +85,13 @@ data class ThemeColors(
     /** Selected (not focused) items, such as the open destination. */
     val accentContainer: String,
     val onAccentContainer: String,
-    /** A guide cell on air, and later airings of the show on air in its row. */
-    val guideCell: String,
-    /** A guide cell that has finished airing. */
+    /** A guide cell that has finished airing. On-air cells use [surface]. */
     val guideCellPast: String,
     /**
      * Upcoming guide cells of other shows, taken in turn: a show's back-to-back airings share
      * one, and the next show always takes another. At least two.
      */
     val guideRuns: List<String>,
-    val nowLine: String,
-    /** The player's banner and panels over video. */
-    val banner: String,
-    val bannerText: String,
 ) {
     /** Every single color by role name, the guide runs as `guideRuns[i]`. */
     fun all(): List<Pair<String, String>> = listOf(
@@ -113,11 +105,7 @@ data class ThemeColors(
         "onAccent" to onAccent,
         "accentContainer" to accentContainer,
         "onAccentContainer" to onAccentContainer,
-        "guideCell" to guideCell,
         "guideCellPast" to guideCellPast,
-        "nowLine" to nowLine,
-        "banner" to banner,
-        "bannerText" to bannerText,
     ) + guideRuns.mapIndexed { i, run -> "guideRuns[$i]" to run }
 }
 
@@ -131,22 +119,16 @@ data class ThemeTypography(
     val scale: Float = 1f,
 )
 
-/**
- * Guide row heights. Touch rows stay tall enough to tap; TV rows are tighter, since the
- * remote moves the selection and the 10-foot screen should show more channels at once.
- */
+/** Guide row heights shared by touch and TV, starting at a touch-friendly 48 dp in 8 dp steps. */
 @Serializable
-enum class GuideDensity(val rowHeightDp: Int, val tvRowHeightDp: Int) {
-    COMPACT(48, 40),
-    COMFORTABLE(64, 52),
-    SPACIOUS(80, 64),
+enum class GuideDensity(val rowHeightDp: Int) {
+    COMPACT(48),
+    COMFORTABLE(56),
+    SPACIOUS(64),
 }
 
 @Serializable
-data class GuideStyle(
-    val density: GuideDensity = GuideDensity.COMFORTABLE,
-    val cellRadiusDp: Int = 2,
-)
+data class GuideStyle(val density: GuideDensity = GuideDensity.COMFORTABLE)
 
 /** A CRT's scanlines over the whole screen, video included, at [scanlineAlpha]. */
 @Serializable
@@ -164,29 +146,31 @@ object ThemeContrast {
     data class Floor(val foreground: String, val background: String, val minimum: Double, val label: String)
 
     val Floors = listOf(
-        Floor("text", "background", 7.0, "Text on the ground"),
+        Floor("text", "background", 7.0, "Text on the background"),
         Floor("text", "surface", 7.0, "Text on rows"),
-        Floor("textMuted", "background", 4.5, "Quiet text on the ground"),
-        Floor("textMuted", "surface", 4.5, "Quiet text on rows"),
-        Floor("onAccent", "accent", 4.5, "Text on focus"),
-        Floor("accent", "background", 3.0, "Focus on the ground"),
-        Floor("onAccentContainer", "accentContainer", 4.5, "Text on selected"),
-        Floor("bannerText", "banner", 7.0, "Banner text"),
-        Floor("text", "guideCell", 7.0, "Text on guide cells"),
+        Floor("textMuted", "background", 4.5, "Secondary text on the background"),
+        Floor("textMuted", "surface", 4.5, "Secondary text on rows"),
+        Floor("onAccent", "accent", 4.5, "Text on the accent"),
+        Floor("accent", "background", 3.0, "The accent on the background"),
+        Floor("onAccentContainer", "accentContainer", 4.5, "Text on selected items"),
     )
 
-    /** Text on each guide run needs the same as text on guide cells. */
+    /** Text on each guide run needs the same as text on rows. */
     const val RUN_MINIMUM = 7.0
 
-    /** The floors [colors] miss, each with its ratio. */
-    fun problems(colors: ThemeColors): List<Pair<Floor, Double>> {
+    /** Every pair [colors] must read on: [Floors], then text on each guide run. */
+    fun floors(colors: ThemeColors): List<Floor> =
+        Floors + colors.guideRuns.indices.map { i -> Floor("text", "guideRuns[$i]", RUN_MINIMUM, "Text on guide color ${i + 1}") }
+
+    /** The ratio of [floor]'s two colors in [colors]. */
+    fun ratio(floor: Floor, colors: ThemeColors): Double {
         val byRole = colors.all().toMap()
-        val pairs = Floors.map { floor -> floor to ratio(byRole.getValue(floor.foreground), byRole.getValue(floor.background)) }
-        val runs = colors.guideRuns.mapIndexed { i, run ->
-            Floor("text", "guideRuns[$i]", RUN_MINIMUM, "Text on Guide: later ${i + 1}") to ratio(colors.text, run)
-        }
-        return (pairs + runs).filter { (floor, ratio) -> ratio < floor.minimum }
+        return ratio(byRole.getValue(floor.foreground), byRole.getValue(floor.background))
     }
+
+    /** The floors [colors] miss, each with its ratio. */
+    fun problems(colors: ThemeColors): List<Pair<Floor, Double>> =
+        floors(colors).map { it to ratio(it, colors) }.filter { (floor, ratio) -> ratio < floor.minimum }
 
     /** The WCAG contrast ratio of two opaque colors, 1 to 21. Alpha is ignored. */
     fun ratio(a: String, b: String): Double {

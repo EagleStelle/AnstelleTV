@@ -347,6 +347,8 @@ data class ThemeDto(
     val swatches: List<String> = emptyList(),
     /** The theme the paired profile wears. */
     val inUse: Boolean = false,
+    /** The theme every profile starts with. */
+    val isDefault: Boolean = false,
     /** The theme's JSON, for the list's preview of the theme pointed at. */
     val spec: JsonObject? = null,
 )
@@ -359,27 +361,14 @@ data class WornThemeDto(val id: Long, val spec: JsonObject)
 data class UseThemeRequest(val themeId: Long)
 
 @Serializable
-data class ColorRoleDto(val key: String, val label: String, val about: String, val hex: String)
-
-@Serializable
-data class LabelledFloat(val value: Float, val label: String)
+data class ColorRoleDto(val key: String, val label: String, val about: String)
 
 @Serializable
 data class LabelledInt(val value: Int, val label: String)
 
+/** A designer setting with a few values: their [labels], [selected] by index (-1 when none fits). */
 @Serializable
-data class LabelledName(val value: String, val label: String)
-
-/** What the designer offers for the type, guide and effect choices. */
-@Serializable
-data class DesignChoicesDto(
-    val fonts: List<LabelledName>,
-    val textSizes: List<LabelledFloat>,
-    val densities: List<LabelledName>,
-    val radii: List<LabelledInt>,
-    val scanlines: List<LabelledFloat>,
-    val segmentFrequencies: List<LabelledInt>,
-)
+data class DesignChoiceDto(val key: String, val section: String, val title: String, val labels: List<String>, val selected: Int)
 
 /** Whether two colors read well against each other, in words for each way of fixing it. */
 @Serializable
@@ -403,11 +392,15 @@ data class ThemeDesignDto(
     val spec: JsonObject,
     val roles: List<ColorRoleDto>,
     val readability: List<ReadabilityDto>,
-    val choices: DesignChoicesDto,
+    val choices: List<DesignChoiceDto>,
 )
 
 @Serializable
 data class ThemeSaveRequest(val spec: JsonObject)
+
+/** A spec to read back as the designer shows it; with [choice], value [index] of that setting picked. */
+@Serializable
+data class ThemeCheckRequest(val spec: JsonObject, val choice: String? = null, val index: Int = 0)
 
 // Backup
 

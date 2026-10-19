@@ -83,6 +83,7 @@ import tv.anstelle.core.theme.components.StandInSize
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.ChannelLogo
 import tv.anstelle.core.theme.components.SegmentLadder
+import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.WatchIcons
 
 import java.text.DateFormat
@@ -347,7 +348,7 @@ fun PlayerScreen(
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
-                    .cornerShade(theme.banner)
+                    .cornerShade(theme.surface)
                     .padding(start = 32.dp, top = osdEdge, end = osdSide, bottom = 24.dp),
                 contentAlignment = Alignment.TopEnd,
             ) {
@@ -441,7 +442,7 @@ private fun InfoBanner(
     Column(
         Modifier
             .fillMaxWidth()
-            .edgeShade(theme.banner, shadeFade)
+            .edgeShade(theme.surface, shadeFade)
             // Hand-held sizes off TV: the touch keys close the banner, so their own height is the air under it.
             .padding(start = osdSide, end = osdSide, bottom = if (isTv) osdEdge else 4.dp),
         verticalArrangement = Arrangement.spacedBy(if (isTv) 6.dp else 2.dp),
@@ -465,7 +466,7 @@ private fun InfoBanner(
                     }
                 }
                 BannerHeader(state.stream, label)
-                PlayerTitleLogo(
+                TitleLogo(
                     logoUrl = program?.logoUrl,
                     title = program?.title ?: "Tuning…",
                     // A restricted program's title and logo are blurred.
@@ -508,7 +509,7 @@ private fun InfoBanner(
                                 androidx.compose.material3.Text("NEXT  ${time(next.startUtcMs)}", style = typography.labelMedium, color = theme.textMuted, maxLines = 1)
                             }
                             // The same logo and type as NOW, so the two read as one pair.
-                            PlayerTitleLogo(
+                            TitleLogo(
                                 logoUrl = next.logoUrl,
                                 title = next.title,
                                 maxLines = 2,
@@ -574,7 +575,6 @@ private fun ChannelIdent(channel: Channel) {
         channel.logoUri?.let {
             ChannelLogo(
                 it,
-                height = if (isTv) 96.dp else 56.dp,
                 alignment = Alignment.CenterEnd,
                 modifier = Modifier.padding(bottom = if (isTv) 6.dp else 4.dp),
             )
@@ -588,7 +588,7 @@ private fun ChannelIdent(channel: Channel) {
         androidx.compose.material3.Text(
             channel.name,
             style = typography.labelMedium,
-            color = theme.bannerText,
+            color = theme.text,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
@@ -661,7 +661,7 @@ private fun Message(text: String, modifier: Modifier = Modifier) {
             style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
             color = theme.text,
             modifier = modifier
-                .softShade(theme.banner)
+                .softShade(theme.surface)
                 .padding(horizontal = 24.dp, vertical = 14.dp),
         )
     }

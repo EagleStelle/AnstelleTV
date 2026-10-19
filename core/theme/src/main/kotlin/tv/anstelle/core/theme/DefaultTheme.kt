@@ -24,13 +24,9 @@ object DefaultTheme {
             onAccent = "#130C0F",
             accentContainer = "#4F1A35",
             onAccentContainer = "#FFCEE2",
-            guideCell = "#20161A",
             guideCellPast = "#181214",
             // Teal, ochre, slate, moss: neighbours in the list sit far apart in hue.
             guideRuns = listOf("#0D3737", "#402C12", "#1E3149", "#22361E"),
-            nowLine = "#F978B6",
-            banner = "#20161A",
-            bannerText = "#F9F1F4",
         ),
         typography = ThemeTypography(display = FontChoice.CONDENSED, body = FontChoice.SANS),
     )

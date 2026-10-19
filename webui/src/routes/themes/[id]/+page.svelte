@@ -1,14 +1,16 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError, problem, type Readability, type ThemeDesign, type ThemeSpec } from '#lib/api.ts';
+	import type { Component, Snippet } from 'svelte';
 	import Button from '#lib/components/Button.svelte';
 	import Buttons from '#lib/components/Buttons.svelte';
-	import ChoiceRow from '#lib/components/ChoiceRow.svelte';
+	import Dialog from '#lib/components/Dialog.svelte';
 	import DangerButton from '#lib/components/DangerButton.svelte';
 	import LadderSlider from '#lib/components/LadderSlider.svelte';
 	import Notice from '#lib/components/Notice.svelte';
 	import Page from '#lib/components/Page.svelte';
+	import RadioMark from '#lib/components/RadioMark.svelte';
 	import Row from '#lib/components/Row.svelte';
 	import Section from '#lib/components/Section.svelte';
 	import Swatch from '#lib/components/Swatch.svelte';
@@ -21,12 +23,13 @@
 	import Check from '~icons/material-symbols/check';
 	import ChevronRight from '~icons/material-symbols/chevron-right';
 	import ContentCopy from '~icons/material-symbols/content-copy';
+	import Delete from '~icons/material-symbols/delete';
 	import FormatSize from '~icons/material-symbols/format-size';
-	import RoundedCorner from '~icons/material-symbols/rounded-corner';
+	import Save from '~icons/material-symbols/save';
 	import TableRows from '~icons/material-symbols/table-rows';
 	import TextFields from '~icons/material-symbols/text-fields';
 	import Title from '~icons/material-symbols/title';
-	import { onDestroy } from 'svelte';
+	import ViewWeek from '~icons/material-symbols/view-week';
 
 	const id = $derived(Number(page.params.id));
 	let design = $state<ThemeDesign | null>(null);
@@ -40,13 +43,24 @@
 	let color = $state<Oklch>({ lightness: 0, chroma: 0, hue: 0 });
 	let hex = $state('');
 
-	let saveTimer: ReturnType<typeof setTimeout> | null = null;
+	/** The theme as last saved, as JSON; the spec differs from it while there are edits to save. */
+	let saved = $state('');
+	/** A pane's own copy of the theme while a color or choice is open; only Done hands it to the spec. */
+	let working = $state<ThemeSpec | null>(null);
+	/** The readout from before the pane opened, back in place when its edits are discarded. */
+	let openedDesign: ThemeDesign | null = null;
+	let checkTimer: ReturnType<typeof setTimeout> | null = null;
 	let version = 0;
+	/** Where the person was going when asked to discard their edits. */
+	let leavingTo: URL | null = null;
+	let leaveOpen = $state(false);
+	let discarding = false;
 
 	async function load() {
 		try {
 			design = await api.design(id);
 			spec = $state.snapshot(design.spec) as ThemeSpec;
+			saved = JSON.stringify(spec);
 			error = null;
 		} catch (e) {
 			if (e instanceof ApiError && e.status === 404) gone = true;
@@ -58,29 +72,42 @@
 		if (id) void load();
 	});
 
-	onDestroy(() => {
-		// An edit waiting to be saved still goes.
-		if (saveTimer && spec) {
-			clearTimeout(saveTimer);
-			void api.saveTheme(id, $state.snapshot(spec) as ThemeSpec).catch(() => {});
+	/** What the page shows: the pane's copy while one is open, else the theme. */
+	const shown = $derived(working ?? spec);
+	const unsaved = $derived(shown !== null && JSON.stringify(shown) !== saved);
+	const paneEdited = $derived(working !== null && JSON.stringify(working) !== JSON.stringify(spec));
+
+	// Leaving with edits unsaved asks first; closing the tab gets the browser's own question.
+	beforeNavigate((navigation) => {
+		if (!unsaved || discarding) return;
+		navigation.cancel();
+		if (navigation.type !== 'leave' && navigation.to) {
+			leavingTo = navigation.to.url;
+			leaveOpen = true;
 		}
 	});
 
-	/** Changes the theme here at once and saves it a moment later, so dragging a ladder writes once. */
+	function discard() {
+		const to = leavingTo;
+		leaveOpen = false;
+		discarding = true;
+		if (to) void goto(to);
+	}
+
+	/** Changes the open pane's copy, else the theme; nothing is kept until Save. The TV reads it a moment later, so readability follows each edit. */
 	function change(edit: (spec: ThemeSpec) => void) {
-		if (!spec) return;
-		edit(spec);
-		// The theme this browser wears shows each edit at once, as the TV does.
-		if (id === worn.id) worn.apply($state.snapshot(spec) as ThemeSpec);
+		const target = working ?? spec;
+		if (!target) return;
+		edit(target);
 		version++;
 		const asked = version;
-		if (saveTimer) clearTimeout(saveTimer);
-		saveTimer = setTimeout(async () => {
-			saveTimer = null;
+		if (checkTimer) clearTimeout(checkTimer);
+		checkTimer = setTimeout(async () => {
+			checkTimer = null;
 			try {
-				const saved = await api.saveTheme(id, $state.snapshot(spec!) as ThemeSpec);
-				// Readability comes back from the TV; the spec here stays, a newer edit may be on its way.
-				if (asked === version && design) design = { ...design, readability: saved.readability, roles: saved.roles };
+				const checked = await api.checkTheme(id, $state.snapshot(working ?? spec!) as ThemeSpec);
+				// A newer edit may be on its way; only the latest one's readout counts.
+				if (asked === version && design) design = { ...design, readability: checked.readability, roles: checked.roles };
 				error = null;
 			} catch (e) {
 				error = problem(e);
@@ -88,10 +115,25 @@
 		}, 300);
 	}
 
+	async function save() {
+		if (!spec) return;
+		const edited = $state.snapshot(spec) as ThemeSpec;
+		try {
+			const result = await api.saveTheme(id, edited);
+			saved = JSON.stringify(edited);
+			if (design) design = { ...design, readability: result.readability, roles: result.roles };
+			// The theme this browser wears shows the saved edits at once, as the TV does.
+			if (id === worn.id) worn.apply(edited);
+			error = null;
+		} catch (e) {
+			error = problem(e);
+		}
+	}
+
 	function hexOf(role: string): string {
-		if (!spec) return '#000000';
+		if (!shown) return '#000000';
 		const match = /^guideRuns\[(\d+)]$/.exec(role);
-		const value = match ? (spec.colors.guideRuns as string[])[Number(match[1])] : (spec.colors[role] as string);
+		const value = match ? (shown.colors.guideRuns as string[])[Number(match[1])] : (shown.colors[role] as string);
 		return value.toUpperCase();
 	}
 
@@ -103,11 +145,48 @@
 		});
 	}
 
-	function open(role: string) {
-		editing = role;
-		hex = hexOf(role);
-		color = fromHex(hex);
+	/** Opens a color or a choice on its own page, editing a copy of the theme. */
+	function open(key: string) {
+		openedDesign = design;
+		working = $state.snapshot(spec) as ThemeSpec;
+		editing = key;
+		if (design?.roles.some((r) => r.key === key)) {
+			hex = hexOf(key);
+			color = fromHex(hex);
+		}
 		window.scrollTo({ top: 0 });
+	}
+
+	/** Picks value [index] of a Type or Screen setting; the TV applies it, so its rules live in one place. */
+	async function choose(key: string, index: number) {
+		if (!working) return;
+		version++;
+		const asked = version;
+		try {
+			const picked = await api.checkTheme(id, $state.snapshot(working) as ThemeSpec, { choice: key, index });
+			if (asked === version && working) {
+				working = picked.spec;
+				design = picked;
+			}
+			error = null;
+		} catch (e) {
+			error = problem(e);
+		}
+	}
+
+	/** Done: the pane's copy becomes the theme. */
+	function keep() {
+		if (working) spec = $state.snapshot(working) as ThemeSpec;
+		working = null;
+		editing = null;
+	}
+
+	/** Discard: the pane's copy goes, and the readout from before it. */
+	function drop() {
+		version++;
+		working = null;
+		editing = null;
+		if (openedDesign) design = openedDesign;
 	}
 
 	function setColor(next: Oklch) {
@@ -129,6 +208,7 @@
 	async function remove() {
 		try {
 			await api.deleteTheme(id);
+			discarding = true;
 			await goto('/themes');
 		} catch (e) {
 			error = problem(e);
@@ -146,14 +226,17 @@
 	const problems = $derived((design?.readability ?? []).filter((r) => !r.ok));
 	const role = $derived(design?.roles.find((r) => r.key === editing));
 	const pairs = $derived((design?.readability ?? []).filter((r) => r.foreground === editing || r.background === editing));
-	const scanline = $derived(
-		design && spec ? (design.choices.scanlines.find((s) => spec!.effects.scanlines && s.value === spec!.effects.scanlineAlpha) ?? design.choices.scanlines[0]) : null
-	);
-	const nearestSize = $derived(
-		design && spec
-			? design.choices.textSizes.reduce((best, s) => (Math.abs(s.value - spec!.typography.scale) < Math.abs(best.value - spec!.typography.scale) ? s : best))
-			: null
-	);
+	const choice = $derived(design?.choices.find((c) => c.key === editing));
+	const sections = $derived([...new Set((design?.choices ?? []).map((c) => c.section))]);
+	/** Each Type and Screen setting's icon, by key. */
+	const choiceIcons: Record<string, Component<any>> = {
+		display: Title,
+		body: TextFields,
+		scale: FormatSize,
+		density: TableRows,
+		progress: ViewWeek,
+		scanlines: AutoAwesome
+	};
 	const trail = [
 		{ label: 'Home', href: '/' },
 		{ label: 'Themes', href: '/themes' }
@@ -164,51 +247,73 @@
 	}
 </script>
 
+<!-- A color or a choice opened from the menu: its own page beside the preview; Done keeps its edits, Discard drops them. -->
+{#snippet pane(title: string, body: Snippet)}
+	<Page {title} trail={[...trail, { label: spec!.name, href: `/themes/${id}` }]}>
+		{#snippet actions()}
+			<Button label="Done" icon={Check} primary onclick={keep} />
+			<Button label="Discard" icon={Delete} danger disabled={!paneEdited} onclick={drop} />
+		{/snippet}
+		{#snippet aside()}<ThemePreview spec={shown!} />{/snippet}
+		{#if error}<Notice text={error} error />{/if}
+		{@render body()}
+	</Page>
+{/snippet}
+
+{#snippet colorBody()}
+	<LadderSlider
+		label="Brightness"
+		text="{Math.round(color.lightness * 100)}%"
+		value={color.lightness}
+		min={0}
+		max={1}
+		step={0.01}
+		onchange={(lightness) => setColor({ ...color, lightness })}
+	/>
+	<LadderSlider
+		label="Saturation"
+		text="{Math.round((color.chroma / MAX_CHROMA) * 100)}%"
+		value={color.chroma}
+		min={0}
+		max={MAX_CHROMA}
+		step={0.005}
+		onchange={(chroma) => setColor({ ...color, chroma })}
+	/>
+	<LadderSlider label="Hue" text="{Math.round(color.hue)}°" value={color.hue} min={0} max={359} step={5} onchange={(hue) => setColor({ ...color, hue })} />
+	<div class="px-4 py-2">
+		<TextField label="Hex code" value={hex} maxlength={7} tabular spellcheck="false" oninput={(e) => typeHex(e.currentTarget.value)} />
+	</div>
+	{#if pairs.length > 0}<Section title="Readability" />{/if}
+	{#each pairs as pair (pair.foreground + pair.background)}
+		<Notice text={pairText(pair)} error={!pair.ok} />
+	{/each}
+{/snippet}
+
+{#snippet choiceBody()}
+	<div role="radiogroup" aria-label={choice!.title}>
+		{#each choice!.labels as label, i (i)}
+			<Row title={label} onclick={() => choose(choice!.key, i)} role="radio" aria-checked={i === choice!.selected}>
+				{#snippet leading()}<RadioMark checked={i === choice!.selected} />{/snippet}
+			</Row>
+		{/each}
+	</div>
+{/snippet}
+
 {#if gone}
-	<Page title="Theme" {trail}><Notice text="This theme is gone." /></Page>
+	<Page title="Theme" {trail}><Notice text="This theme no longer exists." /></Page>
 {:else if design && spec && design.isBuiltIn}
-	<Page title={spec.name} {trail} note="Copy a built-in theme to edit it.">
-		{#snippet actions()}<Button label="Copy theme" icon={ContentCopy} primary onclick={copy} />{/snippet}
+	<Page title={spec.name} {trail}>
+		{#snippet actions()}<Button label="Copy and edit" icon={ContentCopy} primary onclick={copy} />{/snippet}
 		{#snippet aside()}<ThemePreview spec={spec!} />{/snippet}
 		{#if error}<Notice text={error} error />{/if}
 	</Page>
 {:else if design && spec && editing && role}
-	<Page title={role.label} trail={[...trail, { label: spec.name, href: `/themes/${id}` }]} note={role.about}>
-		{#snippet actions()}<Button label="Done" icon={Check} primary onclick={() => (editing = null)} />{/snippet}
-		{#snippet aside()}
-			<div class="mb-4 h-14 rounded-control border border-line" style:background={hexOf(editing!)}></div>
-			<ThemePreview spec={spec!} />
-		{/snippet}
-		{#if error}<Notice text={error} error />{/if}
-		<LadderSlider
-			label="Brightness"
-			text="{Math.round(color.lightness * 100)}%"
-			value={color.lightness}
-			min={0}
-			max={1}
-			step={0.01}
-			onchange={(lightness) => setColor({ ...color, lightness })}
-		/>
-		<LadderSlider
-			label="Saturation"
-			text="{Math.round((color.chroma / MAX_CHROMA) * 100)}%"
-			value={color.chroma}
-			min={0}
-			max={MAX_CHROMA}
-			step={0.005}
-			onchange={(chroma) => setColor({ ...color, chroma })}
-		/>
-		<LadderSlider label="Hue" text="{Math.round(color.hue)}°" value={color.hue} min={0} max={359} step={5} onchange={(hue) => setColor({ ...color, hue })} />
-		<div class="px-4 py-2">
-			<TextField label="Hex code" value={hex} maxlength={7} tabular spellcheck="false" oninput={(e) => typeHex(e.currentTarget.value)} />
-		</div>
-		{#if pairs.length > 0}<Section title="Readability" />{/if}
-		{#each pairs as pair (pair.foreground + pair.background)}
-			<Notice text={pairText(pair)} error={!pair.ok} />
-		{/each}
-	</Page>
+	{@render pane(role.label, colorBody)}
+{:else if design && spec && editing && choice}
+	{@render pane(choice.title, choiceBody)}
 {:else if design && spec}
-	<Page title={spec.name} {trail} note="Edits save as you go.">
+	<Page title={spec.name} {trail}>
+		{#snippet actions()}<Button label="Save" icon={Save} primary disabled={!unsaved} onclick={save} />{/snippet}
 		{#snippet aside()}<ThemePreview spec={spec!} />{/snippet}
 		{#if error}<Notice text={error} error />{/if}
 		{#each problems as pair (pair.foreground + pair.background)}
@@ -232,82 +337,25 @@
 				{#snippet end()}<span class="tabular text-label-l font-semibold">{hexOf(r.key)}</span><ChevronRight class="size-6" />{/snippet}
 			</Row>
 		{/each}
-		<Section title="Type" />
-		<ChoiceRow
-			title="Headings"
-			value={spec.typography.display}
-			choices={design.choices.fonts.map((f) => f.value)}
-			label={(v) => design!.choices.fonts.find((f) => f.value === v)?.label ?? v}
-			about="Page titles, channel numbers, times and field labels."
-			onselect={(v) => change((s) => (s.typography.display = v))}
-			icon={Title}
-		/>
-		<ChoiceRow
-			title="Body text"
-			value={spec.typography.body}
-			choices={design.choices.fonts.map((f) => f.value)}
-			label={(v) => design!.choices.fonts.find((f) => f.value === v)?.label ?? v}
-			onselect={(v) => change((s) => (s.typography.body = v))}
-			icon={TextFields}
-		/>
-		{#if nearestSize}
-			<ChoiceRow
-				title="Text size"
-				value={nearestSize.value}
-				choices={design.choices.textSizes.map((t) => t.value)}
-				label={(v) => design!.choices.textSizes.find((t) => t.value === v)?.label ?? String(v)}
-				onselect={(v) => change((s) => (s.typography.scale = v))}
-				icon={FormatSize}
-			/>
-		{/if}
-		<Section title="Guide" />
-		<ChoiceRow
-			title="Rows"
-			value={spec.guide.density}
-			choices={design.choices.densities.map((d) => d.value)}
-			label={(v) => design!.choices.densities.find((d) => d.value === v)?.label ?? v}
-			about="How tall the guide's channel rows are."
-			onselect={(v) => change((s) => (s.guide.density = v))}
-			icon={TableRows}
-		/>
-		<ChoiceRow
-			title="Cell corners"
-			value={spec.guide.cellRadiusDp}
-			choices={design.choices.radii.map((r) => r.value)}
-			label={(v) => `${v} dp`}
-			onselect={(v) => change((s) => (s.guide.cellRadiusDp = v))}
-			icon={RoundedCorner}
-		/>
-		<Section title="Progress" />
-		<ChoiceRow
-			title="Cut frequency"
-			value={spec.progress.segmentFrequency}
-			choices={design.choices.segmentFrequencies.map((s) => s.value)}
-			label={(v) => design!.choices.segmentFrequencies.find((s) => s.value === v)?.label ?? String(v)}
-			about="More cuts per equal length make thinner blocks. Block and gap widths match across bars."
-			onselect={(v) => change((s) => (s.progress.segmentFrequency = v))}
-			icon={TableRows}
-		/>
-		<Section title="Effects" />
-		{#if scanline}
-			<ChoiceRow
-				title="Scanlines"
-				value={scanline.value}
-				choices={design.choices.scanlines.map((s) => s.value)}
-				label={(v) => design!.choices.scanlines.find((s) => s.value === v)?.label ?? String(v)}
-				about="A picture tube's lines over the whole screen."
-				onselect={(alpha) =>
-					change((s) => {
-						s.effects.scanlines = alpha > 0;
-						if (alpha > 0) s.effects.scanlineAlpha = alpha;
-					})}
-				icon={AutoAwesome}
-			/>
-		{/if}
+		{#each sections as heading (heading)}
+			<Section title={heading} />
+			{#each design.choices.filter((c) => c.section === heading) as c (c.key)}
+				<Row title={c.title} summary={c.labels[c.selected]} icon={choiceIcons[c.key]} onclick={() => open(c.key)}>
+					{#snippet end()}<ChevronRight class="size-6" />{/snippet}
+				</Row>
+			{/each}
+		{/each}
 		<Buttons foot>
-			<DangerButton label="Delete theme" question="Delete {spec.name}?" explanation="Profiles using it go back to the default." confirm="Delete" onconfirm={remove} />
+			<DangerButton label="Delete theme" question="Delete {spec.name}?" explanation="Profiles using it switch back to Rose." confirm="Delete" onconfirm={remove} />
 		</Buttons>
 	</Page>
 {:else if error}
 	<Page title="Theme" {trail}><Notice text={error} error /></Page>
 {/if}
+
+<Dialog bind:open={leaveOpen} title="Discard changes?" about="Edits since you last saved will be lost.">
+	{#snippet actions()}
+		<Button label="Cancel" autofocus onclick={() => (leaveOpen = false)} />
+		<Button label="Discard" icon={Delete} danger onclick={discard} />
+	{/snippet}
+</Dialog>

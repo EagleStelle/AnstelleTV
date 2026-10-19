@@ -223,8 +223,7 @@ class BackupRoundTripTest {
             colors = ThemeColors(
                 background = "#101010", surface = "#181818", surfaceHigh = "#202020", line = "#303030", text = "#F0F0F0",
                 textMuted = "#B0B0B0", accent = "#E0457B", onAccent = "#101010", accentContainer = "#402030", onAccentContainer = "#F0F0F0",
-                guideCell = "#202020", guideCellPast = "#141414", guideRuns = listOf("#242424", "#2A2A2A"), nowLine = "#E0457B",
-                banner = "#101010", bannerText = "#F0F0F0",
+                guideCellPast = "#141414", guideRuns = listOf("#242424", "#2A2A2A"),
             ),
         ).toJson()
     }

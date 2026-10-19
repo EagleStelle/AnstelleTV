@@ -30,7 +30,7 @@
 			: primary
 				? 'bg-accent text-on-accent hover:bg-text hover:text-background focus-visible:bg-text focus-visible:text-background'
 				: 'bg-surface-high text-text hover:bg-accent hover:text-on-accent focus-visible:bg-accent focus-visible:text-on-accent',
-		'disabled:pointer-events-none disabled:opacity-60'
+		'disabled:pointer-events-none disabled:bg-surface-high disabled:text-text-muted'
 	]);
 </script>
 

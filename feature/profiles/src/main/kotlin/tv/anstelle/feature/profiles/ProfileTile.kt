@@ -28,6 +28,7 @@ import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusSurface
+import tv.anstelle.core.theme.components.OsdChip
 
 /** The tile's side on this device. */
 internal val tileSize: Dp @Composable get() = if (LocalIsTv.current) 148.dp else 104.dp
@@ -96,15 +97,11 @@ internal fun ProfileTile(
                     )
                 }
                 if (role != ProfileRole.MEMBER) {
-                    androidx.compose.material3.Text(
+                    OsdChip(
                         role.name,
-                        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                        color = if (focused) theme.onAccent else theme.onAccentContainer,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(8.dp)
-                            .background(if (focused) theme.accent else theme.accentContainer, ControlShape)
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                        fill = if (focused) theme.accent else theme.accentContainer,
+                        ink = if (focused) theme.onAccent else theme.onAccentContainer,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
                     )
                 }
             }

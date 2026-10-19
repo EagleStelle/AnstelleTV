@@ -743,6 +743,7 @@ private fun SettingsRowFrame(
     danger: Boolean = false,
     leading: (@Composable (focused: Boolean) -> Unit)? = null,
     trailing: (@Composable (focused: Boolean) -> Unit)? = null,
+    tag: String? = null,
 ) {
     val theme = LocalAnstelleTheme.current
     FocusSurface(
@@ -754,7 +755,7 @@ private fun SettingsRowFrame(
         focusContentColor = if (danger) OnDangerColor else theme.onAccent,
         modifier = modifier.fillMaxWidth(),
     ) { focused ->
-        CompositionLocalProvider(LocalDanger provides danger) { RowLayout(title, summary, focused, leading, trailing) }
+        CompositionLocalProvider(LocalDanger provides danger) { RowLayout(title, summary, focused, leading, trailing, tag) }
     }
 }
 
@@ -765,6 +766,7 @@ private fun RowLayout(
     focused: Boolean,
     leading: (@Composable (focused: Boolean) -> Unit)?,
     trailing: (@Composable (focused: Boolean) -> Unit)?,
+    tag: String? = null,
 ) {
     val theme = LocalAnstelleTheme.current
     val guided = settingsGuided
@@ -777,13 +779,18 @@ private fun RowLayout(
     ) {
         leading?.invoke(focused)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                color = LocalContentColor.current,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                    color = LocalContentColor.current,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                // On a focused row the chip turns ink with accent letters, as a number block does.
+                if (tag != null) OsdChip(tag, fill = if (focused) theme.onAccent else theme.accentContainer, ink = if (focused) theme.accent else theme.onAccentContainer)
+            }
             if (summary != null) {
                 Text(
                     summary,
@@ -1083,6 +1090,7 @@ fun OptionRow(
     leading: (@Composable () -> Unit)? = null,
     actions: List<MenuAction>? = null,
     menuTitle: String = title,
+    tag: String? = null,
 ) {
     val theme = LocalAnstelleTheme.current
     val radio: @Composable (Boolean) -> Unit = { focused ->
@@ -1100,7 +1108,7 @@ fun OptionRow(
         }
     }
     if (actions == null) {
-        SettingsRowFrame(title = title, summary = summary, onClick = onClick, modifier = modifier, enabled = enabled, leading = radio)
+        SettingsRowFrame(title = title, summary = summary, onClick = onClick, modifier = modifier, enabled = enabled, leading = radio, tag = tag)
         return
     }
     val sheets = LocalSettingsSheets.current
@@ -1116,6 +1124,7 @@ fun OptionRow(
             onLongClick = openMenu,
             enabled = enabled,
             leading = radio,
+            tag = tag,
             modifier = Modifier.weight(1f).onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.Menu) openMenu().let { true } else false
             },

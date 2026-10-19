@@ -13,7 +13,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 
 /** True on TV devices (Android TV, Google TV, Fire TV): D-pad first, 10-foot layouts. */
 val LocalIsTv = staticCompositionLocalOf { false }
@@ -161,12 +160,11 @@ fun AnstelleTheme(
  * (channel numbers, times, screen titles); title, body and label roles the regular width.
  */
 private fun typography(theme: ResolvedTheme): Typography {
-    val scale = theme.spec.typography.scale
     val display = TextStyle(fontFamily = theme.displayFont, fontFeatureSettings = AnstelleFonts.TABULAR)
     val body = TextStyle(fontFamily = theme.bodyFont)
     fun TextStyle.at(size: Float, line: Float, weight: FontWeight, tracking: Float = 0f) = copy(
-        fontSize = (size * scale).sp,
-        lineHeight = (line * scale).sp,
+        fontSize = theme.sp(size),
+        lineHeight = theme.sp(line),
         fontWeight = weight,
         letterSpacing = tracking.em,
     )

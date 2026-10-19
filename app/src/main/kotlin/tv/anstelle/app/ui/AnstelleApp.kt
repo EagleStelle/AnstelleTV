@@ -18,7 +18,6 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -632,8 +631,8 @@ private fun NavTab(destination: TopLevelDestination, selected: Boolean, onClick:
         androidx.compose.material3.Text(
             destination.label,
             style = androidx.compose.material3.MaterialTheme.typography.bodySmall.copy(
-                fontSize = 11.sp,
-                lineHeight = 14.sp,
+                fontSize = LocalAnstelleTheme.current.sp(11f),
+                lineHeight = LocalAnstelleTheme.current.sp(14f),
                 fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Medium,
             ),
             color = tint,

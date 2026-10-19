@@ -270,6 +270,8 @@ export interface Theme {
 	swatches: string[];
 	/** The theme the paired profile wears, and so this browser. */
 	inUse: boolean;
+	/** The theme every profile starts with. */
+	isDefault: boolean;
 	/** For the list's preview; absent on a theme just imported. */
 	spec?: ThemeSpec;
 }
@@ -280,7 +282,7 @@ export interface ThemeSpec {
 	version: number;
 	colors: Record<string, string | string[]>;
 	typography: { display: string; body: string; scale: number };
-	guide: { density: string; cellRadiusDp: number };
+	guide: { density: string };
 	effects: { scanlines: boolean; scanlineAlpha: number };
 	progress: { segmentFrequency: number };
 }
@@ -294,20 +296,23 @@ export interface Readability {
 	inBackground: string;
 }
 
+/** A designer setting with a few values; the device applies a pick (`checkTheme` with `choice`). */
+export interface DesignChoice {
+	key: string;
+	section: string;
+	title: string;
+	labels: string[];
+	/** Index into `labels`; -1 when no value fits. */
+	selected: number;
+}
+
 export interface ThemeDesign {
 	id: number;
 	isBuiltIn: boolean;
 	spec: ThemeSpec;
-	roles: { key: string; label: string; about: string; hex: string }[];
+	roles: { key: string; label: string; about: string }[];
 	readability: Readability[];
-	choices: {
-		fonts: { value: string; label: string }[];
-		textSizes: { value: number; label: string }[];
-		densities: { value: string; label: string }[];
-		radii: { value: number; label: string }[];
-		scanlines: { value: number; label: string }[];
-		segmentFrequencies: { value: number; label: string }[];
-	};
+	choices: DesignChoice[];
 }
 
 export interface Backup {
@@ -431,6 +436,8 @@ export const api = {
 	deleteTheme: (id: number) => request<void>('DELETE', `/themes/${id}`),
 	design: (id: number) => get<ThemeDesign>(`/themes/${id}/spec`),
 	saveTheme: (id: number, spec: ThemeSpec) => request<ThemeDesign>('PUT', `/themes/${id}/spec`, { spec }),
+	checkTheme: (id: number, spec: ThemeSpec, pick?: { choice: string; index: number }) =>
+		request<ThemeDesign>('POST', `/themes/${id}/spec/check`, { spec, ...pick }),
 	themeFileUrl: (id: number) => `/api/themes/${id}`,
 
 	backup: () => get<Backup>('/backup'),

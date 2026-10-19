@@ -17,11 +17,13 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FormatSize
-import androidx.compose.material.icons.filled.RoundedCorner
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.TableRows
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Title
+import androidx.compose.material.icons.filled.ViewWeek
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,12 +52,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -64,16 +65,12 @@ import tv.anstelle.core.common.ApplicationScope
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ThemeRepository
 import tv.anstelle.core.data.themes.ColorRole
-import tv.anstelle.core.data.themes.Scanlines
-import tv.anstelle.core.data.themes.TextSizes
+import tv.anstelle.core.data.themes.ThemeChoice
 import tv.anstelle.core.data.themes.colorRoles
-import tv.anstelle.core.data.themes.label
 import tv.anstelle.core.data.themes.of
 import tv.anstelle.core.data.themes.readability
+import tv.anstelle.core.data.themes.themeChoices
 import tv.anstelle.core.data.themes.with
-import tv.anstelle.core.model.FontChoice
-import tv.anstelle.core.model.GuideDensity
-import tv.anstelle.core.model.MAX_RADIUS_DP
 import tv.anstelle.core.model.Oklch
 import tv.anstelle.core.model.ThemeContrast
 import tv.anstelle.core.model.ThemeSpec
@@ -81,10 +78,11 @@ import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.ResolvedTheme
 import tv.anstelle.core.theme.components.AnstelleTextField
-import tv.anstelle.core.theme.components.ChoiceRow
+import tv.anstelle.core.theme.components.ConfirmSheet
 import tv.anstelle.core.theme.components.DangerButton
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.LinkRow
+import tv.anstelle.core.theme.components.OptionRow
 import tv.anstelle.core.theme.components.OsdButton
 import tv.anstelle.core.theme.components.PageFocusScope
 import tv.anstelle.core.theme.components.SegmentLadder
@@ -94,9 +92,9 @@ import tv.anstelle.core.theme.components.SettingsPage
 import tv.anstelle.core.theme.components.TextRow
 import tv.anstelle.core.theme.components.foot
 import tv.anstelle.core.theme.components.rememberInitialFocus
+import tv.anstelle.core.theme.components.rememberSettingsSheets
 import tv.anstelle.core.theme.components.section
 import tv.anstelle.core.theme.components.settingsEdge
-import tv.anstelle.core.theme.components.settingsGuided
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
@@ -113,6 +111,12 @@ class ThemeEditorViewModel @Inject constructor(
     private val _spec = MutableStateFlow<ThemeSpec?>(null)
     val spec: StateFlow<ThemeSpec?> = _spec.asStateFlow()
 
+    /** The theme as last saved; [spec] differs from it while there are edits to save. */
+    private val saved = MutableStateFlow<ThemeSpec?>(null)
+
+    val unsaved: StateFlow<Boolean> = combine(_spec, saved) { edited, kept -> edited != kept }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     /** True once it turns out there is no theme of the user's own to edit. */
     private val _gone = MutableStateFlow(false)
     val gone: StateFlow<Boolean> = _gone.asStateFlow()
@@ -120,47 +124,55 @@ class ThemeEditorViewModel @Inject constructor(
     val inUse: StateFlow<Boolean> = profiles.observeActiveProfile().map { it.themeId == themeId }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    private var saveJob: Job? = null
-
     init {
         viewModelScope.launch {
             val theme = themes.observeTheme(themeId).first()
-            if (theme == null || theme.isBuiltIn) _gone.value = true else _spec.value = theme.spec
+            if (theme == null || theme.isBuiltIn) {
+                _gone.value = true
+            } else {
+                saved.value = theme.spec
+                _spec.value = theme.spec
+            }
         }
     }
 
-    /** Changes the theme here at once and saves it a moment later, so stepping a value writes once. */
+    /** Changes the theme here; nothing is kept until [save]. */
     fun change(transform: (ThemeSpec) -> ThemeSpec) {
-        val next = transform(_spec.value ?: return)
-        _spec.value = next
-        saveJob?.cancel()
-        saveJob = appScope.launch {
-            delay(SAVE_DELAY_MS)
-            runCatching { themes.save(themeId, next) }
-        }
+        _spec.value = transform(_spec.value ?: return)
     }
 
+    /** Keeps the edits; the app scope finishes the write even if the page closes. A failed write leaves Save on. */
+    fun save() {
+        appScope.launch { runCatching { saveEdits() } }
+    }
+
+    /** Saves any edits first, so the theme put on is the one on screen. */
     fun use() {
-        viewModelScope.launch { themes.use(profiles.activeProfile().id, themeId) }
+        appScope.launch {
+            if (runCatching { saveEdits() }.isSuccess) themes.use(profiles.activeProfile().id, themeId)
+        }
     }
 
     fun delete() {
-        saveJob?.cancel()
         appScope.launch {
             themes.delete(themeId)
             _gone.value = true
         }
     }
 
-    private companion object {
-        const val SAVE_DELAY_MS = 300L
+    private suspend fun saveEdits() {
+        val edited = _spec.value ?: return
+        if (edited == saved.value) return
+        themes.save(themeId, edited)
+        saved.value = edited
     }
 }
 
 /**
  * The theme designer: the theme's name, each color role (opened into brightness, saturation
- * and hue ladders, or a hex code), type, guide rows and scanlines. Every change saves itself;
- * a theme being worn changes the whole app as it is edited. Colors that are hard to read
+ * and hue ladders, or a hex code), then each Type and Screen choice (opened into its values),
+ * every one on its own page beside the preview, kept by Done and dropped by Discard or Back. Edits wait for
+ * Save; leaving with edits unsaved asks to discard them. A worn theme changes the whole app once saved. Colors that are hard to read
  * against each other are named at the top, with which one to make brighter or darker.
  */
 @Composable
@@ -172,34 +184,51 @@ fun ThemeEditorScreen(
     val spec by viewModel.spec.collectAsStateWithLifecycle()
     val gone by viewModel.gone.collectAsStateWithLifecycle()
     val inUse by viewModel.inUse.collectAsStateWithLifecycle()
+    val unsaved by viewModel.unsaved.collectAsStateWithLifecycle()
     LaunchedEffect(gone) { if (gone) onGone() }
     val current = spec ?: return
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
-    // The menu keeps its scroll and focused row while a color is open, so Done lands back on that color.
+    // The menu keeps its scroll and focused row while a color or choice is open, so Done lands back on it.
     val panes = rememberSaveableStateHolder()
 
     Box(modifier) {
         val role = editing?.let { key -> colorRoles(current.colors).firstOrNull { it.key == key } }
-        if (role != null) {
-            PageFocusScope {
-                ColorEditor(current, role, onChange = { hex -> viewModel.change { it.copy(colors = it.colors.with(role.key, hex)) } }, onDone = { editing = null })
-            }
-        } else {
-            panes.SaveableStateProvider("menu") {
-                PageFocusScope { EditorMenu(current, inUse, viewModel, onEditColor = { editing = it }) }
+        val choice = editing?.let { key -> themeChoices.firstOrNull { it.key == key } }
+        val close = { editing = null }
+        // A pane's edits reach the theme only through Done.
+        val apply = { edited: ThemeSpec ->
+            viewModel.change { edited }
+            editing = null
+        }
+        when {
+            role != null -> PageFocusScope { ColorEditor(current, role, onApply = apply, onClose = close) }
+            choice != null -> PageFocusScope { ChoiceEditor(current, choice, onApply = apply, onClose = close) }
+            else -> panes.SaveableStateProvider("menu") {
+                PageFocusScope { EditorMenu(current, inUse, unsaved, viewModel, onOpen = { editing = it }, onDiscard = onGone) }
             }
         }
     }
 }
 
 @Composable
-private fun EditorMenu(spec: ThemeSpec, inUse: Boolean, viewModel: ThemeEditorViewModel, onEditColor: (String) -> Unit) {
+private fun EditorMenu(
+    spec: ThemeSpec,
+    inUse: Boolean,
+    unsaved: Boolean,
+    viewModel: ThemeEditorViewModel,
+    onOpen: (String) -> Unit,
+    onDiscard: () -> Unit,
+) {
     val firstFocus = rememberInitialFocus()
+    val sheets = rememberSettingsSheets()
+    BackHandler(enabled = unsaved) {
+        sheets.show(ConfirmSheet("Discard changes?", "Edits since you last saved will be lost.", "Discard", Icons.Filled.Delete, onDiscard))
+    }
     SettingsPage(
         title = spec.name,
         trail = listOf("Settings", "Themes"),
-        about = "Edits save as you go.",
-        aside = { ThemePreview(spec, Modifier.fillMaxWidth()) },
+        aside = { Preview(spec) },
+        sheets = sheets,
     ) {
         val problems = ThemeContrast.problems(spec.colors)
         for ((floor, _) in problems) {
@@ -207,9 +236,10 @@ private fun EditorMenu(spec: ThemeSpec, inUse: Boolean, viewModel: ThemeEditorVi
                 SettingsNotice(readability(floor, spec.colors), isError = true)
             }
         }
-        if (!inUse) {
-            item(key = "use") {
-                SettingsButtons { OsdButton("Use theme", onClick = viewModel::use, icon = Icons.Filled.Check, primary = true) }
+        item(key = "actions") {
+            SettingsButtons {
+                OsdButton("Save", onClick = viewModel::save, icon = Icons.Filled.Save, primary = true, enabled = unsaved)
+                if (!inUse) OsdButton("Use theme", onClick = viewModel::use, icon = Icons.Filled.Check)
             }
         }
         item(key = "name") {
@@ -230,93 +260,25 @@ private fun EditorMenu(spec: ThemeSpec, inUse: Boolean, viewModel: ThemeEditorVi
             )
         }
         section("Colors")
-        colorRows(spec, onEditColor)
-        section("Type")
-        item(key = "display") {
-            ChoiceRow(
-                title = "Headings",
-                value = spec.typography.display,
-                choices = FontChoice.entries,
-                label = { it.label },
-                about = "Page titles, channel numbers, times and field labels.",
-                onSelect = { font -> viewModel.change { it.copy(typography = it.typography.copy(display = font)) } },
-                icon = Icons.Filled.Title,
-            )
-        }
-        item(key = "body") {
-            ChoiceRow(
-                title = "Body text",
-                value = spec.typography.body,
-                choices = FontChoice.entries,
-                label = { it.label },
-                onSelect = { font -> viewModel.change { it.copy(typography = it.typography.copy(body = font)) } },
-                icon = Icons.Filled.TextFields,
-            )
-        }
-        item(key = "scale") {
-            ChoiceRow(
-                title = "Text size",
-                value = TextSizes.nearest(spec.typography.scale),
-                choices = TextSizes.sizes,
-                label = { "${(it * 100).roundToInt()}%" },
-                onSelect = { size -> viewModel.change { it.copy(typography = it.typography.copy(scale = size)) } },
-                icon = Icons.Filled.FormatSize,
-            )
-        }
-        section("Guide")
-        item(key = "density") {
-            ChoiceRow(
-                title = "Rows",
-                value = spec.guide.density,
-                choices = GuideDensity.entries,
-                label = { it.label },
-                about = "How tall the guide's channel rows are.",
-                onSelect = { density -> viewModel.change { it.copy(guide = it.guide.copy(density = density)) } },
-                icon = Icons.Filled.TableRows,
-            )
-        }
-        item(key = "radius") {
-            ChoiceRow(
-                title = "Cell corners",
-                value = spec.guide.cellRadiusDp,
-                choices = (0..MAX_RADIUS_DP).toList(),
-                label = { "$it dp" },
-                onSelect = { radius -> viewModel.change { it.copy(guide = it.guide.copy(cellRadiusDp = radius)) } },
-                icon = Icons.Filled.RoundedCorner,
-            )
-        }
-        section("Progress")
-        item(key = "progress-frequency") {
-            ChoiceRow(
-                title = "Cut frequency",
-                value = spec.progress.segmentFrequency,
-                choices = tv.anstelle.core.model.ProgressStyle.frequencies,
-                label = { "$it" },
-                about = "More cuts per equal length make thinner blocks. Block and gap widths match across bars.",
-                onSelect = { frequency -> viewModel.change { it.copy(progress = it.progress.copy(segmentFrequency = frequency)) } },
-                icon = Icons.Filled.TableRows,
-            )
-        }
-        section("Effects")
-        item(key = "scanlines") {
-            val strength = Scanlines.indexOfFirst { (_, alpha) -> spec.effects.scanlines && alpha == spec.effects.scanlineAlpha }.coerceAtLeast(0)
-            ChoiceRow(
-                title = "Scanlines",
-                value = Scanlines[strength],
-                choices = Scanlines,
-                label = { it.first },
-                about = "A picture tube's lines over the whole screen.",
-                onSelect = { (_, alpha) ->
-                    viewModel.change { it.copy(effects = it.effects.copy(scanlines = alpha > 0f, scanlineAlpha = if (alpha > 0f) alpha else it.effects.scanlineAlpha)) }
-                },
-                icon = Icons.Filled.AutoAwesome,
-            )
+        colorRows(spec, onOpen)
+        for ((heading, choices) in themeChoices.groupBy { it.section }) {
+            section(heading)
+            for (choice in choices) {
+                item(key = "choice-${choice.key}") {
+                    LinkRow(
+                        title = choice.title,
+                        summary = choice.labels.getOrNull(choice.selected(spec)),
+                        icon = ChoiceIcons[choice.key],
+                        onClick = { onOpen(choice.key) },
+                    )
+                }
+            }
         }
         foot {
             DangerButton(
                 text = "Delete theme",
                 question = "Delete ${spec.name}?",
-                explanation = "Profiles using it go back to the default.",
+                explanation = "Profiles using it switch back to Rose.",
                 confirm = "Delete",
                 onConfirm = viewModel::delete,
             )
@@ -324,7 +286,68 @@ private fun EditorMenu(spec: ThemeSpec, inUse: Boolean, viewModel: ThemeEditorVi
     }
 }
 
-private fun LazyListScope.colorRows(spec: ThemeSpec, onEditColor: (String) -> Unit) {
+/** Each Type and Screen choice's icon, by [ThemeChoice.key]. */
+private val ChoiceIcons = mapOf(
+    "display" to Icons.Filled.Title,
+    "body" to Icons.Filled.TextFields,
+    "scale" to Icons.Filled.FormatSize,
+    "density" to Icons.Filled.TableRows,
+    "progress" to Icons.Filled.ViewWeek,
+    "scanlines" to Icons.Filled.AutoAwesome,
+)
+
+/** The theme as it would look; one picture for every setting in the designer. */
+@Composable
+private fun Preview(spec: ThemeSpec) = ThemePreview(spec, Modifier.fillMaxWidth())
+
+/**
+ * A color or choice opened from the menu ([id]): its own page beside the preview, editing its own
+ * copy of [spec]. [content] reads the copy and changes it through `edit`. Done hands the copy to
+ * the theme; Discard, red and on only while there are edits, or Back drops it. The two head the
+ * page on every device, as Save and Use theme head the menu.
+ */
+@Composable
+private fun DesignerPane(
+    title: String,
+    id: String,
+    spec: ThemeSpec,
+    onApply: (ThemeSpec) -> Unit,
+    onClose: () -> Unit,
+    content: LazyListScope.(working: ThemeSpec, edit: ((ThemeSpec) -> ThemeSpec) -> Unit) -> Unit,
+) {
+    var working by remember(id) { mutableStateOf(spec) }
+    BackHandler(onBack = onClose)
+    SettingsPage(title = title, trail = listOf("Settings", "Themes", spec.name), aside = { Preview(working) }) {
+        item(key = "actions") {
+            SettingsButtons {
+                OsdButton("Done", onClick = { onApply(working) }, icon = Icons.Filled.Check, primary = true)
+                OsdButton("Discard", onClick = onClose, icon = Icons.Filled.Delete, enabled = working != spec, danger = true)
+            }
+        }
+        content(working) { transform -> working = transform(working) }
+    }
+}
+
+/** One choice, opened: its values as a radio list; a pick shows in the preview, and Done keeps it. */
+@Composable
+private fun ChoiceEditor(spec: ThemeSpec, choice: ThemeChoice, onApply: (ThemeSpec) -> Unit, onClose: () -> Unit) {
+    val firstFocus = rememberInitialFocus()
+    DesignerPane(choice.title, choice.key, spec, onApply, onClose) { working, edit ->
+        val selected = choice.selected(working)
+        choice.labels.forEachIndexed { i, label ->
+            item(key = "option-$i") {
+                OptionRow(
+                    title = label,
+                    selected = i == selected,
+                    onClick = { edit { choice.apply(it, i) } },
+                    modifier = if (i == selected.coerceAtLeast(0)) Modifier.focusRequester(firstFocus) else Modifier,
+                )
+            }
+        }
+    }
+}
+
+private fun LazyListScope.colorRows(spec: ThemeSpec, onOpen: (String) -> Unit) {
     for (role in colorRoles(spec.colors)) {
         item(key = "color-${role.key}") {
             val hex = spec.colors.of(role.key)
@@ -333,7 +356,7 @@ private fun LazyListScope.colorRows(spec: ThemeSpec, onEditColor: (String) -> Un
                 summary = role.about,
                 value = hex.uppercase(),
                 leading = { Swatch(hex, Modifier.size(24.dp)) },
-                onClick = { onEditColor(role.key) },
+                onClick = { onOpen(role.key) },
             )
         }
     }
@@ -351,27 +374,17 @@ private fun Swatch(hex: String, modifier: Modifier) {
  * against the colors it has to work with.
  */
 @Composable
-private fun ColorEditor(spec: ThemeSpec, role: ColorRole, onChange: (String) -> Unit, onDone: () -> Unit) {
-    BackHandler(onBack = onDone)
-    val hex = spec.colors.of(role.key)
+private fun ColorEditor(spec: ThemeSpec, role: ColorRole, onApply: (ThemeSpec) -> Unit, onClose: () -> Unit) {
     // The ladders' own position: a hex code alone loses the hue of a grey and the chroma sRGB can't hold.
-    var color by remember(role.key) { mutableStateOf(Oklch.fromHex(hex)) }
-    LaunchedEffect(hex) { if (color.toHex() != hex.uppercase().takeLast(7)) color = Oklch.fromHex(hex) }
-    fun set(next: Oklch) {
-        color = next
-        onChange(next.toHex())
-    }
+    var color by remember(role.key) { mutableStateOf(Oklch.fromHex(spec.colors.of(role.key))) }
     val firstFocus = rememberInitialFocus()
-    val guided = settingsGuided
-    SettingsPage(
-        title = role.label,
-        trail = listOf("Settings", "Themes", spec.name),
-        about = role.about,
-        aside = {
-            Swatch(hex, Modifier.fillMaxWidth().height(56.dp))
-            if (guided) ThemePreview(spec, Modifier.fillMaxWidth())
-        },
-    ) {
+    DesignerPane(role.label, role.key, spec, onApply, onClose) { working, edit ->
+        val hex = working.colors.of(role.key)
+        fun put(value: String) = edit { it.copy(colors = it.colors.with(role.key, value)) }
+        fun set(next: Oklch) {
+            color = next
+            put(next.toHex())
+        }
         item(key = "lightness") {
             LadderRow("Brightness", "${(color.lightness * 100).roundToInt()}%", color.lightness.toFloat(),
                 onStep = { by -> set(color.copy(lightness = (color.lightness + by * 0.01).coerceIn(0.0, 1.0))) },
@@ -400,7 +413,7 @@ private fun ColorEditor(spec: ThemeSpec, role: ColorRole, onChange: (String) -> 
                     val candidate = if (text.startsWith("#")) text else "#$text"
                     if (candidate.length == 7 && ThemeContrast.isColor(candidate)) {
                         color = Oklch.fromHex(candidate)
-                        onChange(candidate)
+                        put(candidate)
                     }
                 },
                 label = "Hex code",
@@ -409,16 +422,13 @@ private fun ColorEditor(spec: ThemeSpec, role: ColorRole, onChange: (String) -> 
                 modifier = Modifier.fillMaxWidth().padding(horizontal = settingsEdge, vertical = 8.dp),
             )
         }
-        val pairs = ThemeContrast.Floors.filter { it.foreground == role.key || it.background == role.key }
+        val pairs = ThemeContrast.floors(working.colors).filter { it.foreground == role.key || it.background == role.key }
         if (pairs.isNotEmpty()) section("Readability")
         for (floor in pairs) {
             item(key = "floor-${floor.foreground}-${floor.background}") {
-                val byRole = spec.colors.all().toMap()
-                val ratio = ThemeContrast.ratio(byRole.getValue(floor.foreground), byRole.getValue(floor.background))
-                SettingsNotice(readability(floor, spec.colors, open = role.key), isError = ratio < floor.minimum)
+                SettingsNotice(readability(floor, working.colors, open = role.key), isError = ThemeContrast.ratio(floor, working.colors) < floor.minimum)
             }
         }
-        item(key = "done") { SettingsButtons { OsdButton("Done", onClick = onDone, icon = Icons.Filled.Check, primary = true) } }
     }
 }
 

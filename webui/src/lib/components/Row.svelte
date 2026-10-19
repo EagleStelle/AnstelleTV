@@ -11,6 +11,8 @@
 	interface Props extends Omit<HTMLAttributes<HTMLElement>, 'onclick' | 'title'> {
 		title: string;
 		summary?: string;
+		/** A chip after the title, such as the default theme's. */
+		tag?: string;
 		icon?: Component<any>;
 		leading?: Snippet;
 		end?: Snippet;
@@ -21,7 +23,7 @@
 		disabled?: boolean;
 	}
 
-	let { title, summary, icon: Icon, leading, end, href, onclick, danger = false, disabled = false, ...rest }: Props = $props();
+	let { title, summary, tag, icon: Icon, leading, end, href, onclick, danger = false, disabled = false, ...rest }: Props = $props();
 
 	const live = $derived(!!(href || onclick) && !disabled);
 	const classes = $derived([
@@ -49,7 +51,18 @@
 		</span>
 	{/if}
 	<span class="flex min-w-0 flex-1 flex-col">
-		<span class="text-title-s font-medium wrap-anywhere">{title}</span>
+		<span class="flex items-center gap-2">
+			<span class="text-title-s font-medium wrap-anywhere">{title}</span>
+			{#if tag}
+				<!-- On a filled row the chip turns ink with accent letters, as in the app. -->
+				<span
+					class={[
+						'shrink-0 rounded-control bg-accent-container px-1.25 py-px font-display text-label-s font-semibold tracking-field text-on-accent-container uppercase',
+						live && 'group-hover/row:bg-on-accent group-hover/row:text-accent group-focus-visible/row:bg-on-accent group-focus-visible/row:text-accent'
+					]}>{tag}</span
+				>
+			{/if}
+		</span>
 		{#if summary}<span class={['text-body-s wrap-anywhere text-text-muted', quiet]}>{summary}</span>{/if}
 	</span>
 	{#if end}<span class={['flex shrink-0 items-center gap-2 text-text-muted', quiet]}>{@render end()}</span>{/if}

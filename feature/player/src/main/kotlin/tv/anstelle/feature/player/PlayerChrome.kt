@@ -86,26 +86,6 @@ import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdBadge
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.SegmentRing
-import tv.anstelle.core.theme.components.TitleLogo
-
-/** One title treatment for the on-demand and channel players, on every device. */
-@Composable
-internal fun PlayerTitleLogo(
-    logoUrl: String?,
-    title: String,
-    modifier: Modifier = Modifier,
-    maxLines: Int = 1,
-) {
-    TitleLogo(
-        logoUrl = logoUrl,
-        title = title,
-        height = 56.dp,
-        maxLogoWidth = 360.dp,
-        style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
-        maxLines = maxLines,
-        modifier = modifier,
-    )
-}
 
 /** The line under the title: S1E2 - its title for an episode, the year for a movie. */
 @Composable
@@ -414,18 +394,18 @@ internal fun StreamLine(facts: StreamFacts, modifier: Modifier = Modifier) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         // The source leads, set apart by a hairline from what it does with the file.
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            androidx.compose.material3.Icon(Icons.Filled.Dns, contentDescription = "Server", tint = theme.bannerText, modifier = Modifier.size(14.dp))
+            androidx.compose.material3.Icon(Icons.Filled.Dns, contentDescription = "Server", tint = theme.text, modifier = Modifier.size(14.dp))
             androidx.compose.material3.Text(
                 facts.server,
                 style = typography.labelMedium,
-                color = theme.bannerText,
+                color = theme.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.widthIn(max = 240.dp),
             )
             Box(Modifier.padding(start = 2.dp).width(1.dp).height(12.dp).background(theme.line))
         }
-        androidx.compose.material3.Text(facts.method.uppercase(), style = typography.labelMedium, color = theme.bannerText, maxLines = 1)
+        androidx.compose.material3.Text(facts.method.uppercase(), style = typography.labelMedium, color = theme.text, maxLines = 1)
         listOfNotNull(facts.quality, facts.video, facts.audio).forEach { OsdBadge(it.uppercase()) }
     }
 }
@@ -536,11 +516,11 @@ internal fun OsdKey(
             .then(if (iconOnly) Modifier.aspectRatio(1f) else Modifier)
             .semantics { contentDescription = listOfNotNull(label, value).joinToString(", ") },
         color = if (highlighted) theme.accent else Color.Transparent,
-        contentColor = if (highlighted) theme.onAccent else theme.bannerText,
+        contentColor = if (highlighted) theme.onAccent else theme.text,
     ) { focused ->
         val ink = when {
             focused || highlighted -> theme.onAccent
-            enabled -> theme.bannerText
+            enabled -> theme.text
             else -> theme.textMuted.copy(alpha = DISABLED_ALPHA)
         }
         if (iconOnly) {
@@ -642,7 +622,7 @@ internal fun ProgressRow(positionMs: Long, lengthMs: Long, modifier: Modifier = 
         androidx.compose.material3.Text(
             clock(dragged?.let { (it * length).toLong() } ?: positionMs),
             style = typography.labelMedium,
-            color = theme.bannerText,
+            color = theme.text,
             maxLines = 1,
         )
         val touch = if (onSeek == null) {

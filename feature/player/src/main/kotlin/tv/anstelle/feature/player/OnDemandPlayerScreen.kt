@@ -97,6 +97,7 @@ import tv.anstelle.core.theme.components.OsdTab
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.StandInSize
 import tv.anstelle.core.theme.components.Poster
+import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.WatchStrip
 
 import javax.inject.Inject
@@ -764,7 +765,7 @@ private fun Overlay(
     Column(
         modifier
             .fillMaxWidth()
-            .edgeShade(theme.banner, shadeFade),
+            .edgeShade(theme.surface, shadeFade),
     ) {
         // Hand-held sizes off TV: the touch keys close the banner, so their own height is the air under it.
         Column(
@@ -787,7 +788,7 @@ private fun Overlay(
             // The Skip key centered on the title and its detail line.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 2.dp)) {
-                    PlayerTitleLogo(
+                    TitleLogo(
                         logoUrl = state.logoUrl,
                         title = state.title.orEmpty(),
                     )
@@ -825,7 +826,7 @@ private fun Message(text: String) {
             style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
             color = theme.text,
             modifier = Modifier
-                .softShade(theme.banner)
+                .softShade(theme.surface)
                 .padding(horizontal = 24.dp, vertical = 14.dp),
         )
     }

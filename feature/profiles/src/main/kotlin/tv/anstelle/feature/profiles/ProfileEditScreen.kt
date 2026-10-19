@@ -110,7 +110,7 @@ class ProfileEditViewModel @Inject constructor(
         profiles.observeAccounts(profileId),
         levels,
     ) { (profile, viewer), themeList, serverList, accountList, levelList ->
-        val theme = themeList.firstOrNull { it.id == profile?.themeId } ?: themeList.firstOrNull { it.spec.key == DEFAULT_THEME_KEY }
+        val theme = themeList.firstOrNull { it.id == profile?.themeId } ?: themeList.firstOrNull { it.isDefault }
         ProfileEditUiState(
             profile = profile,
             viewer = viewer,
@@ -212,10 +212,6 @@ class ProfileEditViewModel @Inject constructor(
 
     private fun act(action: suspend () -> Unit) {
         viewModelScope.launch { action() }
-    }
-
-    private companion object {
-        const val DEFAULT_THEME_KEY = "rose"
     }
 }
 

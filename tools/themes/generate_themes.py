@@ -83,12 +83,8 @@ CONTRAST = {
         "onAccent": "#000000",
         "accentContainer": "#4A4000",
         "onAccentContainer": "#FFF3B0",
-        "guideCell": "#1C1C1C",
         "guideCellPast": "#0E0E0E",
         "guideRuns": ["#00363A", "#3F2A00", "#14294D", "#173D12"],
-        "nowLine": "#FFE14D",
-        "banner": "#1C1C1C",
-        "bannerText": "#FFFFFF",
     },
     "display": "CONDENSED",
     "scanlines": False,
@@ -150,8 +146,6 @@ FLOORS = [
     ("onAccent", "accent", 4.5),
     ("accent", "background", 3.0),
     ("onAccentContainer", "accentContainer", 4.5),
-    ("bannerText", "banner", 7.0),
-    ("text", "guideCell", 7.0),
 ]
 
 
@@ -201,12 +195,8 @@ def build(key, name, hue, k, accent, light, display, scanlines, scale):
         "onAccent": oklch(0.985, 0.005 * k, hue) if light else role("background"),
         "accentContainer": oklch(container_l, container_c * strength, accent_hue),
         "onAccentContainer": oklch(on_container_l, on_container_c * strength, accent_hue),
-        "guideCell": role("surface"),
         "guideCellPast": role("guideCellPast"),
         "guideRuns": runs,
-        "nowLine": accent_hex,
-        "banner": role("surface"),
-        "bannerText": role("text"),
     }
     return {"key": key, "name": name, "colors": colors, "display": display, "scanlines": scanlines, "scale": scale}
 
@@ -232,8 +222,7 @@ def spec_json(theme):
     lines.append(f'        "scale": {theme["scale"]:.1f}')
     lines.append("    },")
     lines.append('    "guide": {')
-    lines.append('        "density": "COMFORTABLE",')
-    lines.append('        "cellRadiusDp": 2')
+    lines.append('        "density": "COMFORTABLE"')
     lines.append("    },")
     lines.append('    "effects": {')
     lines.append(f'        "scanlines": {"true" if theme["scanlines"] else "false"},')

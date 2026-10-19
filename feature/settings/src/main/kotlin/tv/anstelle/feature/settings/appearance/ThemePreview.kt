@@ -37,8 +37,9 @@ import tv.anstelle.core.theme.components.StatusLine
 import tv.anstelle.core.theme.scanlines
 
 /**
- * [spec] drawn as the app would wear it: a banner, a strip of guide cells, a focused and a
- * plain menu row and the two buttons. Nothing in it takes focus; it only shows.
+ * [spec] drawn as the app would wear it: a banner, a guide row at the theme's row height with
+ * every run, a focused and a plain menu row, the two buttons and a selected chip, so each color
+ * role and setting shows somewhere. Nothing in it takes focus; it only shows.
  */
 @Composable
 fun ThemePreview(spec: ThemeSpec, modifier: Modifier = Modifier) {
@@ -58,32 +59,32 @@ fun ThemePreview(spec: ThemeSpec, modifier: Modifier = Modifier) {
             androidx.compose.material3.Text(spec.name, style = typography.headlineSmall, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             // The banner.
             Row(
-                Modifier.fillMaxWidth().height(64.dp).background(theme.banner, PanelShape).border(1.dp, theme.line, PanelShape),
+                Modifier.fillMaxWidth().height(64.dp).background(theme.surface, PanelShape).border(1.dp, theme.line, PanelShape),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 NumberBlock("101", style = typography.headlineSmall, modifier = Modifier.fillMaxHeight().width(64.dp))
                 Column(Modifier.weight(1f).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     StatusLine(onAir = true, label = "Now", text = "8:00 – 8:30")
-                    androidx.compose.material3.Text("Feature Presentation", style = typography.titleMedium, color = theme.bannerText, maxLines = 1)
+                    androidx.compose.material3.Text("Feature Presentation", style = typography.titleMedium, color = theme.text, maxLines = 1)
                     SegmentLadder(0.55f)
                 }
             }
-            // A row of the guide: aired, on now under the now line, then later shows.
-            Row(Modifier.fillMaxWidth().height(40.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                val radius = androidx.compose.foundation.shape.RoundedCornerShape(spec.guide.cellRadiusDp.dp)
-                Cell("Aired", theme.guideCellPast, theme.textMuted, radius, Modifier.weight(0.8f))
+            // A row of the guide: aired, on now under the now line, then each later run.
+            val rowHeight = spec.guide.density.rowHeightDp
+            Row(Modifier.fillMaxWidth().height(rowHeight.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Cell("Aired", theme.guideCellPast, theme.textMuted, Modifier.weight(0.8f))
                 Box(Modifier.weight(1.2f).fillMaxHeight()) {
-                    Cell("On now", theme.guideCell, theme.text, radius, Modifier.fillMaxWidth(), marker = true)
-                    Box(Modifier.fillMaxHeight().width(2.dp).align(Alignment.CenterStart).padding(start = 0.dp).background(theme.nowLine))
+                    Cell("On now", theme.surface, theme.text, Modifier.fillMaxWidth(), marker = true)
+                    Box(Modifier.fillMaxHeight().width(2.dp).align(Alignment.CenterStart).background(theme.accent))
                 }
-                theme.guideRuns.take(2).forEachIndexed { i, run -> Cell(if (i == 0) "Later" else "Then", run, theme.text, radius, Modifier.weight(1f)) }
+                theme.guideRuns.forEachIndexed { i, run -> Cell(RunLabels.getOrElse(i) { "" }, run, theme.text, Modifier.weight(1f)) }
             }
             // Menu rows: one focused, one at rest.
             MenuRowSample("Focused row", theme.accent, theme.onAccent, focused = true)
             MenuRowSample("A row at rest", theme.surface, theme.text, focused = false)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ButtonSample("Watch", theme.accent, theme.onAccent, Modifier.weight(1f))
-                ButtonSample("Later", theme.surface, theme.text, Modifier.weight(1f))
+                ButtonSample("Later", theme.surfaceHigh, theme.text, Modifier.weight(1f))
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 androidx.compose.material3.Text(
@@ -98,10 +99,12 @@ fun ThemePreview(spec: ThemeSpec, modifier: Modifier = Modifier) {
     }
 }
 
+private val RunLabels = listOf("Later", "Then", "After", "Late")
+
 @Composable
-private fun Cell(text: String, fill: Color, ink: Color, shape: androidx.compose.ui.graphics.Shape, modifier: Modifier, marker: Boolean = false) {
+private fun Cell(text: String, fill: Color, ink: Color, modifier: Modifier, marker: Boolean = false) {
     Row(
-        modifier.fillMaxHeight().background(fill, shape).padding(horizontal = 8.dp),
+        modifier.fillMaxHeight().background(fill, ControlShape).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {

@@ -60,8 +60,8 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleStartEffect
@@ -92,6 +92,7 @@ import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.Backdrop
 import tv.anstelle.core.theme.components.ChannelLogo
+import tv.anstelle.core.theme.components.LogoSize
 import tv.anstelle.core.theme.components.dialogActions
 import tv.anstelle.core.theme.components.NumberBlock
 import tv.anstelle.core.theme.components.OsdBadge
@@ -181,8 +182,7 @@ fun GuideScreen(
     val now = rememberClock()
     val density = LocalDensity.current
     val metrics = remember(isTv, theme, state.hasLogos) {
-        val rows = theme.spec.guide.density
-        val rowHeight = if (isTv) rows.tvRowHeightDp else rows.rowHeightDp
+        val rowHeight = theme.spec.guide.density.rowHeightDp
         GridMetrics(
             rowHeight = rowHeight.dp,
             // Logos take the column's start, so it widens to keep the names their room.
@@ -196,7 +196,6 @@ fun GuideScreen(
             channelNameLines = if (isTv && rowHeight >= 50) 2 else 1,
             headerHeight = 26.dp,
             dpPerMinute = if (isTv) 5f else 4f,
-            showDetailLine = rowHeight >= 50,
             touch = !isTv,
         )
     }
@@ -534,13 +533,13 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
         }
         playback.channel?.let { channel ->
             Row(
-                Modifier.align(Alignment.BottomStart).fillMaxWidth().background(theme.banner).onSizeChanged { strip.intValue = it.height },
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().background(theme.surface).onSizeChanged { strip.intValue = it.height },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 androidx.compose.material3.Text(
                     "${channel.number}",
                     color = theme.onAccent,
-                    fontSize = 12.sp,
+                    fontSize = theme.sp(12f),
                     fontWeight = FontWeight.Bold,
                     fontFamily = theme.displayFont,
                     style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
@@ -549,8 +548,8 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
                 )
                 androidx.compose.material3.Text(
                     channel.name,
-                    color = theme.bannerText,
-                    fontSize = 12.sp,
+                    color = theme.text,
+                    fontSize = theme.sp(12f),
                     fontFamily = theme.bodyFont,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -561,7 +560,7 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
                     androidx.compose.material3.Text(
                         it.uppercase(),
                         color = theme.accent,
-                        fontSize = 11.sp,
+                        fontSize = theme.sp(11f),
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = theme.displayFont,
                         maxLines = 1,
@@ -649,23 +648,22 @@ private fun Details(
             Modifier.padding(horizontal = if (isTv) 16.dp else 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            val titleHeight = if (isTv) 56.dp else 30.dp
+            val logoHeight = if (isTv) LogoSize.Standard else LogoSize.Compact
             val channel = selected?.channel ?: playback.channel?.let { GuideChannel(it.id, it.number, it.name, it.logoUri, it.isFavorite) }
             // The title's slot, with the channel's ident in the top-end corner beside it, inside the slot's height.
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (offAir) {
                     // Off air has no title: the preview's mark takes its place, in the slot's height.
-                    Box(Modifier.weight(1f).height(titleHeight), contentAlignment = Alignment.BottomStart) {
+                    Box(Modifier.weight(1f).height(logoHeight), contentAlignment = Alignment.BottomStart) {
                         OffAirMark(size = StandInSize.PANEL, alignStart = true)
                     }
                 } else {
                     TitleLogo(
                         logoUrl = artwork?.logoUrl,
                         title = title,
-                        height = titleHeight,
-                        maxLogoWidth = if (isTv) 320.dp else 200.dp,
+                        height = logoHeight,
                         style = androidx.compose.ui.text.TextStyle(
-                            fontSize = if (isTv) 24.sp else 20.sp,
+                            fontSize = if (isTv) theme.sp(24f) else theme.sp(20f),
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = theme.displayFont,
                         ),
@@ -673,7 +671,7 @@ private fun Details(
                         modifier = Modifier.weight(1f).obscured(restricted, theme.textMuted, radius = 10.dp),
                     )
                 }
-                channel?.let { DetailsIdent(it) }
+                channel?.let { DetailsIdent(it, logoHeight) }
             }
             // The episode (or a movie's title and year) in full ink, then its facts quieter on the same line.
             val lead = lineUnderLogo(detail, title, isEpisode = more?.isEpisode ?: true, hasLogo = artwork?.logoUrl != null)
@@ -683,7 +681,7 @@ private fun Details(
                     androidx.compose.material3.Text(
                         it,
                         color = theme.text,
-                        fontSize = 13.sp,
+                        fontSize = theme.sp(13f),
                         fontFamily = theme.bodyFont,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -694,7 +692,7 @@ private fun Details(
                     androidx.compose.material3.Text(
                         if (lead != null) "·  ${more.facts}" else more.facts,
                         color = theme.textMuted,
-                        fontSize = 13.sp,
+                        fontSize = theme.sp(13f),
                         fontFamily = theme.bodyFont,
                         maxLines = 1,
                     )
@@ -705,7 +703,7 @@ private fun Details(
                 androidx.compose.material3.Text(
                     time,
                     color = theme.accent,
-                    fontSize = 13.sp,
+                    fontSize = theme.sp(13f),
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = theme.displayFont,
                     style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
@@ -718,7 +716,7 @@ private fun Details(
             val overviewLines = if (isTv) TV_OVERVIEW_LINES else OVERVIEW_LINES
             if (restriction != null) {
                 // The overview's lines stay reserved, so the grid holds still.
-                Box(Modifier.padding(top = 3.dp).height(with(LocalDensity.current) { (16.sp * overviewLines).toDp() })) {
+                Box(Modifier.padding(top = 3.dp).height(with(LocalDensity.current) { (theme.sp(16f) * overviewLines).toDp() })) {
                     RestrictedMark(restriction.title, size = StandInSize.LINE, alignStart = true)
                 }
                 return@Column
@@ -726,8 +724,8 @@ private fun Details(
             androidx.compose.material3.Text(
                 more?.overview.orEmpty(),
                 color = theme.text,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
+                fontSize = theme.sp(12f),
+                lineHeight = theme.sp(16f),
                 fontFamily = theme.bodyFont,
                 minLines = overviewLines,
                 maxLines = overviewLines,
@@ -744,17 +742,17 @@ private fun Details(
  * the name alone, set to the corner. It never takes more than the title slot's height.
  */
 @Composable
-private fun DetailsIdent(channel: GuideChannel) {
+private fun DetailsIdent(channel: GuideChannel, logoHeight: Dp) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        channel.logo?.let { ChannelLogo(it, height = if (isTv) 56.dp else 30.dp) }
+        channel.logo?.let { ChannelLogo(it, height = logoHeight) }
         Column(horizontalAlignment = if (channel.logo != null) Alignment.Start else Alignment.End) {
             androidx.compose.material3.Text(
                 "${channel.number}",
                 color = theme.accent,
-                fontSize = if (isTv) 18.sp else 13.sp,
-                lineHeight = if (isTv) 21.sp else 15.sp,
+                fontSize = if (isTv) theme.sp(18f) else theme.sp(13f),
+                lineHeight = if (isTv) theme.sp(21f) else theme.sp(15f),
                 fontWeight = FontWeight.Bold,
                 fontFamily = theme.displayFont,
                 style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
@@ -763,8 +761,8 @@ private fun DetailsIdent(channel: GuideChannel) {
             androidx.compose.material3.Text(
                 channel.name,
                 color = theme.text,
-                fontSize = if (isTv) 12.sp else 11.sp,
-                lineHeight = if (isTv) 15.sp else 13.sp,
+                fontSize = if (isTv) theme.sp(12f) else theme.sp(11f),
+                lineHeight = if (isTv) theme.sp(15f) else theme.sp(13f),
                 fontFamily = theme.bodyFont,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -875,7 +873,7 @@ private const val CLOCK_MS = 30_000L
  * Lines kept for the selected program's overview. TV keeps fewer, paying for a logo large
  * enough to read from the couch without taking channels from the grid.
  */
-private const val OVERVIEW_LINES = 5
+private const val OVERVIEW_LINES = 4
 private const val TV_OVERVIEW_LINES = 3
 
 /** Narrower than this (a phone held upright), the preview sits over the details instead of beside them. */

@@ -42,7 +42,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import tv.anstelle.core.data.ondemand.CatalogKind
 import tv.anstelle.core.data.ondemand.CatalogWatch
@@ -55,6 +54,7 @@ import tv.anstelle.core.model.WatchChoice
 import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.theme.components.WatchProgress
+import tv.anstelle.core.theme.components.browseHeading
 import tv.anstelle.core.data.ondemand.WatchFilter
 import tv.anstelle.core.model.WatchKind
 import tv.anstelle.core.theme.LocalAnstelleTheme
@@ -464,8 +464,7 @@ private fun LazyGridScope.fullItem(key: String, content: @Composable () -> Unit)
 @Composable
 private fun ResultsHeading(title: String, count: String?) {
     val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
-    val style = androidx.compose.material3.MaterialTheme.typography.labelMedium.copy(fontSize = if (isTv) 15.sp else 13.sp, lineHeight = 18.sp)
+    val style = browseHeading
     // Its pictures sit the rows' gap under it, as under a shelf's heading: the grid's spacing and their inset make up the rest.
     Row(Modifier.padding(start = TILE_FRAME, top = screenGap, bottom = TILE_FRAME), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         androidx.compose.material3.Text(title.uppercase(), style = style, color = theme.text, maxLines = 1)

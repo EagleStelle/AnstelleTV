@@ -10,9 +10,8 @@ class ThemeContrastTest {
     private val colors = ThemeColors(
         background = "#000000", surface = "#1C1C1C", surfaceHigh = "#2E2E2E", line = "#7A7A7A",
         text = "#FFFFFF", textMuted = "#D6D6D6", accent = "#FFE14D", onAccent = "#000000",
-        accentContainer = "#4A4000", onAccentContainer = "#FFF3B0", guideCell = "#1C1C1C",
-        guideCellPast = "#0E0E0E", guideRuns = listOf("#00363A", "#3F2A00"), nowLine = "#FFE14D",
-        banner = "#1C1C1C", bannerText = "#FFFFFF",
+        accentContainer = "#4A4000", onAccentContainer = "#FFF3B0", guideCellPast = "#0E0E0E",
+        guideRuns = listOf("#00363A", "#3F2A00"),
     )
 
     @Test
@@ -29,7 +28,7 @@ class ThemeContrastTest {
         assertTrue(ThemeContrast.problems(colors).isEmpty())
         val dim = colors.copy(onAccent = "#E0C040", guideRuns = listOf("#00363A", "#C0C0C0"))
         val labels = ThemeContrast.problems(dim).map { it.first.label }
-        assertEquals(listOf("Text on focus", "Text on Guide: later 2"), labels)
+        assertEquals(listOf("Text on the accent", "Text on guide color 2"), labels)
     }
 
     @Test
@@ -40,7 +39,6 @@ class ThemeContrastTest {
         assertFailsWith<IllegalArgumentException> { spec.copy(colors = colors.copy(text = "white")).validate() }
         assertFailsWith<IllegalArgumentException> { spec.copy(colors = colors.copy(guideRuns = listOf("#000000"))).validate() }
         assertFailsWith<IllegalArgumentException> { spec.copy(typography = ThemeTypography(scale = 2f)).validate() }
-        assertFailsWith<IllegalArgumentException> { spec.copy(guide = GuideStyle(cellRadiusDp = 9)).validate() }
     }
 
     @Test

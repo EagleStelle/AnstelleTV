@@ -55,7 +55,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleStartEffect
@@ -102,6 +101,7 @@ import tv.anstelle.core.theme.components.ChannelLogo
 import tv.anstelle.core.theme.components.PlaceholderAction
 import tv.anstelle.core.theme.components.PlaceholderScreen
 import tv.anstelle.core.theme.components.WatchStrip
+import tv.anstelle.core.theme.components.browseHeading
 import tv.anstelle.core.theme.components.StatusLine
 import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.screenEdge
@@ -568,8 +568,7 @@ private fun HomeTab(
 @Composable
 private fun RowHeader(row: ChannelRow, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
-    val style = androidx.compose.material3.MaterialTheme.typography.labelMedium.copy(fontSize = if (isTv) 15.sp else 13.sp, lineHeight = 18.sp)
+    val style = browseHeading
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         androidx.compose.material3.Text(row.label.uppercase(), style = style, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         androidx.compose.material3.Text(row.numbers, style = style, color = theme.textMuted, maxLines = 1)

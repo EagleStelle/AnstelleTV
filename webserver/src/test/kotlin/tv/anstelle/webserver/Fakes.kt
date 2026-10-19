@@ -284,6 +284,8 @@ class FakeThemes : ThemesApi {
 
     override suspend fun design(themeId: Long): ThemeDesignDto? = null
 
+    override suspend fun check(themeId: Long, specJson: String, choice: String?, index: Int): ThemeDesignDto? = null
+
     override suspend fun save(themeId: Long, specJson: String): ThemeDesignDto? {
         if (themeId == 1L) throw BuiltInThemeException()
         return null

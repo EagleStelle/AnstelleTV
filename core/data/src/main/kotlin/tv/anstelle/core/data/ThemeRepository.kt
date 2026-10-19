@@ -26,7 +26,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /** A theme as the theme list shows it. */
-data class ThemeSummary(val id: Long, val spec: ThemeSpec, val isBuiltIn: Boolean)
+data class ThemeSummary(val id: Long, val spec: ThemeSpec, val isBuiltIn: Boolean) {
+    /** The theme every profile starts with, and wears while it picks none. */
+    val isDefault: Boolean get() = spec.key == ThemeRepository.DEFAULT_KEY
+}
 
 /** A theme file that couldn't be read or doesn't make a theme. */
 class ThemeImportException(message: String, cause: Throwable? = null) : Exception(message, cause)

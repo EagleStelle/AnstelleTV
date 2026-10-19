@@ -283,28 +283,30 @@ fun OsdButton(
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     // A destructive button is the danger red in every theme and on every device; focus turns it
-    // white with red ink. On touch the primary is rose at rest and turns bone on focus.
-    val rose = primary && !isTv
+    // white with red ink. On touch the primary is rose at rest and turns bone on focus. Disabled,
+    // either takes the plain fill, so muted text never sits on a signal color.
+    val red = danger && enabled
+    val rose = primary && !isTv && enabled
     FocusSurface(
         onClick = onClick,
         enabled = enabled,
         color = when {
-            danger -> DangerColor
+            red -> DangerColor
             rose -> theme.accent
             LocalOnPanel.current -> theme.surfaceHigh
             else -> theme.surface
         },
         contentColor = when {
-            danger -> OnDangerColor
+            red -> OnDangerColor
             rose -> theme.onAccent
             else -> theme.text
         },
         focusColor = when {
-            danger -> OnDangerColor
+            red -> OnDangerColor
             rose -> theme.text
             else -> theme.accent
         },
-        focusContentColor = if (danger) DangerColor else theme.onAccent,
+        focusContentColor = if (red) DangerColor else theme.onAccent,
         modifier = modifier,
     ) {
         // Centred, so a button stretched across its line keeps its label in the middle.

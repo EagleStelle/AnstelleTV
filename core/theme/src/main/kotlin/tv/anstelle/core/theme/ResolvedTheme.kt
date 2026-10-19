@@ -3,6 +3,8 @@ package tv.anstelle.core.theme
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import tv.anstelle.core.model.FontChoice
 import tv.anstelle.core.model.ThemeSpec
 
@@ -20,15 +22,14 @@ class ResolvedTheme(
     val onAccent: Color,
     val accentContainer: Color,
     val onAccentContainer: Color,
-    val guideCell: Color,
     val guideCellPast: Color,
     val guideRuns: List<Color>,
-    val nowLine: Color,
-    val banner: Color,
-    val bannerText: Color,
     val displayFont: FontFamily,
     val bodyFont: FontFamily,
 ) {
+    /** [size] sp at the theme's text size. Every size in the app goes through here, so the size setting reaches all text. */
+    fun sp(size: Float): TextUnit = (size * spec.typography.scale).sp
+
     companion object {
         fun from(spec: ThemeSpec): ResolvedTheme {
             val c = spec.colors
@@ -44,12 +45,8 @@ class ResolvedTheme(
                 onAccent = parseColor(c.onAccent),
                 accentContainer = parseColor(c.accentContainer),
                 onAccentContainer = parseColor(c.onAccentContainer),
-                guideCell = parseColor(c.guideCell),
                 guideCellPast = parseColor(c.guideCellPast),
                 guideRuns = c.guideRuns.map(::parseColor),
-                nowLine = parseColor(c.nowLine),
-                banner = parseColor(c.banner),
-                bannerText = parseColor(c.bannerText),
                 displayFont = fontFamily(spec.typography.display),
                 bodyFont = fontFamily(spec.typography.body),
             )

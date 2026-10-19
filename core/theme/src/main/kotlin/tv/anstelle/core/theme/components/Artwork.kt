@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -110,6 +111,12 @@ fun Backdrop(
 /** A channel logo's box, width over height: the 5:3 set-top picons use. */
 const val CHANNEL_LOGO_ASPECT = 5f / 3f
 
+/** Shared logo heights for players and compact guide details. */
+object LogoSize {
+    val Standard = 56.dp
+    val Compact = 40.dp
+}
+
 /**
  * A channel's logo in its standard box, [height] tall and [CHANNEL_LOGO_ASPECT] as wide, the
  * same box everywhere so every channel's mark carries the same weight. The logo keeps its
@@ -118,7 +125,7 @@ const val CHANNEL_LOGO_ASPECT = 5f / 3f
  * name always sits beside it, so the logo is silent to screen readers.
  */
 @Composable
-fun ChannelLogo(uri: String, height: Dp, modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center) {
+fun ChannelLogo(uri: String, height: Dp = LogoSize.Standard, modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center) {
     val context = LocalPlatformContext.current
     // No crossfade: rows rebind as the guide scrolls, and a logo should never flicker in.
     val request = remember(uri, context) { ImageRequest.Builder(context).data(uri).crossfade(false).build() }
@@ -141,9 +148,9 @@ fun ChannelLogo(uri: String, height: Dp, modifier: Modifier = Modifier, alignmen
 fun TitleLogo(
     logoUrl: String?,
     title: String,
-    height: Dp,
-    maxLogoWidth: Dp,
-    style: TextStyle,
+    height: Dp = LogoSize.Standard,
+    maxLogoWidth: Dp = 360.dp,
+    style: TextStyle = MaterialTheme.typography.headlineMedium,
     modifier: Modifier = Modifier,
     maxLines: Int = 1,
     color: Color = LocalAnstelleTheme.current.text,

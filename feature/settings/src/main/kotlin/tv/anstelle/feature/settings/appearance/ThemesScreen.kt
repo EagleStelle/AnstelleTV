@@ -68,9 +68,6 @@ import tv.anstelle.core.theme.components.requestWhenReady
 import tv.anstelle.core.theme.components.section
 import javax.inject.Inject
 
-/** The theme every profile starts with. */
-internal const val DEFAULT_THEME_KEY = "rose"
-
 @Immutable
 data class ThemesUiState(
     val profile: Profile? = null,
@@ -79,7 +76,7 @@ data class ThemesUiState(
     val loaded: Boolean = false,
 ) {
     /** The theme the profile wears: its own pick, else the default. */
-    val inUseId: Long? get() = profile?.themeId ?: themes.firstOrNull { it.spec.key == DEFAULT_THEME_KEY }?.id
+    val inUseId: Long? get() = profile?.themeId ?: themes.firstOrNull { it.isDefault }?.id
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -112,7 +109,7 @@ class ThemesViewModel @Inject constructor(
         val profile = state.value.profile ?: return
         viewModelScope.launch {
             // The default is stored as no pick, so it follows whatever the default becomes.
-            val isDefault = state.value.themes.firstOrNull { it.id == themeId }?.spec?.key == DEFAULT_THEME_KEY
+            val isDefault = state.value.themes.firstOrNull { it.id == themeId }?.isDefault == true
             themes.use(profile.id, if (isDefault) null else themeId)
         }
     }
@@ -132,16 +129,16 @@ class ThemesViewModel @Inject constructor(
     fun exportTo(themeId: Long, uri: Uri) = act {
         val json = themes.export(themeId) ?: return@act
         withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(json.toByteArray()) } }
-        _message.value = "Saved." to false
+        _message.value = "File saved." to false
     }
 
     /** Where a browser on the network trades theme files, for devices without a file picker. */
     fun noFilePicker(exporting: Long?) {
         val base = webServer.status.value.urls.firstOrNull()
         _message.value = when {
-            base == null -> "This device can't open files. Turn on Web control in Settings to trade themes from a browser."
-            exporting != null -> "This device can't save files. In a browser paired with Web control, open $base/themes and save it there."
-            else -> "This device can't open files. In a browser paired with Web control, open $base/themes and import it there."
+            base == null -> "This device can't open or save files. Turn on Web control in Settings to import and save themes from a browser."
+            exporting != null -> "This device can't save files. Open $base/themes in a browser paired with Web control and save it there."
+            else -> "This device can't open files. Open $base/themes in a browser paired with Web control and import it there."
         } to false
     }
 
@@ -159,7 +156,7 @@ class ThemesViewModel @Inject constructor(
     }
 
     private fun ordered(list: List<ThemeSummary>) =
-        list.sortedWith(compareBy<ThemeSummary>({ !it.isBuiltIn }, { it.spec.key != DEFAULT_THEME_KEY }, { it.spec.name.lowercase() }))
+        list.sortedWith(compareBy<ThemeSummary>({ !it.isBuiltIn }, { !it.isDefault }, { it.spec.name.lowercase() }))
 }
 
 /**
@@ -259,7 +256,7 @@ fun ThemesScreen(
     }
 }
 
-/** A theme in the list: a radio when worn, its colors, its name and kind, and its menu. */
+/** A theme in the list: a radio when worn, its colors, its name (the default's chip beside it), light or dark, and its menu. */
 @Composable
 private fun ThemeOption(
     summary: ThemeSummary,
@@ -273,25 +270,22 @@ private fun ThemeOption(
     val sheets = LocalSettingsSheets.current
     OptionRow(
         title = summary.spec.name,
-        summary = listOfNotNull(
-            if (summary.spec.isLight) "Light" else "Dark",
-            "scanlines".takeIf { summary.spec.effects.scanlines },
-            "the default".takeIf { summary.spec.key == DEFAULT_THEME_KEY },
-        ).joinToString(", "),
+        summary = if (summary.spec.isLight) "Light" else "Dark",
+        tag = "DEFAULT".takeIf { summary.isDefault },
         selected = inUse,
         onClick = { viewModel.use(summary.id) },
         leading = { ThemeSwatches(summary.spec) },
         actions = buildList {
             if (summary.isBuiltIn) {
-                add(MenuAction("Copy and edit", Icons.Filled.Edit, detail = "Built-in themes stay as they are; you edit a copy.") { viewModel.copy(summary.id, onEdit) })
+                add(MenuAction("Copy and edit", Icons.Filled.Edit, detail = "You edit a copy. The built-in theme stays as it is.") { viewModel.copy(summary.id, onEdit) })
             } else {
-                add(MenuAction("Edit", Icons.Filled.Edit, detail = "Its colors, type, guide rows and effects.") { onEdit(summary.id) })
+                add(MenuAction("Edit", Icons.Filled.Edit) { onEdit(summary.id) })
             }
-            add(MenuAction("Save as file", Icons.Filled.FileDownload, detail = "To keep a copy, or use it on another device.") { export(summary) })
+            add(MenuAction("Save as file", Icons.Filled.FileDownload, detail = "Keep a copy, or open it on another device.") { export(summary) })
             if (!summary.isBuiltIn) {
                 add(
-                    MenuAction("Delete", Icons.Filled.Delete, detail = "Profiles using it go back to the default.", danger = true) {
-                        sheets.show(ConfirmSheet("Delete ${summary.spec.name}?", "Profiles using it go back to the default.", "Delete", Icons.Filled.Delete) { viewModel.delete(summary.id) })
+                    MenuAction("Delete", Icons.Filled.Delete, detail = "Profiles using it switch back to Rose.", danger = true) {
+                        sheets.show(ConfirmSheet("Delete ${summary.spec.name}?", "Profiles using it switch back to Rose.", "Delete", Icons.Filled.Delete) { viewModel.delete(summary.id) })
                     },
                 )
             }

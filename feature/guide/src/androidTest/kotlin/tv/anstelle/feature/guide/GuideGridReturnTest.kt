@@ -47,7 +47,7 @@ class GuideGridReturnTest {
                     grid = grid,
                     listState = list,
                     now = remember { mutableStateOf(now) },
-                    metrics = GridMetrics(48.dp, 132.dp, 28.dp, 1, 26.dp, 4f, false, touch),
+                    metrics = GridMetrics(48.dp, 132.dp, 28.dp, 1, 26.dp, 4f, touch),
                     focusRequester = focus,
                     onActivate = {}, onActions = {}, onCellTap = {}, onChannelTap = {},
                     modifier = Modifier.height(270.dp),

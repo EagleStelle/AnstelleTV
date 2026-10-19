@@ -2,8 +2,9 @@
 	import type { ThemeSpec } from '#lib/api.ts';
 
 	/**
-	 * A theme drawn as the app would wear it: a banner, a strip of guide cells, a focused and a
-	 * plain menu row and the two buttons. Its colors are the theme's own, not the page's; it only
+	 * A theme drawn as the TV would wear it: a banner, a guide row at the theme's row height with
+	 * every run, a focused and a plain menu row, the two buttons and a selected chip, so each color
+	 * role and setting shows somewhere. Its colors are the theme's own, not the page's; it only
 	 * shows, nothing in it takes focus.
 	 */
 	let { spec }: { spec: ThemeSpec } = $props();
@@ -17,8 +18,10 @@
 	};
 	const display = $derived(fonts[spec.typography.display] ?? fonts.SANS);
 	const body = $derived(fonts[spec.typography.body] ?? fonts.SANS);
-	const radius = $derived(`${spec.guide.cellRadiusDp}px`);
 	const scanlines = $derived(spec.effects.scanlines ? spec.effects.scanlineAlpha : 0);
+	/** Guide row heights shared by touch and TV, by density. */
+	const rowHeights: Record<string, number> = { COMPACT: 48, COMFORTABLE: 56, SPACIOUS: 64 };
+	const runLabels = ['Later', 'Then', 'After', 'Late'];
 	let progressWidth = $state(0);
 	const blockWidth = $derived(Math.max(1, Math.round(320 / (spec.progress?.segmentFrequency ?? 20) - 3)));
 	const segmentCount = $derived(Math.max(0, Math.floor((progressWidth + 3) / (blockWidth + 3))));
@@ -33,26 +36,26 @@
 	style:font-size="{14 * spec.typography.scale}px"
 >
 	<p class="truncate text-[1.7em] font-semibold" style:color={c.text} style:font-family={display}>{spec.name}</p>
-	<div class="flex h-16 overflow-hidden rounded-panel border" style:background={c.banner} style:border-color={c.line}>
+	<div class="flex h-16 overflow-hidden rounded-panel border" style:background={c.surface} style:border-color={c.line}>
 		<span class="grid w-16 place-items-center text-[1.7em] font-semibold" style:background={c.accent} style:color={c.onAccent} style:font-family={display}>101</span>
 		<div class="flex min-w-0 flex-1 flex-col justify-center gap-0.75 px-2.5">
 			<span class="flex items-center gap-1.5 font-display text-[11px] leading-3.5 font-semibold tracking-field" style:color={c.accent}>
 				<i class="size-1.75" style:background={c.accent}></i>NOW <b class="font-semibold" style:color={c.textMuted}>8:00 – 8:30</b>
 			</span>
-			<span class="truncate font-semibold" style:color={c.bannerText}>Feature Presentation</span>
+			<span class="truncate font-semibold" style:color={c.text}>Feature Presentation</span>
 			<span class="flex h-1 justify-center gap-[3px]" bind:clientWidth={progressWidth}>
 				{#each Array(segmentCount) as _, i (i)}<i class="shrink-0" style:width="{blockWidth}px" style:background={i < Math.round(segmentCount * 0.55) ? c.accent : c.line}></i>{/each}
 			</span>
 		</div>
 	</div>
-	<div class="flex h-10 gap-0.5 text-[0.85em]">
-		<span class="flex flex-[0.8] items-center truncate px-2" style:background={c.guideCellPast} style:color={c.textMuted} style:border-radius={radius}>Aired</span>
-		<span class="relative flex flex-[1.2] items-center gap-1.5 truncate px-2" style:background={c.guideCell} style:color={c.text} style:border-radius={radius}>
+	<div class="flex gap-0.5 text-[0.85em]" style:height="{rowHeights[spec.guide.density] ?? rowHeights.COMFORTABLE}px">
+		<span class="flex flex-[0.8] items-center truncate rounded-control px-2" style:background={c.guideCellPast} style:color={c.textMuted}>Aired</span>
+		<span class="relative flex flex-[1.2] items-center gap-1.5 truncate rounded-control px-2" style:background={c.surface} style:color={c.text}>
 			<i class="size-1.75 shrink-0" style:background={c.accent}></i>On now
-			<i class="absolute inset-y-0 left-0 w-0.5" style:background={c.nowLine}></i>
+			<i class="absolute inset-y-0 left-0 w-0.5" style:background={c.accent}></i>
 		</span>
-		{#each c.guideRuns.slice(0, 2) as run, i (i)}
-			<span class="flex flex-1 items-center truncate px-2" style:background={run} style:color={c.text} style:border-radius={radius}>{i === 0 ? 'Later' : 'Then'}</span>
+		{#each c.guideRuns as run, i (i)}
+			<span class="flex flex-1 items-center truncate rounded-control px-2" style:background={run} style:color={c.text}>{runLabels[i] ?? ''}</span>
 		{/each}
 	</div>
 	<div class="flex h-11 items-center justify-between rounded-control px-3 font-medium" style:background={c.accent} style:color={c.onAccent}>
@@ -63,7 +66,7 @@
 	</div>
 	<div class="flex gap-2 *:grid *:h-10 *:flex-1 *:place-items-center *:rounded-control *:font-semibold">
 		<span style:background={c.accent} style:color={c.onAccent}>Watch</span>
-		<span style:background={c.surface} style:color={c.text}>Later</span>
+		<span style:background={c.surfaceHigh} style:color={c.text}>Later</span>
 	</div>
 	<div class="flex items-center gap-1.5 text-[0.85em]">
 		<span class="rounded-control px-1.5 py-0.5 font-display text-[11px] leading-3.5 font-semibold tracking-field" style:background={c.accentContainer} style:color={c.onAccentContainer}>

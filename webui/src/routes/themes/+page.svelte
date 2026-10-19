@@ -5,6 +5,7 @@
 	import Dialog from '#lib/components/Dialog.svelte';
 	import MenuKey from '#lib/components/MenuKey.svelte';
 	import Notice from '#lib/components/Notice.svelte';
+	import RadioMark from '#lib/components/RadioMark.svelte';
 	import Page from '#lib/components/Page.svelte';
 	import Row from '#lib/components/Row.svelte';
 	import Search from '#lib/components/Search.svelte';
@@ -14,7 +15,6 @@
 	import WithKey from '#lib/components/WithKey.svelte';
 	import { section } from '#lib/format.ts';
 	import { live } from '#lib/live.svelte.ts';
-	import { session } from '#lib/session.svelte.ts';
 	import { theme as worn } from '#lib/theme.svelte.ts';
 	import Add from '~icons/material-symbols/add';
 	import ContentCopy from '~icons/material-symbols/content-copy';
@@ -91,23 +91,14 @@
 			<!-- A radio puts the theme on the paired profile, here and on the TV; its menu edits, copies, saves or deletes it. -->
 			<Row
 				title={theme.name}
+				tag={theme.isDefault ? 'Default' : undefined}
 				onclick={() => use(theme)}
 				onmouseenter={() => (pointed = theme.id)}
 				onfocus={() => (pointed = theme.id)}
 				role="radio"
 				aria-checked={theme.inUse}
 			>
-				{#snippet leading()}
-					<span
-						class={[
-							'grid size-5 place-items-center rounded-full border-2 group-hover/row:border-on-accent group-focus-visible/row:border-on-accent',
-							theme.inUse ? 'border-accent' : 'border-text-muted'
-						]}
-						aria-hidden="true"
-					>
-						{#if theme.inUse}<span class="size-2.5 rounded-full bg-accent group-hover/row:bg-on-accent group-focus-visible/row:bg-on-accent"></span>{/if}
-					</span>
-				{/snippet}
+				{#snippet leading()}<RadioMark checked={theme.inUse} />{/snippet}
 				{#snippet end()}<Swatches colors={theme.swatches} />{/snippet}
 			</Row>
 			{#snippet key()}
@@ -115,8 +106,8 @@
 				title={theme.name}
 				items={[
 					...(theme.isBuiltIn ? [] : [{ label: 'Edit', icon: Edit, onclick: () => goto(`/themes/${theme.id}`) }]),
-					{ label: 'Copy', icon: ContentCopy, onclick: () => act(async () => goto(`/themes/${(await api.copyTheme(theme.id)).id}`)) },
-					{ label: 'Save file', icon: Download, href: api.themeFileUrl(theme.id), download: true },
+					{ label: 'Copy and edit', icon: ContentCopy, onclick: () => act(async () => goto(`/themes/${(await api.copyTheme(theme.id)).id}`)) },
+					{ label: 'Save as file', icon: Download, href: api.themeFileUrl(theme.id), download: true },
 					...(theme.isBuiltIn
 						? []
 						: [
@@ -140,7 +131,6 @@
 <Page
 	title="Themes"
 	trail={[{ label: 'Home', href: '/' }]}
-	note="Picking a theme sets it for {session.session?.profile.name ?? 'your profile'} on the TV and here. Built-in themes can be copied, not changed."
 >
 	{#snippet actions()}
 		<Button label="New theme" icon={Add} onclick={() => act(async () => goto(`/themes/${(await api.newTheme()).id}`))} />
@@ -164,7 +154,7 @@
 	{#if themes && shown.length === 0}<Notice text="No theme has that name." />{/if}
 </Page>
 
-<Dialog bind:open={confirmOpen} title="Delete {deleting?.name}?" about="Profiles using it go back to the default.">
+<Dialog bind:open={confirmOpen} title="Delete {deleting?.name}?" about="Profiles using it switch back to Rose.">
 	{#snippet actions()}
 		<Button label="Cancel" autofocus onclick={() => (confirmOpen = false)} />
 		<Button

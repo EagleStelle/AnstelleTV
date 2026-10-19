@@ -45,7 +45,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import tv.anstelle.core.data.ondemand.CatalogWatch
 import tv.anstelle.core.data.ondemand.Shelf
@@ -62,6 +61,7 @@ import tv.anstelle.core.theme.components.LocalRailFocus
 import tv.anstelle.core.theme.components.Poster
 import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.WatchStrip
+import tv.anstelle.core.theme.components.browseHeading
 import tv.anstelle.core.theme.components.screenGap
 import tv.anstelle.core.theme.components.screenSide
 import kotlin.math.abs
@@ -404,8 +404,7 @@ internal fun WatchCardTile(card: WatchCard, onClick: () -> Unit, onHold: () -> U
 @Composable
 internal fun ShelfHeader(shelf: Shelf, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
-    val style = androidx.compose.material3.MaterialTheme.typography.labelMedium.copy(fontSize = if (isTv) 15.sp else 13.sp, lineHeight = 18.sp)
+    val style = browseHeading
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         shelf.channel?.let { ChannelNumber(it.number, focused = false, style = androidx.compose.material3.MaterialTheme.typography.labelLarge) }
         androidx.compose.material3.Text(shelf.label.uppercase(), style = style, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
