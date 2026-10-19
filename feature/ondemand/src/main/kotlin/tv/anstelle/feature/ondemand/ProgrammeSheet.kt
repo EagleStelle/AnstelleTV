@@ -22,7 +22,6 @@ import tv.anstelle.core.theme.components.screenGap
 import androidx.compose.foundation.layout.Column
 import tv.anstelle.core.model.MediaProgress
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -35,22 +34,18 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -77,9 +72,10 @@ import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusSurface
+import tv.anstelle.core.theme.components.LocalRailFocus
 import tv.anstelle.core.theme.components.OsdTab
 import tv.anstelle.core.theme.components.OsdTabIndicator
-import tv.anstelle.core.theme.components.PastShade
+import tv.anstelle.core.theme.components.Poster
 import tv.anstelle.core.theme.components.SectionLabel
 import tv.anstelle.core.theme.components.WatchStrip
 import tv.anstelle.core.theme.components.screenSide
@@ -169,20 +165,6 @@ internal fun ProgrammeSheet(
             readout()
             bars()
         }
-    }
-}
-
-/**
- * The picture: [url] cropped into the slot, the title's first letter on the surface step while
- * there is none, [foot] (the watch strip) at its foot; [shaded] lies the past shade over it, for
- * an episode watched through.
- */
-@Composable
-internal fun SheetPicture(url: String?, title: String, modifier: Modifier, shaded: Boolean = false, foot: (@Composable () -> Unit)? = null) {
-    Box(modifier.clip(ControlShape)) {
-        Poster(url, title, Modifier.matchParentSize())
-        if (shaded) Box(Modifier.matchParentSize().background(PastShade))
-        if (foot != null) Box(Modifier.align(Alignment.BottomStart)) { foot() }
     }
 }
 
@@ -280,7 +262,7 @@ private val TOUCH_KEY_WIDTH = 64.dp
  * top, the whole sheet in sight.
  */
 @Composable
-internal fun WatchKeys(actions: List<SheetAction>, listState: LazyListState, firstFocus: FocusRequester, modifier: Modifier = Modifier, navigation: EpisodeNavigation? = null, dialogDetails: DialogAction? = null) {
+internal fun WatchKeys(actions: List<SheetAction>, listState: LazyListState, firstFocus: FocusRequester, modifier: Modifier = Modifier, navigation: EpisodeNavigation? = null, dialogDetails: DialogAction? = null, onFocused: () -> Unit = {}) {
     if (actions.isEmpty()) return
     val isTv = LocalIsTv.current
     var more by remember { mutableStateOf(false) }
@@ -295,13 +277,20 @@ internal fun WatchKeys(actions: List<SheetAction>, listState: LazyListState, fir
         } else actions
         val extras = actions.filter { it !in visible }
         val shown = visible + if (overflow) listOf(SheetAction("More", Icons.Filled.MoreHoriz) { more = true }) else emptyList()
+        val rowFocus = rememberTvRowFocus(shown.filter { it.enabled }.map { it.label })
         val keyWidth = minOf(if (isTv) TV_KEY_WIDTH else TOUCH_KEY_WIDTH, (maxWidth - screenGap * (shown.size - 1)) / shown.size)
         Row(
-            Modifier.restsAtTop(listState).onPreviewKeyEvent { event ->
-                if (isTv && navigation != null && event.key == Key.DirectionDown && event.type == KeyEventType.KeyDown) {
-                    navigation.downFromKeys()
-                    true
-                } else false
+            Modifier.restsAtTop(listState).onFocusChanged { if (isTv && it.hasFocus) onFocused() }
+                .tvFocusGroup(rowFocus).onPreviewKeyEvent { event ->
+                if (!isTv) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionDown -> {
+                        if (event.type == KeyEventType.KeyDown) navigation?.downFromKeys()
+                        true
+                    }
+                    Key.DirectionUp -> true
+                    else -> false
+                }
             },
             horizontalArrangement = Arrangement.spacedBy(screenGap),
         ) {
@@ -315,8 +304,8 @@ internal fun WatchKeys(actions: List<SheetAction>, listState: LazyListState, fir
                     watched = action.watched,
                     // Touch has no focus to lead with: the first key is the primary instead.
                     primary = i == 0 && !isTv,
-                    modifier = Modifier.width(keyWidth)
-                        .let { if (i == 0) it.focusRequester(firstFocus) else it }
+                    modifier = Modifier.width(keyWidth).tvFocusItem(rowFocus, action.label)
+                        .let { if (action.label == rowFocus.selected) it.focusRequester(firstFocus) else it }
                         .let { if (overflow && i == shown.lastIndex) it.focusRequester(moreFocus) else it },
                 )
             }
@@ -423,11 +412,12 @@ internal fun Synopsis(text: String, modifier: Modifier = Modifier) {
 internal fun SeasonTabs(seasons: Map<String, List<EpisodeEntry>>, open: String?, done: Set<String>, onSelect: (String) -> Unit, navigation: EpisodeNavigation? = null) {
     Box {
         val isTv = LocalIsTv.current
+        val rail = LocalRailFocus.current
         val state = rememberLazyListState(initialFirstVisibleItemIndex = seasons.keys.indexOf(open).coerceAtLeast(0))
         DisposableEffect(navigation, state, open) {
             navigation?.seasonRow = state
             navigation?.selectedSeasonIndex = seasons.keys.indexOf(open).coerceAtLeast(0)
-            onDispose { if (navigation?.seasonRow === state) navigation?.seasonRow = null }
+            onDispose { if (navigation?.seasonRow === state) navigation.seasonRow = null }
         }
         LazyRow(
             state = state,
@@ -448,7 +438,12 @@ internal fun SeasonTabs(seasons: Map<String, List<EpisodeEntry>>, open: String?,
                 OsdTab(
                     key, selected = key == open, onClick = { onSelect(key) },
                     count = seasons.getValue(key).size, done = key in done, compact = isTv,
-                    modifier = if (key == open && navigation != null) Modifier.focusRequester(navigation.season) else Modifier,
+                    modifier = Modifier
+                        .let { if (key == open && navigation != null) it.focusRequester(navigation.season) else it }
+                        .focusProperties {
+                            if (isTv && key == seasons.keys.first()) left = rail?.rail ?: FocusRequester.Cancel
+                            if (isTv && key == seasons.keys.last()) right = FocusRequester.Cancel
+                        },
                 )
             }
         }
@@ -488,41 +483,32 @@ internal fun EpisodeCarousel(
     navigation: EpisodeNavigation? = null,
 ) {
     val side = screenSide
-    val state = rememberLazyListState()
     val isTv = LocalIsTv.current
-    var initialized by rememberSaveable(episodes.firstOrNull()?.id, current) { mutableStateOf(false) }
     // Set the opening position once per season/page, never again merely because watch data changed.
-    LaunchedEffect(episodes.firstOrNull()?.id, current) {
-        if (!initialized) {
-            val index = episodes.indexOfFirst { it.id == target }
-            state.scrollToItem(index.coerceAtLeast(0))
-            initialized = true
-        }
+    val rowFocus = rememberTvRowFocus(episodes.map { it.id.toString() }, initial = target?.toString(), identity = episodes.firstOrNull()?.id to current)
+    DisposableEffect(navigation, rowFocus.list) {
+        navigation?.episodeRow = rowFocus
+        onDispose { if (navigation?.episodeRow?.list === rowFocus.list) navigation.episodeRow = null }
     }
-    val entryIndex by remember(state) {
-        derivedStateOf {
-            state.layoutInfo.visibleItemsInfo.firstOrNull { it.offset >= 0 }?.index ?: state.firstVisibleItemIndex
-        }
-    }
-    LazyRow(
-        state = state,
+    // Stills start on the side margin, under the heading: each card's focus inset makes up the rest.
+    FocusRow(
+        rowFocus,
+        padding = side - TILE_FRAME,
+        spacing = if (isTv) 8.dp else 6.dp,
         modifier = modifier.bleed(side)
-            .focusProperties {
-                onEnter = {
-                    if (requestedFocusDirection == FocusDirection.Down) runCatching { navigation?.episode?.requestFocus() }
-                }
-            }
-            .focusGroup()
             .onPreviewKeyEvent { event ->
-                if (isTv && navigation != null && event.key == Key.DirectionUp && event.type == KeyEventType.KeyDown) {
-                    navigation.upFromEpisodes()
-                    true
-                } else false
+                if (!isTv) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionUp -> {
+                        if (event.type == KeyEventType.KeyDown) navigation?.upFromEpisodes()
+                        true
+                    }
+                    Key.DirectionDown -> true
+                    else -> false
+                }
             },
-        contentPadding = PaddingValues(horizontal = side),
-        horizontalArrangement = Arrangement.spacedBy(if (LocalIsTv.current) 8.dp else 6.dp),
     ) {
-        itemsIndexed(episodes, key = { _, episode -> episode.id }) { index, episode ->
+        items(episodes, key = { it.id }) { episode ->
             EpisodeCard(
                 episode = episode,
                 resumeMs = watch.resumeMs(episode.id, episode.durationMs),
@@ -530,8 +516,8 @@ internal fun EpisodeCarousel(
                 current = episode.id == current,
                 onClick = { onOpen(episode) },
                 onHold = { onHold(episode) },
-                modifier = Modifier
-                    .let { if (index == entryIndex && navigation != null) it.focusRequester(navigation.episode) else it }
+                modifier = Modifier.tvFocusItem(rowFocus, episode.id.toString())
+                    .let { if (episode.id.toString() == rowFocus.selected && navigation != null) it.focusRequester(navigation.episode) else it }
                     .let { if (returnFocus != null && episode.id == returnTo) it.focusRequester(returnFocus) else it },
             )
         }
@@ -569,9 +555,11 @@ private fun EpisodeCard(
         val muted = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted
         val aired = watched && !current
         Column(Modifier.padding(TILE_FRAME)) {
-            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(ControlShape)) {
-                Poster(episode.stillUrl, episode.label, Modifier.matchParentSize())
-                if (aired) Box(Modifier.matchParentSize().background(PastShade))
+            Poster(
+                episode.stillUrl, episode.label,
+                Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                shaded = aired,
+            ) {
                 WatchStrip(
                     MediaProgress(episode.durationMs, resumeMs), watched,
                     Modifier.align(Alignment.BottomStart),

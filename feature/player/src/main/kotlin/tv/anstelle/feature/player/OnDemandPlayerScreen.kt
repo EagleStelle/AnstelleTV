@@ -49,7 +49,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -61,7 +60,6 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,7 +75,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import coil3.compose.AsyncImage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,7 +101,6 @@ import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.model.SegmentType
 import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.player.SubtitleStyle
-import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AirMarker
@@ -114,7 +110,7 @@ import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.StandInSize
 import tv.anstelle.core.theme.components.TitleLogo
-import tv.anstelle.core.theme.components.PastShade
+import tv.anstelle.core.theme.components.Poster
 import tv.anstelle.core.theme.components.WatchStrip
 
 import javax.inject.Inject
@@ -695,8 +691,8 @@ private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode:
 
 /**
  * One episode in the strip, a channel tile's way: its still in a small inset, what was watched
- * and remaining time at its foot ([WatchStrip]), its number and title, then PLAYING behind
- * the on-air square. One watched through reads as aired, as on a
+ * and remaining time at its foot ([WatchStrip]), PLAYING behind the on-air square in the
+ * picture's top-left corner, then its number and title. One watched through reads as aired, as on a
  * channel's page: the still under the past shade and the title quiet, except the one playing.
  * Focus fills the whole card rose, so the still sits in a rose frame.
  */
@@ -706,14 +702,13 @@ private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long,
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     FocusSurface(onClick = onClick, color = Color.Transparent, modifier = modifier.width(if (isTv) 174.dp else 132.dp)) { focused ->
-        val ink = if (focused) theme.onAccent else theme.accent
         Column(Modifier.padding(3.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(ControlShape).background(theme.surfaceHigh)) {
-                episode.stillUrl?.let {
-                    AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                }
-                val aired = watched && !playing
-                if (aired) Box(Modifier.matchParentSize().background(PastShade))
+            Poster(
+                episode.stillUrl, episode.label,
+                Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                shaded = watched,
+                playing = playing,
+            ) {
                 WatchStrip(MediaProgress(episode.durationMs, resumeMs), watched, Modifier.align(Alignment.BottomStart))
             }
             Column(Modifier.padding(start = 3.dp, end = 3.dp, bottom = 3.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -724,12 +719,7 @@ private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (playing) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        AirMarker(onAir = true, color = ink)
-                        androidx.compose.material3.Text("PLAYING", style = typography.labelMedium, color = ink)
-                    }
-                } else if (episode.durationMs <= 0) {
+                if (!playing && episode.durationMs <= 0) {
                     episode.facts?.let {
                         androidx.compose.material3.Text(
                             it,

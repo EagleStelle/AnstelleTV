@@ -38,7 +38,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -176,28 +175,17 @@ fun PlayerScreen(
     val subtitlesKey = remember { FocusRequester() }
     val onDemandKey = remember { FocusRequester() }
     val startOverKey = remember { FocusRequester() }
-    val canPlayOnDemand = state.now?.let { it.mediaItemId != 0L && !it.restricted } == true
-    val firstKey = when {
-        showAudio -> audioKey
-        showSubtitles -> subtitlesKey
-        canPlayOnDemand -> onDemandKey
-        else -> startOverKey
-    }
+    val onDemandProgram = state.now?.takeIf { it.mediaItemId != 0L && !it.restricted }
+    val canPlayOnDemand = onDemandProgram != null
     // The key that opened a track list or a dialog gets focus back when it closes.
     var returnKey by remember { mutableStateOf<FocusRequester?>(null) }
-    fun controlsFocus(): FocusRequester = when (returnKey) {
-        audioKey -> if (showAudio) audioKey else firstKey
-        subtitlesKey -> if (showSubtitles) subtitlesKey else firstKey
-        onDemandKey -> if (canPlayOnDemand) onDemandKey else firstKey
-        else -> returnKey ?: firstKey
-    }
-    LaunchedEffect(confirm) {
-        if (confirm == null && panel == Panel.CONTROLS) {
-            withFrameNanos { }
-            runCatching { controlsFocus().requestFocus() }
-        }
-    }
-    LaunchedEffect(panel, showAudio, showSubtitles, canPlayOnDemand) {
+    fun controlsFocus(): FocusRequester = returnKey?.takeUnless {
+        it === audioKey && !showAudio || it === subtitlesKey && !showSubtitles
+    } ?: onDemandKey
+    fun keyModifier(key: FocusRequester): Modifier = Modifier
+        .focusRequester(key)
+        .onFocusChanged { if (it.isFocused) returnKey = key }
+    LaunchedEffect(panel, confirm, showAudio, showSubtitles, canPlayOnDemand) {
         when (panel) {
             null -> {
                 returnKey = null
@@ -339,12 +327,12 @@ fun PlayerScreen(
                                 returnKey = audioKey
                                 panel = Panel.AUDIO
                                 bannerRequest++
-                            }, Modifier.focusRequester(audioKey).onFocusChanged { if (it.isFocused) returnKey = audioKey }, value = audio)
+                            }, keyModifier(audioKey), value = audio)
                             if (showSubtitles) OsdKey("Subtitles", Icons.Filled.Subtitles, onClick = {
                                 returnKey = subtitlesKey
                                 panel = Panel.SUBTITLES
                                 bannerRequest++
-                            }, Modifier.focusRequester(subtitlesKey).onFocusChanged { if (it.isFocused) returnKey = subtitlesKey }, value = subtitles)
+                            }, keyModifier(subtitlesKey), value = subtitles)
                             // Tracks on the left, the player's own action on the right.
                             Spacer(Modifier.weight(1f))
                             OsdKey(
@@ -355,12 +343,12 @@ fun PlayerScreen(
                                     returnKey = onDemandKey
                                     confirm = Confirm.ON_DEMAND
                                 },
-                                modifier = Modifier.focusRequester(onDemandKey).onFocusChanged { if (it.isFocused) returnKey = onDemandKey },
+                                modifier = keyModifier(onDemandKey),
                             )
                             OsdKey("Start over", WatchIcons.StartOver, onClick = {
                                 returnKey = startOverKey
                                 confirm = Confirm.START_OVER
-                            }, Modifier.focusRequester(startOverKey).onFocusChanged { if (it.isFocused) returnKey = startOverKey })
+                            }, keyModifier(startOverKey))
                         }
                     }
                     Panel.AUDIO -> {
@@ -416,12 +404,11 @@ fun PlayerScreen(
                 Confirm.ON_DEMAND -> {
                     // The program leaves the channel for the on-demand player, from its start or from where the channel is.
                     val elapsed = remember(program?.mediaItemId, program?.startUtcMs) { program?.let { System.currentTimeMillis() - it.startUtcMs } ?: 0L }
-                    val available = program?.takeIf { it.mediaItemId != 0L && !it.restricted }
-                    val choices = available?.let { WatchChoices.onDemandChoices(elapsed, it.isEpisode) }.orEmpty()
+                    val choices = onDemandProgram?.let { WatchChoices.onDemandChoices(elapsed, it.isEpisode) }.orEmpty()
                     ActionDialog(
                         actions = choices.dialogActions(
-                            isEpisode = available?.isEpisode == true,
-                            onOpenDetails = available?.let {
+                            isEpisode = onDemandProgram?.isEpisode == true,
+                            onOpenDetails = onDemandProgram?.let {
                                 {
                                     confirm = null
                                     onOpenOnDemand(it.mediaItemId, it.isEpisode)
@@ -430,7 +417,7 @@ fun PlayerScreen(
                         ) { choice ->
                             confirm = null
                             val channel = state.channel
-                            if (available != null && channel != null) onPlayOnDemand(available.mediaItemId, choice.positionMs, channel.id, available.startUtcMs)
+                            if (onDemandProgram != null && channel != null) onPlayOnDemand(onDemandProgram.mediaItemId, choice.positionMs, channel.id, onDemandProgram.startUtcMs)
                         } + stay,
                         onDismiss = { confirm = null },
                     ) { ConfirmHeader("Watch on Demand?", program?.title) }

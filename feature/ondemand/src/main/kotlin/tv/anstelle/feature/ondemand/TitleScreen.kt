@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -42,6 +43,7 @@ import tv.anstelle.core.theme.components.dialogActions
 import tv.anstelle.core.theme.components.WatchIcons
 import tv.anstelle.core.theme.components.requestWhenReady
 import tv.anstelle.core.theme.components.WatchStrip
+import tv.anstelle.core.theme.components.Poster
 import tv.anstelle.core.theme.components.Notice
 import javax.inject.Inject
 
@@ -148,24 +150,17 @@ fun TitleScreen(
             val channel = viewModel.airingChannel(id)
             if (channel != null) onOpenChannel(channel) else onOpenEpisode(id)
         }
-        Unit
     }
     val watch = state.watch
     val edit by viewModel.watchEditor.state.collectAsStateWithLifecycle()
     val watched = if (page.kind.episodic) page.episodes.isNotEmpty() && page.episodes.all { watch.watched(it.id, it.durationMs) } else watch.watched(page.id, page.durationMs)
     val resume = watch.resumeMs(page.id, page.durationMs)
     val listState = rememberLazyListState()
-    val firstFocus = remember { FocusRequester() }
     // The episode last opened or held, so Back and a closed dialog land on it again.
     val returnFocus = remember { FocusRequester() }
     var lastTouched by rememberSaveable { mutableStateOf<Long?>(null) }
     var holding by remember { mutableStateOf<EpisodeEntry?>(null) }
-    if (isTv) {
-        LaunchedEffect(page.id) {
-            listState.scrollToItem(0)
-            firstFocus.requestWhenReady()
-        }
-    }
+    val firstFocus = rememberProgrammeFocus(page.id, listState, lastTouched, returnFocus, page.overview != null || edit.error != null)
 
     val next = remember(page, watch) { NextEpisode.of(page.episodes, watch) }
     val seasons = remember(page) { page.episodes.groupBy { it.seasonLabel } }
@@ -189,18 +184,18 @@ fun TitleScreen(
                 shape = PictureShape.POSTER,
                 picture = { slot ->
                     // A movie's poster says what was watched of it, as an episode's still does.
-                    SheetPicture(
+                    Poster(
                         page.posterUrl,
                         page.title,
                         slot,
                         shaded = watched,
-                        foot = {
-                            WatchStrip(
-                                MediaProgress(if (page.kind.episodic) 0 else page.durationMs, resume),
-                                watched, remainingBelow = true,
-                            )
-                        },
-                    )
+                    ) {
+                        WatchStrip(
+                            MediaProgress(if (page.kind.episodic) 0 else page.durationMs, resume),
+                            watched,
+                            Modifier.align(Alignment.BottomStart),
+                        )
+                    }
                 },
                 title = {
                     SheetLogo(page.artwork.logoUrl, page.title)
@@ -208,7 +203,7 @@ fun TitleScreen(
                 },
                 readout = { MediaFacts(page.year, page.rating, page.genres, page.durationMs,
                     seasonCount = page.seasonCount.takeIf { page.kind.episodic }, episodeCount = page.episodes.size.takeIf { page.kind.episodic }) },
-                bars = { WatchKeys(actions, listState, firstFocus, navigation = navigation) },
+                bars = { WatchKeys(actions, listState, firstFocus, navigation = navigation, onFocused = { lastTouched = null }) },
             )
         },
         modifier = modifier,
@@ -252,7 +247,7 @@ fun TitleScreen(
         val choices = WatchChoices.episodeActions(resume, canAddToChannel = onAddToChannel != null)
         val dismiss = {
             holding = null
-            runCatching { returnFocus.requestFocus() }
+            if (isTv) scope.launch { returnFocus.requestWhenReady() }
             Unit
         }
         ActionDialog(

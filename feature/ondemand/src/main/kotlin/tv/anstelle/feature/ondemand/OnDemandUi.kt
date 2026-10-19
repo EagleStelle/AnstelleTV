@@ -1,7 +1,6 @@
 package tv.anstelle.feature.ondemand
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -29,11 +27,8 @@ import androidx.compose.ui.text.TextStyle
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.node.ModifierNodeElement
@@ -42,7 +37,6 @@ import androidx.compose.ui.relocation.BringIntoViewModifierNode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
@@ -54,22 +48,6 @@ import tv.anstelle.core.theme.components.screenEdge
 import tv.anstelle.core.theme.components.screenGap
 import tv.anstelle.core.theme.components.screenSide
 
-
-/** An image from the server, or the title's first letter on the surface step when there is none. */
-@Composable
-internal fun Poster(imageUrl: String?, title: String, modifier: Modifier) {
-    val theme = LocalAnstelleTheme.current
-    Box(modifier.clip(ControlShape).background(theme.surfaceHigh), contentAlignment = Alignment.Center) {
-        androidx.compose.material3.Text(
-            title.take(1).uppercase(),
-            style = androidx.compose.material3.MaterialTheme.typography.displayMedium,
-            color = theme.line,
-        )
-        if (imageUrl != null) {
-            AsyncImage(model = imageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        }
-    }
-}
 
 /**
  * A scrolling page headed by a hero: the show's or movie's backdrop under the flat wash, edge
@@ -166,14 +144,6 @@ private class RestsAtTopNode(var listState: LazyListState) : Modifier.Node(), Br
     override suspend fun bringIntoView(childCoordinates: LayoutCoordinates, boundsProvider: () -> Rect?) {
         if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) listState.animateScrollToItem(0)
     }
-}
-
-/** On TV, focuses the requester's element once it is laid out. */
-@Composable
-internal fun rememberInitialFocus(key: Any? = Unit): FocusRequester {
-    val requester = remember { FocusRequester() }
-    if (LocalIsTv.current) LaunchedEffect(key) { runCatching { requester.requestFocus() } }
-    return requester
 }
 
 /** The wall clock, updated twice a minute, for time left and progress ladders. */

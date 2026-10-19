@@ -23,6 +23,7 @@ internal class EpisodeNavigation(
     val episode = FocusRequester()
     var seasonRow: LazyListState? = null
     var selectedSeasonIndex: Int = 0
+    var episodeRow: TvRowFocus? = null
     private var moving: Job? = null
 
     fun downFromKeys() = move(if (hasSeasons) headingIndex else headingIndex + 1, if (hasSeasons) season else episode)
@@ -39,7 +40,10 @@ internal class EpisodeNavigation(
                 withFrameNanos { }
                 seasonRow?.scrollToItem(selectedSeasonIndex)
             }
-            requester.requestWhenReady()
+            if (requester == episode) {
+                withFrameNanos { }
+                episodeRow?.restore() ?: requester.requestWhenReady()
+            } else requester.requestWhenReady()
         }
     }
 }

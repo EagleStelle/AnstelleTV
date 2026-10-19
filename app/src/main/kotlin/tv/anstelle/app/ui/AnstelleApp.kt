@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -74,6 +75,9 @@ import tv.anstelle.core.theme.scanlines
 
 import tv.anstelle.core.theme.components.AnstelleMark
 import tv.anstelle.core.theme.components.PageFocusScope
+import tv.anstelle.core.theme.components.LocalRailFocus
+import tv.anstelle.core.theme.components.RailFocus
+import tv.anstelle.core.theme.components.enterContentFromRail
 import tv.anstelle.core.theme.components.Wordmark
 import tv.anstelle.feature.dashboard.DashboardScreen
 import tv.anstelle.feature.guide.GuideScreen
@@ -154,7 +158,7 @@ fun AnstelleApp(isTv: Boolean, onLightTheme: (Boolean) -> Unit) {
                 }
                 when {
                     fullScreen -> content(Modifier.fillMaxSize())
-                    isTv -> TvShell(destinations, if (current.launchPicker) null else selected, onNavigate = { navController.navigateTopLevel(it) }, content = content)
+                    isTv -> RailShell(destinations, if (current.launchPicker) null else selected, onNavigate = { navController.navigateTopLevel(it) }, content = content)
                     else -> PhoneShell(destinations, if (current.launchPicker) null else selected, onNavigate = { navController.navigateTopLevel(it) }, content = content)
                 }
             }
@@ -305,8 +309,8 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                 )
             }
             composable<OnDemandTitleRoute> {
-                // Like a channel's page: never back to wherever it was opened from, always the on-demand main page.
-                BackHandler {
+                // Touch returns to On Demand; TV follows the parent that opened the detail page.
+                BackHandler(enabled = !LocalIsTv.current) {
                     if (!navController.popBackStack(OnDemandRoute, inclusive = false)) {
                         navController.navigate(OnDemandRoute) { popUpTo<OnDemandTitleRoute> { inclusive = true } }
                     }
@@ -319,7 +323,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onGone = { navController.popBackStack() },
                 )
             }
-            // Unlike the other media pages, Back from an episode returns to the page that opened it (user decision).
+            // Episodes return to their parent; opening a sibling replaces the current episode below.
             composable<OnDemandEpisodeRoute> { entry ->
                 val page = entry.toRoute<OnDemandEpisodeRoute>()
                 EpisodeScreen(
@@ -336,8 +340,8 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
             }
             composable<OnDemandChannelRoute> { entry ->
                 val page = entry.toRoute<OnDemandChannelRoute>()
-                // Never back to wherever the page was opened from: always the on-demand main page.
-                BackHandler {
+                // Touch returns to On Demand; TV follows the parent that opened the channel page.
+                BackHandler(enabled = !LocalIsTv.current) {
                     if (!navController.popBackStack(OnDemandRoute, inclusive = false)) {
                         navController.navigate(OnDemandRoute) { popUpTo<OnDemandChannelRoute> { inclusive = true } }
                     }
@@ -460,7 +464,9 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         }
         composable<PlayerRoute> {
             // Live TV always leaves to Live TV, whatever opened the player.
-            BackHandler { navController.navigateTopLevel(TopLevelDestination.Guide) }
+            BackHandler {
+                if (!navController.popBackStack(GuideRoute, inclusive = false)) navController.navigateTopLevel(TopLevelDestination.Guide)
+            }
             PlayerScreen(
                 // The on-demand player takes the channel's place, so back leaves to where the channel was opened from.
                 onPlayOnDemand = { itemId, position, channelId, atUtcMs ->
@@ -472,19 +478,13 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
     }
 }
 
-private fun NavHostController.navigateTopLevel(destination: TopLevelDestination) {
-    // The start destination stays at the bottom of the stack, so going to it is going back to it.
-    // Restoring state on the way would bring back the screens just popped above it whenever they
-    // were opened without a tab, as the on-demand player's On Demand key opens a channel's page.
+internal fun NavHostController.navigateTopLevel(destination: TopLevelDestination) {
+    // Every tab press starts a fresh visit, including presses on the current tab.
+    // Keep the start destination underneath other tabs for Back; recreate it when selected too.
     val start = graph.findStartDestination()
-    if (start.hasRoute(destination.route::class)) {
-        popBackStack(start.id, inclusive = false, saveState = true)
-        return
-    }
     navigate(destination.route) {
-        popUpTo(graph.findStartDestination().id) { saveState = true }
+        popUpTo(start.id) { inclusive = start.hasRoute(destination.route::class) }
         launchSingleTop = true
-        restoreState = true
     }
 }
 
@@ -503,16 +503,7 @@ private fun PhoneShell(
 ) {
     val theme = LocalAnstelleTheme.current
     if (LocalConfiguration.current.screenWidthDp >= RAIL_MIN_WIDTH_DP) {
-        Row(Modifier.fillMaxSize().background(theme.background)) {
-            NavRail(destinations, selected, onNavigate, Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)))
-            // The rail owns the start edge; the screen keeps clear of the other system bars.
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.End)),
-            ) { content(Modifier.fillMaxSize()) }
-        }
+        RailShell(destinations, selected, onNavigate, content)
         return
     }
     androidx.compose.material3.Scaffold(
@@ -541,10 +532,11 @@ private fun PhoneShell(
  * in from the screen lands focus on the open destination, wherever the D-pad entered.
  */
 @Composable
-private fun NavRail(destinations: List<TopLevelDestination>, selected: TopLevelDestination?, onNavigate: (TopLevelDestination) -> Unit, modifier: Modifier = Modifier) {
+private fun NavRail(destinations: List<TopLevelDestination>, selected: TopLevelDestination?, onNavigate: (TopLevelDestination) -> Unit, railFocus: RailFocus, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val requesters = remember { TopLevelDestination.entries.associateWith { FocusRequester() } }
+    val railDestination = selected?.takeIf { it in destinations } ?: destinations.firstOrNull()
     Box(Modifier.fillMaxHeight().background(theme.surface)) {
         Column(
             modifier
@@ -573,7 +565,13 @@ private fun NavRail(destinations: List<TopLevelDestination>, selected: TopLevelD
                     Modifier
                         .fillMaxWidth()
                         .height(if (isTv) TV_RAIL_ITEM_HEIGHT else RAIL_ITEM_HEIGHT)
-                        .then(if (isTv) Modifier.focusRequester(requesters.getValue(destination)) else Modifier),
+                        .then(
+                            if (isTv) Modifier
+                                .focusRequester(requesters.getValue(destination))
+                                .then(if (destination == railDestination) Modifier.focusRequester(railFocus.rail) else Modifier)
+                                .enterContentFromRail(railFocus)
+                            else Modifier,
+                        ),
                 )
             }
         }
@@ -645,17 +643,32 @@ private fun NavTab(destination: TopLevelDestination, selected: Boolean, onClick:
     }
 }
 
-/** TV: the same rail as tablets, with the screen beside it. */
+/** TV and tablets share the rail, content layout, and focus bridge, with the screen beside it. */
 @Composable
-private fun TvShell(
+private fun RailShell(
     destinations: List<TopLevelDestination>,
     selected: TopLevelDestination?,
     onNavigate: (TopLevelDestination) -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
+    val railFocus = remember { RailFocus() }
+    val insets = if (LocalIsTv.current) WindowInsets(0) else WindowInsets.safeDrawing
     Row(Modifier.fillMaxSize().background(LocalAnstelleTheme.current.background)) {
-        NavRail(destinations, selected, onNavigate)
-        Box(Modifier.weight(1f).fillMaxHeight()) { content(Modifier.fillMaxSize()) }
+        NavRail(
+            destinations, selected, onNavigate, railFocus,
+            Modifier.windowInsetsPadding(insets.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)),
+        )
+        // The rail owns the start edge; the screen keeps clear of the other system bars.
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .windowInsetsPadding(insets.only(WindowInsetsSides.Vertical + WindowInsetsSides.End)),
+        ) {
+            CompositionLocalProvider(LocalRailFocus provides railFocus) {
+                content(Modifier.fillMaxSize())
+            }
+        }
     }
 }
 

@@ -4,6 +4,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelStore
+import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.ComposeNavigator
 import androidx.navigation.compose.composable
@@ -13,7 +14,10 @@ import androidx.navigation.toRoute
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -32,11 +36,19 @@ class OnDemandNavigationTest {
             navigatorProvider.addNavigator(ComposeNavigator())
             graph = createGraph(startDestination = GuideRoute) {
                 composable<GuideRoute> {}
+                composable<DashboardRoute> {}
+                composable<ProfilesRoute> {}
+                composable<ProfileEditRoute> {}
                 navigation<OnDemandGraph>(startDestination = OnDemandRoute) {
                     composable<OnDemandRoute> {}
                     composable<OnDemandTitleRoute> {}
                     composable<OnDemandEpisodeRoute> {}
                     composable<OnDemandChannelRoute> {}
+                }
+                navigation<SettingsGraph>(startDestination = SettingsRoute) {
+                    composable<SettingsRoute> {}
+                    composable<PlaybackLanguagesRoute> {}
+                    composable<LanguagePickerRoute> {}
                 }
                 composable<PlayerRoute> {}
                 composable<OnDemandPlayRoute> {}
@@ -49,6 +61,96 @@ class OnDemandNavigationTest {
             owner.lifecycle.currentState = Lifecycle.State.DESTROYED
             store.clear()
         }
+    }
+
+    private fun livePlaybackReturnsToCatalog(restart: Boolean) = navigation {
+        navigateTopLevel(TopLevelDestination.OnDemand)
+        navigate(OnDemandChannelRoute(20))
+        navigate(PlayerRoute(20, restart = restart))
+
+        // The live player's Back handler always returns to the guide.
+        navigateTopLevel(TopLevelDestination.Guide)
+        assertTrue(currentDestination!!.hasRoute(GuideRoute::class))
+
+        navigateTopLevel(TopLevelDestination.OnDemand)
+        assertTrue(currentDestination!!.hasRoute(OnDemandRoute::class))
+        popBackStack()
+        assertTrue(currentDestination!!.hasRoute(GuideRoute::class))
+    }
+
+    @Test
+    fun watchLiveThenBackDoesNotRestorePlayerFromOnDemandTab() = livePlaybackReturnsToCatalog(restart = false)
+
+    @Test
+    fun startOverThenBackDoesNotRestorePlayerFromOnDemandTab() = livePlaybackReturnsToCatalog(restart = true)
+
+    @Test
+    fun switchingTabsWhileBrowsingReturnsToTheCatalog() = navigation {
+        navigateTopLevel(TopLevelDestination.OnDemand)
+        navigate(OnDemandChannelRoute(20, 123_000))
+
+        navigateTopLevel(TopLevelDestination.Guide)
+        navigateTopLevel(TopLevelDestination.OnDemand)
+
+        assertTrue(currentDestination!!.hasRoute(OnDemandRoute::class))
+        popBackStack()
+        assertTrue(currentDestination!!.hasRoute(GuideRoute::class))
+    }
+
+    @Test
+    fun everyTabOpensAFreshRootFromEveryOtherTabAndItself() = navigation {
+        val roots = mapOf(
+            TopLevelDestination.Guide to GuideRoute,
+            TopLevelDestination.OnDemand to OnDemandRoute,
+            TopLevelDestination.Dashboard to DashboardRoute,
+            TopLevelDestination.Settings to SettingsRoute,
+            TopLevelDestination.Profiles to ProfilesRoute(),
+        )
+        for (source in TopLevelDestination.entries) {
+            for ((target, root) in roots) {
+                navigateTopLevel(target)
+                val previous = currentBackStackEntry!!
+                previous.savedStateHandle["position"] = 42
+                navigateTopLevel(source)
+                when (source) {
+                    TopLevelDestination.OnDemand -> {
+                        navigate(OnDemandTitleRoute(100))
+                        navigate(OnDemandEpisodeRoute(4))
+                    }
+                    TopLevelDestination.Settings -> {
+                        navigate(PlaybackLanguagesRoute)
+                        navigate(LanguagePickerRoute(subtitles = true))
+                    }
+                    TopLevelDestination.Profiles -> navigate(ProfileEditRoute(1))
+                    else -> Unit
+                }
+
+                navigateTopLevel(target)
+
+                val current = currentBackStackEntry!!
+                val scenario = "${source.label} to ${target.label}"
+                assertTrue(scenario, current.destination.hasRoute(root::class))
+                assertNotSame(scenario, previous, current)
+                assertFalse(scenario, current.savedStateHandle.contains("position"))
+                if (target != TopLevelDestination.Guide) {
+                    assertTrue(scenario, popBackStack())
+                    assertTrue(scenario, currentDestination!!.hasRoute(GuideRoute::class))
+                }
+                assertFalse(scenario, popBackStack())
+                // Restore the guide after verifying there are no stale screens behind the root.
+                navigate(GuideRoute)
+            }
+        }
+    }
+
+    @Test
+    fun guidePlaybackThenBackLeavesOnDemandAtCatalog() = navigation {
+        navigate(PlayerRoute(20))
+
+        navigateTopLevel(TopLevelDestination.Guide)
+        assertTrue(currentDestination!!.hasRoute(GuideRoute::class))
+        navigateTopLevel(TopLevelDestination.OnDemand)
+        assertTrue(currentDestination!!.hasRoute(OnDemandRoute::class))
     }
 
     @Test

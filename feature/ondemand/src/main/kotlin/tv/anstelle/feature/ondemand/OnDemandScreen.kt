@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,15 +24,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +44,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -105,8 +105,8 @@ import tv.anstelle.core.theme.components.WatchStrip
 import tv.anstelle.core.theme.components.StatusLine
 import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.screenEdge
-import tv.anstelle.core.theme.components.screenGap
 import tv.anstelle.core.theme.components.screenSide
+import tv.anstelle.core.theme.components.requestWhenReady
 import javax.inject.Inject
 import kotlin.random.Random
 
@@ -235,9 +235,6 @@ class OnDemandViewModel @Inject constructor(
     }
 }
 
-/** The tab On Demand was last on, kept for the process so pages opened from a tab go back to it. */
-private var lastTab: String = HOME
-
 /** One of On Demand's tabs: Channels, then one per [CatalogKind]. Search is no tab: it is the field beside them. */
 @Immutable
 private data class OnDemandTab(val key: String, val label: String, val kind: CatalogKind? = null)
@@ -253,7 +250,7 @@ private val Tabs = listOf(OnDemandTab(HOME, "Channels")) + CatalogKind.entries.m
  * group's tiles), then a tab per kind of title (Movies, Series), each a banner of random titles
  * over rows of what the library holds; and apart at the row's end, the search field, which opens
  * Search's page. A channel opens on its program; a title on its page; a Continue watching card
- * plays at once.
+ * opens its movie or episode.
  */
 @Composable
 fun OnDemandScreen(
@@ -269,19 +266,18 @@ fun OnDemandScreen(
     catalog: CatalogViewModel = hiltViewModel(),
 ) {
     val theme = LocalAnstelleTheme.current
-    // The open tab outlives the screen: coming back from a movie's, series' or channel's page lands on the tab it was opened from.
-    var open by rememberSaveable { mutableStateOf(lastTab) }
-    if (open != SEARCH) lastTab = open
+    val isTv = LocalIsTv.current
+    // Back from a detail page restores this visit's tab; a new visit starts on Channels.
+    var open by rememberSaveable { mutableStateOf(HOME) }
     // The tab Search was opened from, which leaving Search goes back to.
-    var browsing by rememberSaveable { mutableStateOf(lastTab) }
+    var browsing by rememberSaveable { mutableStateOf(HOME) }
     // Opening Search puts the caret in its field at once.
     var typeNow by remember { mutableStateOf(false) }
     // A tab picked in the row keeps focus on the row; coming back to the screen, the tab focuses its own content.
     var picked by remember { mutableStateOf(false) }
-    // What was last opened on any tab, so Back lands on it again.
-    var opened by rememberSaveable { mutableStateOf<String?>(null) }
-    val returnFocus = remember { FocusRequester() }
-    val focus = TabFocus(opened, { opened = it }, returnFocus, autoFocus = !picked)
+    val headerFocus = remember { FocusRequester() }
+    val focus = remember(picked) { TabFocus(headerFocus, autoFocus = !picked) }
+    TvRailEntry(headerFocus)
     // A movie or series airing on a channel right now opens that channel's page, not its own.
     val home: OnDemandViewModel = hiltViewModel()
     val scope = rememberCoroutineScope()
@@ -291,7 +287,6 @@ fun OnDemandScreen(
                 val channel = home.airingChannel(id)
                 if (channel != null) onOpenChannel(channel) else onOpenTitle(id)
             }
-            Unit
         }
     }
     val actions = remember(openTitle, onOpenEpisode, onPlay, onAddToChannel, catalog) {
@@ -325,12 +320,18 @@ fun OnDemandScreen(
     val saved = rememberSaveableStateHolder()
     val query by catalog.query.collectAsStateWithLifecycle()
     // Leaving Search goes back to the tab it was opened from.
-    BackHandler(enabled = searching) { open = browsing }
+    fun leaveSearch() {
+        picked = true
+        open = browsing
+        if (isTv) scope.launch { headerFocus.requestWhenReady() }
+    }
+    BackHandler(enabled = searching, onBack = ::leaveSearch)
 
     Column(modifier.fillMaxSize().background(theme.background)) {
         TabRow(
             tabs = Tabs,
             open = open,
+            focus = focus,
             onSelect = {
                 picked = true
                 open = it
@@ -346,7 +347,7 @@ fun OnDemandScreen(
                     typeNow = true
                     open = SEARCH
                 },
-                onLeave = { open = browsing },
+                onLeave = ::leaveSearch,
             ),
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -392,9 +393,10 @@ private class SearchState(
  * field while Search is open.
  */
 @Composable
-private fun TabRow(tabs: List<OnDemandTab>, open: String, onSelect: (String) -> Unit, search: SearchState) {
+private fun TabRow(tabs: List<OnDemandTab>, open: String, focus: TabFocus, onSelect: (String) -> Unit, search: SearchState) {
     val isTv = LocalIsTv.current
     val requesters = remember(tabs) { (tabs.map { it.key } + SEARCH).associateWith { FocusRequester() } }
+    val rail = tv.anstelle.core.theme.components.LocalRailFocus.current
     val searching = open == SEARCH
     // On TV the row runs a tab's padding past the side margin, so labels start on it and the field ends on it.
     // A phone keeps the tabs and the field inside the margin, so the first tab starts as far in as the field ends.
@@ -411,7 +413,7 @@ private fun TabRow(tabs: List<OnDemandTab>, open: String, onSelect: (String) -> 
             SearchField(
                 query = search.query,
                 onQuery = search.onQuery,
-                requester = requesters.getValue(SEARCH),
+                requester = focus.header,
                 open = true,
                 onOpen = search.onOpen,
                 startTyping = search.typeNow,
@@ -433,7 +435,19 @@ private fun TabRow(tabs: List<OnDemandTab>, open: String, onSelect: (String) -> 
         OsdTabBar(
             modifier = Modifier
                 .fillMaxWidth()
-                .focusProperties { onEnter = { requesters[open]?.requestFocus() } }
+                .focusProperties { onEnter = { focus.header.requestFocus() } }
+                .onPreviewKeyEvent { event ->
+                    if (!isTv) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionDown -> {
+                            val enter = focus.enter
+                            if (event.type == KeyEventType.KeyDown) enter?.invoke()
+                            enter != null
+                        }
+                        Key.DirectionUp -> true
+                        else -> false
+                    }
+                }
                 .focusGroup(),
         ) {
             Row(
@@ -447,14 +461,17 @@ private fun TabRow(tabs: List<OnDemandTab>, open: String, onSelect: (String) -> 
                         selected = tab.key == open,
                         onClick = { onSelect(tab.key) },
                         compact = isTv,
-                        modifier = Modifier.focusRequester(requesters.getValue(tab.key)),
+                        modifier = Modifier.focusRequester(if (tab.key == open) focus.header else requesters.getValue(tab.key))
+                            .focusProperties {
+                                if (isTv && tab == tabs.first()) left = rail?.rail ?: FocusRequester.Cancel
+                            },
                     )
                 }
             }
             SearchField(
                 query = search.query,
                 onQuery = search.onQuery,
-                requester = requesters.getValue(SEARCH),
+                requester = if (searching) focus.header else requesters.getValue(SEARCH),
                 open = searching,
                 onOpen = search.onOpen,
                 startTyping = search.typeNow,
@@ -486,7 +503,6 @@ private fun HomeTab(
     viewModel: OnDemandViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     if (!state.loaded) return
     if (state.rows.isEmpty()) {
@@ -501,66 +517,46 @@ private fun HomeTab(
         return
     }
     val clock = rememberClock()
-    val listState = rememberLazyListState()
-    val bannerFocus = remember { FocusRequester() }
-    if (isTv) {
-        LaunchedEffect(Unit) {
-            val returned = focus.opened?.startsWith("$HOME/") == true && runCatching { focus.returnTo.requestFocus() }.isSuccess
-            if (!returned && focus.autoFocus) runCatching { bannerFocus.requestFocus() }
-        }
-    }
-    fun open(key: String, channelId: Long) {
-        focus.onOpened("$HOME/$key")
-        onOpenChannel(channelId)
-    }
-    fun returns(key: String) = focus.opened == "$HOME/$key"
+    val navigation = rememberTvBrowseNavigation(buildList {
+        if (state.banner.isNotEmpty()) add(TvBrowseRow("banner", listOf("banner"), scrollable = false))
+        state.rows.forEach { row -> add(TvBrowseRow(row.key, row.tiles.map { it.channel.id.toString() })) }
+    }, focus)
 
     // The guide's margins and gaps: on TV the banner sits where the guide's preview band does;
     // a phone runs it edge to edge under the tabs, like the guide's stacked preview.
-    // The gap under the tabs is the list's own edge, not its padding, so it holds while scrolling.
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.padding(top = screenGap).fillMaxSize().background(theme.background),
-        contentPadding = PaddingValues(bottom = screenEdge),
-        verticalArrangement = Arrangement.spacedBy(screenGap),
-    ) {
+    BrowseList(navigation) {
         if (state.banner.isNotEmpty()) {
             item(key = "banner") {
                 val slides = state.banner
                 RotatingBanner(
                     count = slides.size,
                     backdropUrl = { slides[it].artwork.backdropUrl },
-                    onOpen = { open("banner", slides[it].channel.id) },
+                    onOpen = { onOpenChannel(slides[it].channel.id) },
                     // Edge to edge, like a title page's hero.
-                    modifier = Modifier
-                        .let { if (returns("banner")) it.focusRequester(focus.returnTo) else it }
-                        .focusRequester(bannerFocus),
+                    modifier = Modifier.tvFocusItem(navigation.row("banner"), "banner", horizontalEdges = false),
                     footer = { i ->
                         val slide = slides[i]
-                        WatchProgress(MediaProgress(slide.endUtcMs - slide.startUtcMs, clock.value - slide.startUtcMs), modifier = Modifier.weight(1f))
+                        val progress = MediaProgress(slide.endUtcMs - slide.startUtcMs, clock.value - slide.startUtcMs)
+                        WatchProgress(
+                            progress,
+                            remaining = if (isTv) progress.remainingLabel else MediaProgress.remainingTime(progress.remainingMs),
+                            modifier = Modifier.weight(1f),
+                        )
                     },
                 ) { i -> ChannelSlide(slides[i]) }
             }
         }
         for (row in state.rows) {
+            val rowFocus = navigation.row(row.key)
             item(key = row.key) {
-                Column(verticalArrangement = Arrangement.spacedBy(screenGap - TILE_FRAME)) {
-                    // A header takes a gap more above it than under it, so it reads with its own row.
-                    RowHeader(row, Modifier.padding(start = screenSide, end = screenSide, top = screenGap))
-                    // Pictures sit the guide's gap apart: the spacing plus each tile's focus inset.
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = screenSide - TILE_FRAME),
-                        horizontalArrangement = Arrangement.spacedBy(screenGap - TILE_FRAME * 2),
-                    ) {
-                        items(row.tiles, key = { it.channel.id }) { tile ->
-                            val key = "${row.key}/${tile.channel.id}"
-                            ChannelTileCard(
-                                tile = tile,
-                                nowMs = clock.value,
-                                onClick = { open(key, tile.channel.id) },
-                                modifier = if (returns(key)) Modifier.focusRequester(focus.returnTo) else Modifier,
-                            )
-                        }
+                ShelfRow(rowFocus, heading = { RowHeader(row, it) }) {
+                    items(row.tiles, key = { it.channel.id }) { tile ->
+                        ChannelTileCard(
+                            tile = tile,
+                            nowMs = clock.value,
+                            onClick = { onOpenChannel(tile.channel.id) },
+                            modifier = Modifier.tvFocusItem(rowFocus, tile.channel.id.toString()),
+                        )
                     }
                 }
             }

@@ -423,7 +423,7 @@ fun WatchedMarker(
  * so a list of stills keeps one line. Show it only when [progress] has started or [watched].
  */
 @Composable
-fun WatchStrip(progress: MediaProgress, watched: Boolean, modifier: Modifier = Modifier, remaining: String? = progress.remainingLabel, remainingBelow: Boolean = false) {
+fun WatchStrip(progress: MediaProgress, watched: Boolean, modifier: Modifier = Modifier, remaining: String? = progress.remainingLabel) {
     if (!progress.hasProgress && !watched) return
     val theme = LocalAnstelleTheme.current
     WatchProgress(
@@ -433,11 +433,10 @@ fun WatchStrip(progress: MediaProgress, watched: Boolean, modifier: Modifier = M
             .background(theme.background.copy(alpha = 0.8f))
             .padding(horizontal = 6.dp),
         compact = true,
-        remainingBelow = remainingBelow,
     )
 }
 
-/** One watch row everywhere: themed check, ladder, then remaining time, optionally centered below. */
+/** One watch row everywhere: themed check, ladder, then remaining time. */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 fun WatchProgress(
@@ -447,7 +446,6 @@ fun WatchProgress(
     modifier: Modifier = Modifier,
     focused: Boolean = false,
     compact: Boolean = false,
-    remainingBelow: Boolean = false,
 ) {
     val theme = LocalAnstelleTheme.current
     val fraction = progress.fraction
@@ -459,7 +457,7 @@ fun WatchProgress(
         modifier
             .fillMaxWidth()
             .heightIn(min = 16.dp),
-        maxItemsInEachRow = if (remainingBelow) 1 else 2,
+        maxItemsInEachRow = 2,
         horizontalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 8.dp, Alignment.CenterHorizontally),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
@@ -14,16 +15,63 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
+
+/**
+ * An image from the server, or the title's first letter on the surface step when there is none.
+ * [shaded] applies the watched shade; [playing] keeps the picture clear and puts the shared
+ * status line in its top-left corner. [content] supplies overlays such as the watch strip.
+ */
+@Composable
+fun Poster(
+    imageUrl: String?,
+    title: String,
+    modifier: Modifier = Modifier,
+    shaded: Boolean = false,
+    playing: Boolean = false,
+    content: @Composable BoxScope.() -> Unit = {},
+) {
+    val theme = LocalAnstelleTheme.current
+    Box(modifier.clip(ControlShape).background(theme.surfaceHigh), contentAlignment = Alignment.Center) {
+        androidx.compose.material3.Text(
+            title.take(1).uppercase(),
+            style = androidx.compose.material3.MaterialTheme.typography.displayMedium,
+            color = theme.line,
+        )
+        if (imageUrl != null) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
+        if (shaded && !playing) Box(Modifier.matchParentSize().background(PastShade))
+        content()
+        if (playing) {
+            StatusLine(
+                onAir = true,
+                label = "Playing",
+                text = "",
+                modifier = Modifier.align(Alignment.TopStart)
+                    .background(theme.background.copy(alpha = BACKDROP_WASH))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+    }
+}
 
 /**
  * How much of the ground lies over a backdrop: one flat wash, never a gradient, so bone text

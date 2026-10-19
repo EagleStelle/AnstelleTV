@@ -7,20 +7,20 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
 import tv.anstelle.core.model.MediaProgress
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -29,17 +29,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -54,19 +51,18 @@ import tv.anstelle.core.data.ondemand.CatalogWatch
 import tv.anstelle.core.data.ondemand.Shelf
 import tv.anstelle.core.data.ondemand.Title
 import tv.anstelle.core.data.ondemand.WatchCard
-import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.Backdrop
-import tv.anstelle.core.theme.components.BANNER_ASPECT
 import tv.anstelle.core.theme.components.TV_BANNER_ASPECT
 import tv.anstelle.core.theme.components.FocusSurface
-import tv.anstelle.core.theme.components.PastShade
-import tv.anstelle.core.theme.components.SegmentLadder
+import tv.anstelle.core.theme.components.LocalRailFocus
+import tv.anstelle.core.theme.components.Poster
 import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.WatchStrip
+import tv.anstelle.core.theme.components.screenGap
 import tv.anstelle.core.theme.components.screenSide
 import kotlin.math.abs
 
@@ -78,6 +74,12 @@ private val SWIPE = 48.dp
 
 /** How long a banner holds a slide while focus is elsewhere. */
 private const val ROTATE_MS = 8_000L
+
+/** Shared mobile height leaves room for channel details and the progress/pager footer. */
+private val MOBILE_BANNER_HEIGHT = 320.dp
+
+/** Keep mobile pagination from squeezing out the progress ladder and remaining time. */
+private val MOBILE_PAGER_MAX_WIDTH = 128.dp
 
 /**
  * A banner of [count] slides, one at a time: the slide's backdrop under the wash, [content]
@@ -96,6 +98,8 @@ internal fun RotatingBanner(
     content: @Composable ColumnScope.(Int) -> Unit,
 ) {
     val isTv = LocalIsTv.current
+    val mobileHeight = MOBILE_BANNER_HEIGHT * LocalDensity.current.fontScale.coerceAtLeast(1f)
+    val rail = LocalRailFocus.current
     var index by rememberSaveable { mutableIntStateOf(0) }
     var focused by remember { mutableStateOf(false) }
     val shown = index.coerceIn(0, count - 1)
@@ -115,7 +119,10 @@ internal fun RotatingBanner(
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
-                    Key.DirectionLeft -> (shown > 0).also { if (it) index = shown - 1 }
+                    Key.DirectionLeft -> {
+                        if (shown > 0) index = shown - 1 else if (isTv) rail?.rail?.requestFocus()
+                        isTv || shown > 0
+                    }
                     Key.DirectionRight -> true.also { index = (shown + 1) % count }
                     else -> false
                 }
@@ -138,7 +145,7 @@ internal fun RotatingBanner(
             url = backdropUrl(shown),
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(if (isTv) TV_BANNER_ASPECT else BANNER_ASPECT),
+                .then(if (isTv) Modifier.aspectRatio(TV_BANNER_ASPECT) else Modifier.height(mobileHeight)),
             alignment = Alignment.Center,
         ) {
             // Edge to edge, so focus shows as a frame drawn inside the picture.
@@ -157,8 +164,14 @@ internal fun RotatingBanner(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.End),
                 ) {
+                    // Progress, remaining time, and pagination share one row on every device.
                     footer(shown)
-                    Box(contentAlignment = Alignment.CenterEnd) { Pager(count, shown, isFocused) }
+                    Box(
+                        if (isTv) Modifier else Modifier.widthIn(max = MOBILE_PAGER_MAX_WIDTH),
+                        contentAlignment = Alignment.CenterEnd,
+                    ) {
+                        Pager(count, shown, isFocused)
+                    }
                 }
             }
         }
@@ -167,10 +180,14 @@ internal fun RotatingBanner(
 
 /** One square per banner slide: the one showing solid in the accent, the rest hollow. */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun Pager(count: Int, shown: Int, focused: Boolean) {
     if (count < 2) return
     val theme = LocalAnstelleTheme.current
-    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.End),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
         for (i in 0 until count) {
             AirMarker(onAir = i == shown, color = if (i == shown) (if (focused) theme.text else theme.accent) else theme.textMuted)
         }
@@ -331,9 +348,7 @@ private fun PosterCardSurface(
         },
     ) { focused ->
         Column(Modifier.padding(TILE_FRAME)) {
-            Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(ControlShape)) {
-                Poster(posterUrl, title, Modifier.fillMaxWidth().aspectRatio(2f / 3f))
-                if (watched) Box(Modifier.matchParentSize().background(PastShade))
+            Poster(posterUrl, title, Modifier.fillMaxWidth().aspectRatio(2f / 3f), shaded = watched) {
                 WatchStrip(progress, watched, Modifier.align(Alignment.BottomStart), remaining = null)
                 if (!watched && unwatched != null && unwatched > 0) UnwatchedCount(unwatched, Modifier.align(Alignment.TopEnd).padding(6.dp))
             }
@@ -371,8 +386,7 @@ internal fun WatchCardTile(card: WatchCard, onClick: () -> Unit, onHold: () -> U
             .onPreviewKeyEvent { e -> if (e.key == Key.Menu && e.type == KeyEventType.KeyUp) onHold().let { true } else e.key == Key.Menu },
     ) { focused ->
         Column(Modifier.padding(TILE_FRAME)) {
-            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(ControlShape)) {
-                Poster(card.imageUrl, card.title, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+            Poster(card.imageUrl, card.title, Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                 WatchStrip(MediaProgress(card.durationMs, card.positionMs), watched = false, modifier = Modifier.align(Alignment.BottomStart))
             }
             Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -395,6 +409,19 @@ internal fun ShelfHeader(shelf: Shelf, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         shelf.channel?.let { ChannelNumber(it.number, focused = false, style = androidx.compose.material3.MaterialTheme.typography.labelLarge) }
         androidx.compose.material3.Text(shelf.label.uppercase(), style = style, color = theme.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+    }
+}
+
+/**
+ * A browse row: [heading] on the side margin, then [row]'s cards, whose pictures start on that
+ * margin and sit the guide's gap apart: each card's focus inset makes up the rest.
+ */
+@Composable
+internal fun ShelfRow(row: TvRowFocus, heading: @Composable (Modifier) -> Unit, content: LazyListScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(screenGap - TILE_FRAME)) {
+        // A heading takes a gap more above it than under it, so it reads with its own row.
+        heading(Modifier.padding(start = screenSide, end = screenSide, top = screenGap))
+        FocusRow(row, padding = screenSide - TILE_FRAME, spacing = screenGap - TILE_FRAME * 2, content = content)
     }
 }
 

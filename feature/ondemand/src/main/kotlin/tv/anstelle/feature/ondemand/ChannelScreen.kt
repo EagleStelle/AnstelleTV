@@ -59,6 +59,7 @@ import tv.anstelle.core.theme.components.requestWhenReady
 import tv.anstelle.core.theme.components.Notice
 import tv.anstelle.core.theme.components.StatusLine
 import tv.anstelle.core.theme.components.WatchStrip
+import tv.anstelle.core.theme.components.Poster
 import javax.inject.Inject
 
 @Immutable
@@ -164,20 +165,16 @@ fun ChannelScreen(
         return
     }
     val isTv = LocalIsTv.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val edit by viewModel.watchEditor.state.collectAsStateWithLifecycle()
     val clock = rememberClock()
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val firstFocus = remember { FocusRequester() }
     // The episode last opened or held, so Back and a closed dialog land on it again.
     val returnFocus = remember { FocusRequester() }
     var lastTouched by rememberSaveable { mutableStateOf<Long?>(null) }
     var holding by remember { mutableStateOf<EpisodeEntry?>(null) }
-    if (isTv) {
-        LaunchedEffect(page.channel.id, page.startUtcMs) {
-            listState.scrollToItem(0)
-            firstFocus.requestWhenReady()
-        }
-    }
+    val firstFocus = rememberProgrammeFocus(page.channel.id to page.startUtcMs, listState, lastTouched, returnFocus,
+        page.restriction != null || page.item.overview != null || edit.error != null)
 
     val item = page.item
     val restricted = page.restriction != null
@@ -215,15 +212,17 @@ fun ChannelScreen(
                 shape = shape,
                 // A restricted program's placeholder shows no letter of its title.
                 picture = { slot ->
-                    SheetPicture(
+                    Poster(
                         item.imageUrl, item.title.takeUnless { restricted }.orEmpty(), slot,
-                        foot = if (!restricted && tense == AiringTense.ON_NOW) ({
+                    ) {
+                        if (!restricted && tense == AiringTense.ON_NOW) {
                             WatchStrip(
                                 MediaProgress(page.endUtcMs - page.startUtcMs, clock.value - page.startUtcMs),
                                 watched = false,
+                                modifier = Modifier.align(Alignment.BottomStart),
                             )
-                        }) else null,
-                    )
+                        }
+                    }
                 },
                 title = {
                     ChannelIdent(page.channel)
@@ -245,7 +244,7 @@ fun ChannelScreen(
                 },
                 bars = {
                     WatchKeys(
-                        actions, listState, firstFocus, navigation = navigation,
+                        actions, listState, firstFocus, navigation = navigation, onFocused = { lastTouched = null },
                         dialogDetails = choices.onDemandNavigation(item.isEpisode) {
                             onOpenOnDemand(item.id, item.isEpisode)
                         },
@@ -301,7 +300,7 @@ fun ChannelScreen(
         }
         val dismiss = {
             holding = null
-            runCatching { returnFocus.requestFocus() }
+            if (isTv) scope.launch { returnFocus.requestWhenReady() }
             Unit
         }
         ActionDialog(
