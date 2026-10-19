@@ -1,9 +1,7 @@
 package tv.anstelle.feature.player
 
 import tv.anstelle.core.theme.components.obscured
-import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -17,7 +15,6 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -58,32 +55,23 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 import tv.anstelle.core.data.playback.PlaybackState
 import tv.anstelle.core.data.playback.ProgramInfo
-import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.data.playback.TuneStatus
 import tv.anstelle.core.data.lineUnderLogo
 import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.model.Channel
-import tv.anstelle.core.player.SubtitleOverlays
-import tv.anstelle.core.player.SubtitleStyle
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
@@ -95,14 +83,10 @@ import tv.anstelle.core.theme.components.StandInSize
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.ChannelLogo
 import tv.anstelle.core.theme.components.SegmentLadder
-import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.WatchIcons
 
 import java.text.DateFormat
 import java.util.Date
-
-/** Where the banner's keys are: [CONTROLS] has focus on them, the others show a track list. */
-private enum class Panel { CONTROLS, AUDIO, SUBTITLES }
 
 /** A key that asks first, in a dialog over the picture. */
 private enum class Confirm { START_OVER, ON_DEMAND }
@@ -147,29 +131,33 @@ fun PlayerScreen(
     var bannerVisible by remember { mutableStateOf(true) }
     var bannerRequest by remember { mutableLongStateOf(0L) }
     var confirm by remember { mutableStateOf<Confirm?>(null) }
-    var panel by remember { mutableStateOf<Panel?>(null) }
+    var panel by remember { mutableStateOf<PlayerPanel?>(null) }
+    val browsingChoices = panel?.isPicker == true
     // Every tune brings the banner up with a key highlighted on TV; seeking leaves focus on the picture so left and right keep seeking.
     var tunedBanner by remember { mutableStateOf<Any?>(null) }
     // A finger is down in the banner: it stays up until the finger lifts, then waits again.
     var bannerTouched by remember { mutableStateOf(false) }
-    LaunchedEffect(state.tuneCount, bannerRequest, confirm, bannerTouched) {
+    LaunchedEffect(state.tuneCount, bannerRequest, confirm, bannerTouched, browsingChoices) {
         bannerVisible = true
         if (isTv && tunedBanner != state.tuneCount) {
             tunedBanner = state.tuneCount
-            if (panel == null) panel = Panel.CONTROLS
+            if (panel == null) panel = PlayerPanel.CONTROLS
         }
-        if (confirm != null || bannerTouched) return@LaunchedEffect
+        if (confirm != null || bannerTouched || browsingChoices) return@LaunchedEffect
         // With no key pressed or touch for a while, the banner goes, highlighted key and all.
-        delay(BANNER_MS)
+        delay(PLAYER_BANNER_MS)
         bannerVisible = false
         panel = null
     }
     // The banner's height, so the subtitles can step above it while it is up.
     var bannerHeight by remember { mutableIntStateOf(0) }
-    // Back hides the banner, whatever has focus in it, and only then leaves the player.
+    fun closePanelOrBanner() {
+        panel = panel.afterBack()
+        bannerVisible = panel != null
+    }
+    // Android owns remote and system Back; a picker returns to its opener before the banner closes.
     BackHandler(enabled = bannerVisible && confirm == null) {
-        panel = null
-        bannerVisible = false
+        closePanelOrBanner()
     }
     val audioKey = remember { FocusRequester() }
     val subtitlesKey = remember { FocusRequester() }
@@ -191,20 +179,19 @@ fun PlayerScreen(
                 returnKey = null
                 runCatching { focus.requestFocus() }
             }
-            Panel.CONTROLS -> {
+            PlayerPanel.CONTROLS -> {
                 // The banner may be hidden: bring it in, then take the key once it is composed.
                 bannerRequest++
                 if (confirm == null) controlsFocus().requestWhenShown()
             }
-            Panel.AUDIO -> if (!showAudio) panel = Panel.CONTROLS
-            Panel.SUBTITLES -> if (!showSubtitles) panel = Panel.CONTROLS
+            PlayerPanel.AUDIO -> if (!showAudio) panel = PlayerPanel.CONTROLS
+            PlayerPanel.SUBTITLES -> if (!showSubtitles) panel = PlayerPanel.CONTROLS
+            PlayerPanel.EPISODES -> panel = PlayerPanel.CONTROLS // Episodes belongs to the on-demand player.
         }
     }
 
     // The picture itself holds focus, not one of the banner's keys.
     var pictureFocused by remember { mutableStateOf(false) }
-    // A Back press the banner took on key-down; its key-up hides the banner.
-    var backHeld by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -212,28 +199,15 @@ fun PlayerScreen(
             .background(Color.Black)
             .focusRequester(focus)
             .onPreviewKeyEvent { event ->
-                // Back hides the banner in one press: left to the focus system, it would first only move focus off the key.
-                if (event.key == Key.Back) {
-                    // A dialog owns Back: it closes like Keep watching, and the banner stays.
-                    if (confirm != null) return@onPreviewKeyEvent false
-                    if (event.type == KeyEventType.KeyDown && bannerVisible) backHeld = true
-                    if (!backHeld) return@onPreviewKeyEvent false
-                    if (event.type == KeyEventType.KeyUp) {
-                        backHeld = false
-                        panel = null
-                        bannerVisible = false
-                    }
-                    return@onPreviewKeyEvent true
-                }
                 // Any key pressed with the banner's keys in use holds the banner up a while longer.
-                if (panel != null && event.type == KeyEventType.KeyDown) bannerRequest++
+                if (panel != null && event.key != Key.Back && event.type == KeyEventType.KeyDown) bannerRequest++
                 false
             }
             .onKeyEvent { event ->
-                if (confirm != null || panel == Panel.AUDIO || panel == Panel.SUBTITLES) return@onKeyEvent false
-                val inKeys = panel == Panel.CONTROLS
+                if (confirm != null || panel?.isPicker == true) return@onKeyEvent false
+                val inKeys = panel == PlayerPanel.CONTROLS
                 // OK opens things on key-up: on key-down, the newly focused control would get the key-up as a click.
-                if (event.key in ConfirmKeys) {
+                if (event.key in PlayerConfirmKeys) {
                     // With the keys up, OK is theirs; if none holds focus, it puts focus back on one.
                     if (inKeys && !pictureFocused) return@onKeyEvent false
                     if (inKeys) {
@@ -242,7 +216,7 @@ fun PlayerScreen(
                     }
                     if (event.type == KeyEventType.KeyUp) {
                         val menu = event.key == Key.Info || event.key == Key.Menu
-                        if (entry.isNotEmpty() && !menu) viewModel.commitEntry() else panel = Panel.CONTROLS
+                        if (entry.isNotEmpty() && !menu) viewModel.commitEntry() else panel = PlayerPanel.CONTROLS
                     }
                     return@onKeyEvent true
                 }
@@ -258,15 +232,15 @@ fun PlayerScreen(
                     Key.DirectionLeft, Key.DirectionRight -> if (inKeys) {
                         return@onKeyEvent false
                     } else {
-                        viewModel.seekBy(if (event.key == Key.DirectionLeft) -BACK_MS else AHEAD_MS)
+                        viewModel.seekBy(if (event.key == Key.DirectionLeft) -PLAYER_BACK_MS else PLAYER_AHEAD_MS)
                         bannerRequest++
                     }
                     Key.MediaRewind -> {
-                        viewModel.seekBy(-BACK_MS)
+                        viewModel.seekBy(-PLAYER_BACK_MS)
                         bannerRequest++
                     }
                     Key.MediaFastForward -> {
-                        viewModel.seekBy(AHEAD_MS)
+                        viewModel.seekBy(PLAYER_AHEAD_MS)
                         bannerRequest++
                     }
                     else -> return@onKeyEvent false
@@ -292,13 +266,13 @@ fun PlayerScreen(
                     Swipe.UP -> viewModel.channelUp()
                     Swipe.DOWN -> viewModel.channelDown()
                     Swipe.LEFT, Swipe.RIGHT -> {
-                        viewModel.seekBy(if (swipe == Swipe.LEFT) -BACK_MS else AHEAD_MS)
+                        viewModel.seekBy(if (swipe == Swipe.LEFT) -PLAYER_BACK_MS else PLAYER_AHEAD_MS)
                         bannerRequest++
                     }
                 }
             },
     ) {
-        Video(player, subtitleLift = if (bannerVisible) bannerHeight else 0)
+        PlayerVideo(player, subtitleLift = if (bannerVisible) bannerHeight else 0, keepContentOnPlayerReset = true)
 
         when (state.status) {
             TuneStatus.OFF_AIR, TuneStatus.RESTRICTED -> StandIn(state)
@@ -321,16 +295,16 @@ fun PlayerScreen(
                 // Phones drag the bar; the remote seeks with left and right.
                 onSeek = if (isTv) null else { position: Long -> viewModel.seekTo(position).also { bannerRequest++ } },
                 keys = when (panel) {
-                    null, Panel.CONTROLS -> {
+                    null, PlayerPanel.CONTROLS, PlayerPanel.EPISODES -> {
                         {
                             if (showAudio) OsdKey("Audio", Icons.Filled.Audiotrack, onClick = {
                                 returnKey = audioKey
-                                panel = Panel.AUDIO
+                                panel = PlayerPanel.AUDIO
                                 bannerRequest++
                             }, keyModifier(audioKey), value = audio)
                             if (showSubtitles) OsdKey("Subtitles", Icons.Filled.Subtitles, onClick = {
                                 returnKey = subtitlesKey
-                                panel = Panel.SUBTITLES
+                                panel = PlayerPanel.SUBTITLES
                                 bannerRequest++
                             }, keyModifier(subtitlesKey), value = subtitles)
                             // Tracks on the left, the player's own action on the right.
@@ -351,22 +325,18 @@ fun PlayerScreen(
                             }, keyModifier(startOverKey))
                         }
                     }
-                    Panel.AUDIO -> {
+                    PlayerPanel.AUDIO, PlayerPanel.SUBTITLES -> {
                         {
-                            TrackChoices("Audio", audioOptions) {
-                                viewModel.selectAudio(it)
-                                panel = if (isTv) Panel.CONTROLS else null
-                                bannerRequest++
-                            }
-                        }
-                    }
-                    Panel.SUBTITLES -> {
-                        {
-                            TrackChoices("Subtitles", subtitleOptions) {
-                                viewModel.selectSubtitles(it)
-                                panel = if (isTv) Panel.CONTROLS else null
-                                bannerRequest++
-                            }
+                            val pickingAudio = panel == PlayerPanel.AUDIO
+                            TrackChoices(
+                                title = if (pickingAudio) "Audio" else "Subtitles",
+                                options = if (pickingAudio) audioOptions else subtitleOptions,
+                                onClose = { focusControls ->
+                                    panel = if (focusControls) PlayerPanel.CONTROLS else null
+                                    bannerRequest++
+                                },
+                                onPick = if (pickingAudio) viewModel::selectAudio else viewModel::selectSubtitles,
+                            )
                         }
                     }
                 },
@@ -442,37 +412,6 @@ private fun ConfirmHeader(question: String, title: String?) {
     }
 }
 
-@OptIn(UnstableApi::class)
-@Composable
-private fun Video(player: androidx.media3.common.Player?, subtitleLift: Int) {
-    AndroidView(
-        factory = { context ->
-            PlayerView(context).apply {
-                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                setShutterBackgroundColor(android.graphics.Color.BLACK)
-                // Surfing swaps players; keep the last frame instead of flashing black.
-                setKeepContentOnPlayerReset(true)
-                keepScreenOn = true
-                isFocusable = false
-                subtitleView?.let(SubtitleStyle::applyTo)
-            }
-        },
-        update = { view ->
-            view.player = player
-            // libass draws ASS subtitles in a layer of its own over the video.
-            view.subtitleView?.let { SubtitleOverlays.attach(it, player) }
-            view.liftSubtitles(subtitleLift)
-        },
-        onRelease = { view ->
-            view.subtitleView?.let(SubtitleOverlays::detach)
-            view.player = null
-        },
-        modifier = Modifier.fillMaxSize(),
-    )
-}
-
 /**
  * The OSD banner, straight on the picture over the edge shade: NOW with the stream's technical
  * line beside it, the program on now with its progress (time in, segment ladder, length), the
@@ -526,22 +465,15 @@ private fun InfoBanner(
                     }
                 }
                 BannerHeader(state.stream, label)
-                TitleLogo(
+                PlayerTitleLogo(
                     logoUrl = program?.logoUrl,
                     title = program?.title ?: "Tuning…",
-                    height = if (isTv) 56.dp else 28.dp,
-                    maxLogoWidth = if (isTv) 360.dp else 220.dp,
-                    style = if (isTv) typography.headlineMedium else typography.headlineSmall,
                     // A restricted program's title and logo are blurred.
-                    modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp).obscured(program?.restricted == true, theme.textMuted, radius = 10.dp),
+                    modifier = Modifier.obscured(program?.restricted == true, theme.textMuted, radius = 10.dp),
                 )
                 program?.let { lineUnderLogo(it.detail, it.title, it.isEpisode, it.logoUrl != null) }?.let {
-                    androidx.compose.material3.Text(
+                    PlayerDetailLine(
                         it,
-                        style = typography.bodyMedium,
-                        color = theme.textMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.obscured(program.restricted, theme.textMuted, radius = 5.dp),
                     )
                 }
@@ -576,22 +508,16 @@ private fun InfoBanner(
                                 androidx.compose.material3.Text("NEXT  ${time(next.startUtcMs)}", style = typography.labelMedium, color = theme.textMuted, maxLines = 1)
                             }
                             // The same logo and type as NOW, so the two read as one pair.
-                            TitleLogo(
+                            PlayerTitleLogo(
                                 logoUrl = next.logoUrl,
                                 title = next.title,
-                                height = if (isTv) 56.dp else 28.dp,
-                                maxLogoWidth = if (isTv) 360.dp else 220.dp,
-                                style = if (isTv) typography.headlineMedium else typography.headlineSmall,
                                 maxLines = 2,
-                                modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp).obscured(next.restricted, theme.textMuted, radius = 10.dp),
+                                modifier = Modifier.obscured(next.restricted, theme.textMuted, radius = 10.dp),
                             )
                             nextLine(next)?.let {
-                                androidx.compose.material3.Text(
+                                PlayerDetailLine(
                                     it,
-                                    style = typography.bodyMedium,
-                                    color = theme.textMuted,
                                     maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.obscured(next.restricted, theme.textMuted, radius = 5.dp),
                                 )
                             }
@@ -759,13 +685,6 @@ private fun time(utcMs: Long): String = DateFormat.getTimeInstance(DateFormat.SH
 
 private fun timeRange(program: ProgramInfo) = "${time(program.startUtcMs)} – ${time(program.endUtcMs)}"
 
-
-private const val BANNER_MS = 3_000L
-
-/** Left and right seek this far back and ahead. */
-private const val BACK_MS = 10_000L
-private const val AHEAD_MS = 30_000L
-
 /** Narrower touch screens leave NEXT out of the banner. */
 private val NEXT_MIN_WIDTH = 720.dp
 
@@ -776,5 +695,3 @@ private val NEXT_WIDTH_TOUCH = 200.dp
 /** Mirrors `PlayerViewModel`: four digits at most, tuned 2 s after the last one. */
 private const val ENTRY_DIGITS = 4
 private const val ENTRY_MS = 2_000L
-
-private val ConfirmKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.Info, Key.Menu)

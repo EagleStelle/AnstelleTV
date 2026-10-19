@@ -10,6 +10,10 @@ class JvmLibraryConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) = with(target) {
         pluginManager.apply("org.jetbrains.kotlin.jvm")
         configureKotlinJvm()
+        // AGP's directory dexing drops these Kotlin classes; consume the complete JAR instead.
+        configurations.named("runtimeElements") {
+            outgoing.variants.removeAll { it.name == "classes" }
+        }
         dependencies {
             add("testImplementation", libs.library("junit"))
             add("testImplementation", libs.library("kotlin-test"))

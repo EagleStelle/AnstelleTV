@@ -1,8 +1,6 @@
 package tv.anstelle.feature.player
 
-import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -19,12 +17,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Forward30
@@ -40,7 +37,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -61,20 +57,14 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -99,17 +89,13 @@ import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.model.SegmentType
-import tv.anstelle.core.player.SubtitleOverlays
-import tv.anstelle.core.player.SubtitleStyle
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdTab
 import tv.anstelle.core.theme.components.RestrictedMark
-import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.StandInSize
-import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.Poster
 import tv.anstelle.core.theme.components.WatchStrip
 
@@ -211,15 +197,12 @@ class OnDemandPlayerViewModel @Inject constructor(
     }
 }
 
-/** Where the banner's keys are: [CONTROLS] has focus on them, the others show a track list or the show's episodes in their place. */
-private enum class DemandPanel { CONTROLS, AUDIO, SUBTITLES, EPISODES }
-
 /**
  * Full-screen on-demand playback: OK on the picture pauses and brings the banner in with Play
  * highlighted, left and right jump back 10 s and ahead 30 s, the remote's previous key restarts
  * or steps back through the show's episodes, and next steps forward. The banner carries keys (audio and subtitles on
- * the left; then previous, 10 s back, pause, 30 s ahead and next, in the remote's own order,
- * pause in the middle); up, down or Menu moves focus into them. Episodes sits beside subtitles
+ * the left; previous, 10 s back, pause, 30 s ahead and next centered in the remote's own order,
+ * as icons alone); up, down or Menu moves focus into them. Episodes sits at the right
  * and swaps the keys for the show's seasons and a strip of its episodes. Phones tap for the
  * banner and drag its bar to seek.
  *
@@ -246,14 +229,12 @@ fun OnDemandPlayerScreen(
         val current = viewModel.state.value
         onExit(current.itemId, current.isEpisode)
     }
-    // The panel's BackHandler below takes precedence until the controls are closed.
-    BackHandler { exit() }
     LaunchedEffect(state.status) {
         if (state.status == OnDemandStatus.ENDED && state.isEpisode) exit()
     }
     val isTv = LocalIsTv.current
     val focus = remember { FocusRequester() }
-    var panel by remember { mutableStateOf<DemandPanel?>(null) }
+    var panel by remember { mutableStateOf<PlayerPanel?>(null) }
     var overlay by remember { mutableLongStateOf(0L) }
     var overlayVisible by remember { mutableStateOf(true) }
     // Hidden by hand: stays hidden, even while paused, until the next key or tap brings it back.
@@ -266,16 +247,16 @@ fun OnDemandPlayerScreen(
     }
     LandscapeFullScreen()
     // Opening the player brings the banner up with a key highlighted on TV.
-    LaunchedEffect(Unit) { if (isTv) panel = DemandPanel.CONTROLS }
-    // Picking an episode takes reading: the strip stays up until one is picked or Back closes it.
-    val browsingEpisodes = panel == DemandPanel.EPISODES
+    LaunchedEffect(Unit) { if (isTv) panel = PlayerPanel.CONTROLS }
+    // Choosing tracks or episodes takes reading: pickers stay up until a pick or Back.
+    val browsingChoices = panel?.isPicker == true
     // A finger is down in the banner: it stays up until the finger lifts, then waits again.
     var overlayTouched by remember { mutableStateOf(false) }
-    LaunchedEffect(overlay, state.playing, browsingEpisodes, overlayTouched) {
+    LaunchedEffect(overlay, state.playing, browsingChoices, overlayTouched) {
         overlayVisible = true
-        if (state.playing && !browsingEpisodes && !overlayTouched) {
+        if (state.playing && !browsingChoices && !overlayTouched) {
             // With no key pressed or touch for a while, the banner goes, highlighted key and all.
-            delay(OVERLAY_MS)
+            delay(PLAYER_BANNER_MS)
             overlayVisible = false
             panel = null
         }
@@ -302,30 +283,25 @@ fun OnDemandPlayerScreen(
     LaunchedEffect(showAudio, showSubtitles) {
         if (returnKey === audioKey && !showAudio || returnKey === subtitlesKey && !showSubtitles) {
             returnKey = playKey
-            if (panel == DemandPanel.CONTROLS) playKey.requestWhenShown()
+            if (panel == PlayerPanel.CONTROLS) playKey.requestWhenShown()
         }
-        if (panel == DemandPanel.AUDIO && !showAudio || panel == DemandPanel.SUBTITLES && !showSubtitles) {
-            panel = DemandPanel.CONTROLS
+        if (panel == PlayerPanel.AUDIO && !showAudio || panel == PlayerPanel.SUBTITLES && !showSubtitles) {
+            panel = PlayerPanel.CONTROLS
         }
     }
     fun closePanelOrBanner() {
-        if (panel == DemandPanel.EPISODES) {
-            returnKey = episodesKey
-            panel = DemandPanel.CONTROLS
-        } else {
-            panel = null
-            hiddenByUser = true
-        }
+        panel = panel.afterBack()
+        if (panel == null) hiddenByUser = true
     }
-    // Back closes the episode strip first, then the banner, then leaves the player.
-    BackHandler(enabled = panel != null || !hiddenByUser && (overlayVisible || !state.playing)) {
-        closePanelOrBanner()
+    // One owner for remote and system Back: picker, banner, then player.
+    BackHandler {
+        if (panel != null || bannerUp()) closePanelOrBanner() else exit()
     }
     // A disabled Previous cannot retain focus after restarting the show's first episode.
     LaunchedEffect(state.canRestartOrPrevious) {
         if (!state.canRestartOrPrevious && returnKey === previousKey) {
             returnKey = playKey
-            if (panel == DemandPanel.CONTROLS) playKey.requestWhenShown()
+            if (panel == PlayerPanel.CONTROLS) playKey.requestWhenShown()
         }
     }
     LaunchedEffect(panel) {
@@ -334,7 +310,7 @@ fun OnDemandPlayerScreen(
                 returnKey = null
                 runCatching { focus.requestFocus() }
             }
-            DemandPanel.CONTROLS -> {
+            PlayerPanel.CONTROLS -> {
                 // The banner may be hidden: bring it in, then take the key once it is composed.
                 overlay++
                 controlsFocus().requestWhenShown()
@@ -350,16 +326,16 @@ fun OnDemandPlayerScreen(
     var skipFocused by remember { mutableStateOf(false) }
     // On TV the Skip key in the banner takes focus as it comes, and as the banner comes in on its
     // own (a seek) while it shows. With the banner hidden, focus stays on the picture: OK skips anyway.
-    LaunchedEffect(skipShown) { if (isTv && skipShown && overlayShown) skipKey.requestWhenShown() }
+    LaunchedEffect(skipShown) { if (isTv && skipShown && overlayShown && !browsingChoices) skipKey.requestWhenShown() }
     LaunchedEffect(overlayShown) { if (isTv && skipShown && overlayShown && panel == null) skipKey.requestWhenShown() }
     // A focused key that goes (the Skip key at its segment's end) takes focus with it: put it back.
     LaunchedEffect(playerFocused, pictureFocused, skipShown, overlayShown) {
-        if (playerFocused && !(pictureFocused && panel == DemandPanel.CONTROLS)) return@LaunchedEffect
+        if (playerFocused && !(pictureFocused && panel == PlayerPanel.CONTROLS)) return@LaunchedEffect
         withFrameNanos { }
-        if (playerFocused && !(pictureFocused && panel == DemandPanel.CONTROLS)) return@LaunchedEffect
+        if (playerFocused && !(pictureFocused && panel == PlayerPanel.CONTROLS)) return@LaunchedEffect
         when {
             // EpisodeStrip and TrackChoices request their own initial focus.
-            panel == DemandPanel.EPISODES || panel == DemandPanel.AUDIO || panel == DemandPanel.SUBTITLES -> Unit
+            panel?.isPicker == true -> Unit
             panel != null -> controlsFocus().requestWhenShown()
             isTv && skipShown && overlayShown -> skipKey.requestWhenShown()
             else -> runCatching { focus.requestFocus() }
@@ -375,8 +351,6 @@ fun OnDemandPlayerScreen(
             aloneShown = false
         }
     }
-    // A Back press the banner took on key-down; its key-up hides the banner.
-    var backHeld by remember { mutableStateOf(false) }
     // An OK press that skips, decided on key-down and done on key-up.
     var skipHeld by remember { mutableStateOf(false) }
     // An OK press whose key-down reached the picture; only its key-up acts there.
@@ -387,14 +361,13 @@ fun OnDemandPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(focus)
-            // Back hides the banner in one press: left to the focus system, it would first only move focus off the key.
             .onPreviewKeyEvent { event ->
                 // Any key pressed with the banner's keys in use holds the banner up a while longer.
                 if (panel != null && event.key != Key.Back && event.type == KeyEventType.KeyDown) overlay++
-                if (event.key in ConfirmKeys && event.type == KeyEventType.KeyDown) okHeld = false
+                if (event.key in PlayerConfirmKeys && event.type == KeyEventType.KeyDown) okHeld = false
                 // OK skips while the Skip key stands alone in view or has focus, whatever else holds focus or
                 // the banner does before the key comes up: one decision, from what plays right now.
-                if (event.key in OkKeys) {
+                if (event.key in PlayerOkKeys) {
                     if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
                         skipHeld = viewModel.state.value.skip != null && (if (bannerUp()) skipFocused else aloneShown)
                     }
@@ -405,20 +378,12 @@ fun OnDemandPlayerScreen(
                     }
                     return@onPreviewKeyEvent true
                 }
-                if (event.key != Key.Back) return@onPreviewKeyEvent false
-                val shown = panel != null || !hiddenByUser && (overlayVisible || !state.playing)
-                if (event.type == KeyEventType.KeyDown && shown) backHeld = true
-                if (!backHeld) return@onPreviewKeyEvent false
-                if (event.type == KeyEventType.KeyUp) {
-                    backHeld = false
-                    closePanelOrBanner()
-                }
-                true
+                false
             }
             .onKeyEvent { event ->
                 // OK on the picture pauses and puts focus on Play, bringing the banner in; Menu or Info only bring its keys.
-                val onPicture = panel == null || panel == DemandPanel.CONTROLS && pictureFocused
-                if (onPicture && event.key in ConfirmKeys) {
+                val onPicture = panel == null || panel == PlayerPanel.CONTROLS && pictureFocused
+                if (onPicture && event.key in PlayerConfirmKeys) {
                     // On key-up, so a key focused by this press doesn't take its release as a click,
                     // and only for a press that began here: a release whose press went to a key does nothing.
                     if (event.type == KeyEventType.KeyDown) okHeld = true
@@ -428,7 +393,7 @@ fun OnDemandPlayerScreen(
                             viewModel.pause()
                             returnKey = null
                         }
-                        if (panel == null) panel = DemandPanel.CONTROLS else runCatching { controlsFocus().requestFocus() }
+                        if (panel == null) panel = PlayerPanel.CONTROLS else runCatching { controlsFocus().requestFocus() }
                         overlay++
                     }
                     return@onKeyEvent true
@@ -436,12 +401,12 @@ fun OnDemandPlayerScreen(
                 if (panel != null) return@onKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
-                    Key.DirectionLeft, Key.MediaRewind -> viewModel.seekBy(-BACK_MS)
-                    Key.DirectionRight, Key.MediaFastForward -> viewModel.seekBy(AHEAD_MS)
+                    Key.DirectionLeft, Key.MediaRewind -> viewModel.seekBy(-PLAYER_BACK_MS)
+                    Key.DirectionRight, Key.MediaFastForward -> viewModel.seekBy(PLAYER_AHEAD_MS)
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> viewModel.togglePlay()
                     Key.MediaNext -> viewModel.next()
                     Key.MediaPrevious -> if (event.nativeKeyEvent.repeatCount == 0) viewModel.previous()
-                    Key.DirectionUp, Key.DirectionDown -> panel = DemandPanel.CONTROLS
+                    Key.DirectionUp, Key.DirectionDown -> panel = PlayerPanel.CONTROLS
                     else -> return@onKeyEvent false
                 }
                 overlay++
@@ -466,14 +431,14 @@ fun OnDemandPlayerScreen(
             // Left and right seek back and ahead, as the remote's arrows do.
             .onSwipe { swipe ->
                 when (swipe) {
-                    Swipe.LEFT -> viewModel.seekBy(-BACK_MS)
-                    Swipe.RIGHT -> viewModel.seekBy(AHEAD_MS)
+                    Swipe.LEFT -> viewModel.seekBy(-PLAYER_BACK_MS)
+                    Swipe.RIGHT -> viewModel.seekBy(PLAYER_AHEAD_MS)
                     Swipe.UP, Swipe.DOWN -> return@onSwipe
                 }
                 overlay++
             },
     ) {
-        Video(player, subtitleLift = if (overlayShown) overlayHeight else 0)
+        PlayerVideo(player, subtitleLift = if (overlayShown) overlayHeight else 0)
         when (state.status) {
             // The same dark screen as a restricted channel's, with no stretch to wait out.
             OnDemandStatus.RESTRICTED -> Box(Modifier.fillMaxSize().background(LocalAnstelleTheme.current.background), contentAlignment = Alignment.Center) {
@@ -507,7 +472,7 @@ fun OnDemandPlayerScreen(
                         )
                     }
                 },
-                episodes = if (panel != DemandPanel.EPISODES) {
+                episodes = if (panel != PlayerPanel.EPISODES) {
                     null
                 } else {
                     {
@@ -518,69 +483,76 @@ fun OnDemandPlayerScreen(
                     }
                 },
                 keys = when (panel) {
-                    null, DemandPanel.CONTROLS, DemandPanel.EPISODES -> {
+                    null, PlayerPanel.CONTROLS, PlayerPanel.EPISODES -> {
                         {
-                            if (showAudio) OsdKey("Audio", Icons.Filled.Audiotrack, onClick = {
-                                returnKey = audioKey
-                                panel = DemandPanel.AUDIO
-                            }, Modifier.focusRequester(audioKey), value = audio)
-                            if (showSubtitles) OsdKey("Subtitles", Icons.Filled.Subtitles, onClick = {
-                                returnKey = subtitlesKey
-                                panel = DemandPanel.SUBTITLES
-                            }, Modifier.focusRequester(subtitlesKey), value = subtitles)
-                            if (state.isEpisode) {
-                                OsdKey("Episodes", Icons.AutoMirrored.Filled.ViewList, onClick = {
-                                    viewModel.loadEpisodes()
-                                    panel = DemandPanel.EPISODES
-                                }, Modifier.focusRequester(episodesKey))
-                            }
-                            // Tracks on the left; the transport on the right in the remote's order, pause in the middle.
-                            Spacer(Modifier.weight(1f))
-                            // Previous restarts away from the start, then steps to the preceding episode.
-                            if (state.isEpisode) {
-                                OsdKey(if (state.restartOnPrevious) "Restart" else "Previous", Icons.Filled.SkipPrevious, enabled = state.canRestartOrPrevious, onClick = {
-                                    returnKey = previousKey
-                                    panel = DemandPanel.CONTROLS
-                                    viewModel.previous()
-                                    overlay++
-                                }, modifier = Modifier.focusRequester(previousKey))
-                            }
-                            OsdKey("10 s", Icons.Filled.Replay10, onClick = {
-                                viewModel.seekBy(-BACK_MS)
-                                overlay++
-                            })
-                            OsdKey(
-                                if (state.playing) "Pause" else "Play",
-                                if (state.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                onClick = viewModel::togglePlay,
-                                modifier = Modifier.focusRequester(playKey),
+                            DemandKeys(
+                                tracks = {
+                                    if (showAudio) OsdKey("Audio", Icons.Filled.Audiotrack, onClick = {
+                                        returnKey = audioKey
+                                        panel = PlayerPanel.AUDIO
+                                    }, Modifier.weight(1f, fill = false).focusRequester(audioKey), value = audio)
+                                    if (showSubtitles) OsdKey("Subtitles", Icons.Filled.Subtitles, onClick = {
+                                        returnKey = subtitlesKey
+                                        panel = PlayerPanel.SUBTITLES
+                                    }, Modifier.weight(1f, fill = false).focusRequester(subtitlesKey), value = subtitles)
+                                },
+                                transport = {
+                                    // Previous restarts away from the start, then steps to the preceding episode.
+                                    if (state.isEpisode) {
+                                        OsdKey(if (state.restartOnPrevious) "Restart" else "Previous", Icons.Filled.SkipPrevious, enabled = state.canRestartOrPrevious, onClick = {
+                                            returnKey = previousKey
+                                            panel = PlayerPanel.CONTROLS
+                                            viewModel.previous()
+                                            overlay++
+                                        }, modifier = Modifier.weight(1f).focusRequester(previousKey), iconOnly = true)
+                                    } else {
+                                        Spacer(Modifier.weight(1f))
+                                    }
+                                    OsdKey("10 s", Icons.Filled.Replay10, onClick = {
+                                        viewModel.seekBy(-PLAYER_BACK_MS)
+                                        overlay++
+                                    }, modifier = Modifier.weight(1f), iconOnly = true)
+                                    OsdKey(
+                                        if (state.playing) "Pause" else "Play",
+                                        if (state.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                        onClick = viewModel::togglePlay,
+                                        modifier = Modifier.weight(1f).focusRequester(playKey),
+                                        iconOnly = true,
+                                    )
+                                    OsdKey("30 s", Icons.Filled.Forward30, onClick = {
+                                        viewModel.seekBy(PLAYER_AHEAD_MS)
+                                        overlay++
+                                    }, modifier = Modifier.weight(1f), iconOnly = true)
+                                    if (state.isEpisode) {
+                                        OsdKey("Next", Icons.Filled.SkipNext, enabled = state.next != null, onClick = {
+                                            panel = null
+                                            viewModel.next()
+                                        }, modifier = Modifier.weight(1f), iconOnly = true)
+                                    } else {
+                                        Spacer(Modifier.weight(1f))
+                                    }
+                                },
+                                episodes = {
+                                    if (state.isEpisode) OsdKey("Episodes", Icons.Filled.VideoLibrary, onClick = {
+                                        returnKey = episodesKey
+                                        viewModel.loadEpisodes()
+                                        panel = PlayerPanel.EPISODES
+                                    }, Modifier.focusRequester(episodesKey))
+                                },
                             )
-                            OsdKey("30 s", Icons.Filled.Forward30, onClick = {
-                                viewModel.seekBy(AHEAD_MS)
-                                overlay++
-                            })
-                            if (state.isEpisode) {
-                                OsdKey("Next", Icons.Filled.SkipNext, enabled = state.next != null, onClick = {
-                                    panel = null
-                                    viewModel.next()
-                                })
-                            }
                         }
                     }
-                    DemandPanel.AUDIO -> {
+                    PlayerPanel.AUDIO, PlayerPanel.SUBTITLES -> {
                         {
-                            TrackChoices("Audio", audioOptions) {
-                                viewModel.selectAudio(it)
-                                panel = null
-                            }
-                        }
-                    }
-                    DemandPanel.SUBTITLES -> {
-                        {
-                            TrackChoices("Subtitles", subtitleOptions) {
-                                viewModel.selectSubtitles(it)
-                                panel = null
-                            }
+                            val pickingAudio = panel == PlayerPanel.AUDIO
+                            TrackChoices(
+                                title = if (pickingAudio) "Audio" else "Subtitles",
+                                options = if (pickingAudio) audioOptions else subtitleOptions,
+                                onClose = { focusControls ->
+                                    panel = if (focusControls) PlayerPanel.CONTROLS else null
+                                },
+                                onPick = if (pickingAudio) viewModel::selectAudio else viewModel::selectSubtitles,
+                            )
                         }
                     }
                 },
@@ -600,6 +572,28 @@ fun OnDemandPlayerScreen(
             )
         }
     }
+}
+
+/** Equal side regions keep Pause centered even when tracks or episode actions disappear. */
+@Composable
+private fun RowScope.DemandKeys(
+    tracks: @Composable RowScope.() -> Unit,
+    transport: @Composable RowScope.() -> Unit,
+    episodes: @Composable () -> Unit,
+) {
+    Row(
+        Modifier.weight(1f),
+        horizontalArrangement = Arrangement.spacedBy(KEY_GAP),
+        verticalAlignment = Alignment.CenterVertically,
+        content = tracks,
+    )
+    Row(
+        Modifier.width(playerKeySize * 5 + KEY_GAP * 4),
+        horizontalArrangement = Arrangement.spacedBy(KEY_GAP),
+        verticalAlignment = Alignment.CenterVertically,
+        content = transport,
+    )
+    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { episodes() }
 }
 
 /**
@@ -644,7 +638,7 @@ private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode:
                 list == null -> Unit
                 list.isEmpty() -> androidx.compose.material3.Text("NONE TO WATCH", style = typography.labelMedium, color = theme.textMuted)
                 seasons.size > 1 -> LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    val watch = show?.watch
+                    val watch = show.watch
                     items(seasons.keys.toList(), key = { it }) { key ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (key == playingSeason) AirMarker(onAir = true, modifier = Modifier.padding(start = 6.dp))
@@ -655,7 +649,7 @@ private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode:
                                 onClick = { season = key },
                                 count = episodes.size,
                                 compact = true,
-                                done = watch != null && episodes.all { watch.watched(it.id, it.durationMs) },
+                                done = episodes.all { watch.watched(it.id, it.durationMs) },
                             )
                         }
                     }
@@ -735,40 +729,11 @@ private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long,
     }
 }
 
-@OptIn(UnstableApi::class)
-@Composable
-private fun Video(player: androidx.media3.common.Player, subtitleLift: Int) {
-    AndroidView(
-        factory = { context ->
-            PlayerView(context).apply {
-                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                setShutterBackgroundColor(android.graphics.Color.BLACK)
-                keepScreenOn = true
-                isFocusable = false
-                subtitleView?.let(SubtitleStyle::applyTo)
-            }
-        },
-        update = { view ->
-            view.player = player
-            // libass draws ASS subtitles in a layer of its own over the video.
-            view.subtitleView?.let { SubtitleOverlays.attach(it, player) }
-            view.liftSubtitles(subtitleLift)
-        },
-        onRelease = { view ->
-            view.subtitleView?.let(SubtitleOverlays::detach)
-            view.player = null
-        },
-        modifier = Modifier.fillMaxSize(),
-    )
-}
-
 /**
- * The on-demand banner, straight on the picture over the edge shade: ON DEMAND, playing or
- * paused, with the stream's technical line beside it, the title, the time in with the bar and
- * the length, what plays next and the [keys] under a hairline. Phones and tablets set what plays next
- * beside the detail line, and their ladder takes taps and drags. The [skip] key sits under the
+ * The on-demand banner, straight on the picture over the edge shade: ON DEMAND and viewing
+ * times, with the stream's technical line beside them, the title and detail, the time in with
+ * the bar and length, and the [keys] under a hairline. The ladder takes taps and drags on
+ * phones and tablets. The [skip] key sits under the
  * technical line, in the room the title leaves at the row's end.
  */
 @Composable
@@ -822,16 +787,12 @@ private fun Overlay(
             // The Skip key centered on the title and its detail line.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 2.dp)) {
-                    TitleLogo(
+                    PlayerTitleLogo(
                         logoUrl = state.logoUrl,
                         title = state.title.orEmpty(),
-                        height = if (isTv) 56.dp else 28.dp,
-                        maxLogoWidth = if (isTv) 360.dp else 220.dp,
-                        style = if (isTv) typography.headlineMedium else typography.headlineSmall,
-                        modifier = Modifier.padding(top = if (isTv) 0.dp else 2.dp),
                     )
                     val detail = lineUnderLogo(state.detail, state.title.orEmpty(), state.isEpisode, state.logoUrl != null)
-                    detail?.let { DetailLine(it) }
+                    detail?.let { PlayerDetailLine(it) }
                 }
                 // Its label ends under the technical line's end, its fill running into the margin as the key row's does.
                 skip?.let { Box(Modifier.padding(start = 16.dp).offset(x = KEY_PADDING)) { it() } }
@@ -855,19 +816,6 @@ private fun Overlay(
     }
 }
 
-/** The line under the title: S1E2 - its title for an episode, the year for a movie. */
-@Composable
-private fun DetailLine(text: String, modifier: Modifier = Modifier) {
-    androidx.compose.material3.Text(
-        text,
-        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-        color = LocalAnstelleTheme.current.textMuted,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier,
-    )
-}
-
 @Composable
 private fun Message(text: String) {
     val theme = LocalAnstelleTheme.current
@@ -883,12 +831,5 @@ private fun Message(text: String) {
     }
 }
 
-
-private const val BACK_MS = 10_000L
-private const val AHEAD_MS = 30_000L
-private const val OVERLAY_MS = 3_000L
 private const val ALONE_SKIP_MS = 5_000L
 private const val POSITION_MS = 500L
-
-private val OkKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter)
-private val ConfirmKeys = OkKeys + setOf(Key.Menu, Key.Info)

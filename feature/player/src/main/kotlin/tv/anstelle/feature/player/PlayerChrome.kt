@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.os.Handler
 import android.os.Looper
+import android.view.ViewGroup
 import androidx.activity.compose.LocalActivity
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,8 +28,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -47,34 +51,114 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlin.math.abs
 import kotlin.math.hypot
 import tv.anstelle.core.data.playback.StreamFacts
 import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.model.MediaProgress
+import tv.anstelle.core.player.SubtitleOverlays
+import tv.anstelle.core.player.SubtitleStyle
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdBadge
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.SegmentRing
+import tv.anstelle.core.theme.components.TitleLogo
+
+/** One title treatment for the on-demand and channel players, on every device. */
+@Composable
+internal fun PlayerTitleLogo(
+    logoUrl: String?,
+    title: String,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 1,
+) {
+    TitleLogo(
+        logoUrl = logoUrl,
+        title = title,
+        height = 56.dp,
+        maxLogoWidth = 360.dp,
+        style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
+        maxLines = maxLines,
+        modifier = modifier,
+    )
+}
+
+/** The line under the title: S1E2 - its title for an episode, the year for a movie. */
+@Composable
+internal fun PlayerDetailLine(text: String, modifier: Modifier = Modifier, maxLines: Int = 1) {
+    androidx.compose.material3.Text(
+        text,
+        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+        color = LocalAnstelleTheme.current.textMuted,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+    )
+}
+
+/** Shared video and subtitle lifecycle for both players. */
+@OptIn(UnstableApi::class)
+@Composable
+internal fun PlayerVideo(player: Player?, subtitleLift: Int, keepContentOnPlayerReset: Boolean = false) {
+    AndroidView(
+        factory = { context ->
+            PlayerView(context).apply {
+                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                useController = false
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                setShutterBackgroundColor(android.graphics.Color.BLACK)
+                // Surfing swaps players; keep the last frame instead of flashing black.
+                setKeepContentOnPlayerReset(keepContentOnPlayerReset)
+                keepScreenOn = true
+                isFocusable = false
+                subtitleView?.let(SubtitleStyle::applyTo)
+            }
+        },
+        update = { view ->
+            view.player = player
+            // libass draws ASS subtitles in a layer of its own over the video.
+            view.subtitleView?.let { SubtitleOverlays.attach(it, player) }
+            view.liftSubtitles(subtitleLift)
+        },
+        onRelease = { view ->
+            view.subtitleView?.let(SubtitleOverlays::detach)
+            view.player = null
+        },
+        modifier = Modifier.fillMaxSize(),
+    )
+}
+
+/** Left and right seek this far back and ahead. */
+internal const val PLAYER_BACK_MS = 10_000L
+internal const val PLAYER_AHEAD_MS = 30_000L
+internal const val PLAYER_BANNER_MS = 3_000L
+
+internal val PlayerOkKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter)
+internal val PlayerConfirmKeys = PlayerOkKeys + setOf(Key.Menu, Key.Info)
 
 /** Observes track discovery and selection, including subtitle files loaded after the video. */
 @Composable
@@ -365,12 +449,11 @@ internal fun BannerHeader(stream: StreamFacts?, label: @Composable () -> Unit) {
 }
 
 /**
- * The banner's keys, under a hairline, inside the column they act on: the NEXT column beside
- * it stays as it is. The row runs [KEY_PADDING] past the column on both
- * sides, so the first and last keys' labels line up with the text above while their fills
- * use the margin. Callers anchor groups with a weighted spacer: tracks on the left, the
- * player's own actions on the right. Touch keys are tall enough to need no gap under the
- * hairline: their own padding is the air.
+ * The banner's keys, under a hairline across its full width. The row runs [KEY_PADDING] past
+ * the banner's content on both sides, so the first and last keys' labels line up with the text
+ * above while their fills use the margin. Callers anchor their groups: tracks on the left,
+ * transport in the center on demand, and the player's own actions on the right. Touch keys
+ * need no gap under the hairline: their own padding is the air.
  */
 @Composable
 internal fun OsdKeys(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
@@ -379,7 +462,7 @@ internal fun OsdKeys(modifier: Modifier = Modifier, content: @Composable RowScop
         Box(Modifier.fillMaxWidth().height(1.dp).background(theme.line))
         Row(
             Modifier.bleed(KEY_PADDING),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(KEY_GAP),
             verticalAlignment = Alignment.CenterVertically,
             content = content,
         )
@@ -388,6 +471,28 @@ internal fun OsdKeys(modifier: Modifier = Modifier, content: @Composable RowScop
 
 /** A key's side padding, which [OsdKeys] lets run into the column's margin, as the corner keys do. */
 internal val KEY_PADDING = 12.dp
+
+/** The space between neighboring keys in a row. */
+internal val KEY_GAP = 4.dp
+
+/** How far every key's glyph reaches at its widest, on touch and TV; text scale enlarges the key, not its icon. */
+private val PLAYER_KEY_ICON_SIZE = 18.dp
+
+/**
+ * How much of its 24-unit viewport a Material glyph spans at its widest. Every glyph is scaled
+ * as if it spanned 20 units, so one spanning them fills [PLAYER_KEY_ICON_SIZE] and the rest keep
+ * Material's own balance (it draws the solid transport glyphs small on purpose). The few listed
+ * fall just short of 20 and are scaled to fill it too.
+ */
+private fun glyphSpan(icon: ImageVector) = when (icon) {
+    Icons.Filled.FastForward -> 17.5f
+    Icons.Filled.Check -> 17.6f
+    Icons.Filled.Audiotrack -> 18f
+    else -> 20f
+}
+
+internal val playerKeySize: Dp
+    @Composable get() = 48.dp * maxOf(1f, LocalDensity.current.fontScale * LocalAnstelleTheme.current.spec.typography.scale)
 
 /** How much of the muted ink a key keeps while it can't act. */
 private const val DISABLED_ALPHA = 0.45f
@@ -409,7 +514,8 @@ private fun Modifier.bleed(horizontal: Dp) = layout { measurable, constraints ->
  * the label stays for screen readers. Flat on the banner; focus fills it with the accent. A key
  * that can't act now keeps its place, dimmed, and focus passes over it, so the row never shifts.
  * A [highlighted] key wears focus's rose fill with ink even without focus, on touch as on TV:
- * the Skip key standing alone over the picture, preselected for OK.
+ * the Skip key standing alone over the picture, preselected for OK. An [iconOnly] key (the
+ * on-demand transport) is a square showing its icon alone, its label kept for screen readers.
  */
 @Composable
 internal fun OsdKey(
@@ -420,47 +526,76 @@ internal fun OsdKey(
     value: String? = null,
     enabled: Boolean = true,
     highlighted: Boolean = false,
+    iconOnly: Boolean = false,
 ) {
     val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
-    val typography = androidx.compose.material3.MaterialTheme.typography
     FocusSurface(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.semantics { contentDescription = listOfNotNull(label, value).joinToString(", ") },
+        modifier = modifier
+            .then(if (iconOnly) Modifier.aspectRatio(1f) else Modifier)
+            .semantics { contentDescription = listOfNotNull(label, value).joinToString(", ") },
         color = if (highlighted) theme.accent else Color.Transparent,
         contentColor = if (highlighted) theme.onAccent else theme.bannerText,
     ) { focused ->
-        Row(
-            Modifier.height(if (isTv) 40.dp else 48.dp).padding(horizontal = KEY_PADDING),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            val ink = when {
-                focused || highlighted -> theme.onAccent
-                enabled -> theme.bannerText
-                else -> theme.textMuted.copy(alpha = DISABLED_ALPHA)
+        val ink = when {
+            focused || highlighted -> theme.onAccent
+            enabled -> theme.bannerText
+            else -> theme.textMuted.copy(alpha = DISABLED_ALPHA)
+        }
+        if (iconOnly) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { icon?.let { KeyIcon(it, ink) } }
+        } else {
+            Row(
+                Modifier
+                    .height(playerKeySize)
+                    .padding(horizontal = KEY_PADDING),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                icon?.let { KeyIcon(it, ink) }
+                androidx.compose.material3.Text(
+                    (value ?: label).uppercase(),
+                    style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                    color = ink,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = if (value != null) 140.dp else 240.dp),
+                )
             }
-            icon?.let { androidx.compose.material3.Icon(it, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp)) }
-            androidx.compose.material3.Text(
-                (value ?: label).uppercase(),
-                style = typography.labelMedium,
-                color = ink,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = if (value != null) 140.dp else 240.dp),
-            )
         }
     }
 }
 
+/** A key's glyph, scaled until its widest span fills [PLAYER_KEY_ICON_SIZE]. */
+@Composable
+private fun KeyIcon(icon: ImageVector, tint: Color) {
+    val scale = 24f / glyphSpan(icon)
+    androidx.compose.material3.Icon(
+        icon,
+        contentDescription = null,
+        tint = tint,
+        modifier = Modifier.size(PLAYER_KEY_ICON_SIZE).graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        },
+    )
+}
+
 /**
  * The banner's key row while a track list is open: the field's name, then each choice as a key.
- * The one in use carries a check and takes focus first.
+ * The one in use carries a check and takes focus first. After a pick, both players return to
+ * their controls on TV, keeping the opener highlighted; touch returns to the picture.
  */
 @Composable
-internal fun RowScope.TrackChoices(title: String, options: List<TrackOption>, onPick: (TrackOption) -> Unit) {
+internal fun RowScope.TrackChoices(
+    title: String,
+    options: List<TrackOption>,
+    onClose: (focusControls: Boolean) -> Unit,
+    onPick: (TrackOption) -> Unit,
+) {
+    val isTv = LocalIsTv.current
     val theme = LocalAnstelleTheme.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     val first = remember { FocusRequester() }
@@ -474,12 +609,15 @@ internal fun RowScope.TrackChoices(title: String, options: List<TrackOption>, on
         return
     }
     val focused = options.indexOfFirst { it.selected }.coerceAtLeast(0)
-    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(KEY_GAP)) {
         options.forEachIndexed { i, option ->
             OsdKey(
                 label = option.label,
                 icon = if (option.selected) Icons.Filled.Check else null,
-                onClick = { onPick(option) },
+                onClick = {
+                    onPick(option)
+                    onClose(isTv)
+                },
                 modifier = if (i == focused) Modifier.focusRequester(first) else Modifier,
             )
         }
