@@ -14,6 +14,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.video.PlaceholderSurface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.Dispatchers
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -48,7 +49,7 @@ class ChannelTuneBenchmark {
                     val makeItem = { id: String -> MediaItem.Builder().setUri("${server.baseUrl}/$file").setMediaId(id).build() }
                     try {
                         instrumentation.runOnMainSync {
-                            val players = PlayerPool(PlayerFactory(context, OkHttpClient(), StreamAuth())).also { pool = it }
+                            val players = PlayerPool(PlayerFactory(context, OkHttpClient(), StreamAuth(), FontCache(context, OkHttpClient(), StreamAuth(), Dispatchers.IO))).also { pool = it }
                             surface = PlaceholderSurface.newInstance(context, false)
                             val target = if (warm) players.standby().also {
                                 players.quiet(it, concurrentVideoDecoders = false)

@@ -43,6 +43,7 @@ class PlayerFactory @Inject constructor(
     @param:ApplicationContext private val context: Context,
     okHttpClient: OkHttpClient,
     auth: StreamAuth,
+    private val fonts: FontCache,
 ) {
     val lowMemory: Boolean by lazy {
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
@@ -69,7 +70,7 @@ class PlayerFactory @Inject constructor(
     fun create(): PooledPlayer = create(PlaybackMode.ON_DEMAND)
 
     internal fun create(mode: PlaybackMode): PooledPlayer {
-        val subtitles = PlayerSubtitles()
+        val subtitles = PlayerSubtitles(fonts)
         val renderersFactory = AssRenderersFactory(
             subtitles.handler,
             DefaultRenderersFactory(context)

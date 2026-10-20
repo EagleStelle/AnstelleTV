@@ -3,9 +3,12 @@ package tv.anstelle.core.player
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
@@ -25,11 +28,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Fonts for side-loaded ASS subtitles, downloaded from the item's attachments and kept on
- * disk, so tuning to the same item again doesn't fetch them again. Every episode of a show
- * attaches the same fonts under URLs of its own, so each font is kept once, by its contents:
- * a small `.ref` file per URL names the `.font` file it gave. Loading gives up after a few
- * seconds; subtitles then fall back to libass' default font rather than holding up playback.
+ * Fonts for ASS subtitles, kept on disk so tuning to the same item again doesn't fetch them
+ * again: a side-loaded subtitle's are downloaded from the item's attachments, and a Matroska
+ * file played directly hands over the ones it carries as it is read ([keep]). Every episode of a
+ * show attaches the same fonts under URLs of its own, so each font is kept once, by its
+ * contents: a small `.ref` file per URL names the `.font` file it gave. Downloading gives up
+ * after a few seconds; subtitles then fall back to libass' default font rather than holding up
+ * playback.
  */
 @Singleton
 class FontCache @Inject constructor(
@@ -40,18 +45,24 @@ class FontCache @Inject constructor(
 ) {
     private val dir = File(context.cacheDir, "fonts")
     private val client = okHttpClient.newBuilder().callTimeout(LOAD_LIMIT_MS, TimeUnit.MILLISECONDS).build()
+    private val writes = CoroutineScope(SupervisorJob() + io)
 
-    /** The fonts [stream] asks for; any that can't be had within the time limit are left out. */
+    /**
+     * The fonts [stream] asks for. A transcoded stream's missing fonts are downloaded, and any
+     * that can't be had within the time limit are left out. A file played directly carries its
+     * own, so it gets them only when every one is kept already, and otherwise none: it reads them
+     * itself rather than wait for a download.
+     */
     suspend fun load(stream: ProgramStream): List<FontFile> {
         if (stream.fonts.isEmpty()) return emptyList()
         return withContext(io) {
             val fonts = ArrayList<FontFile>(stream.fonts.size)
+            if (!stream.transcoded && stream.fonts.any { kept(it.url) == null }) return@withContext fonts
             withTimeoutOrNull(LOAD_LIMIT_MS) {
                 for (font in stream.fonts) {
                     currentCoroutineContext().ensureActive()
-                    val ref = File(dir, sha1(font.url.toByteArray()) + REF)
-                    val file = ref.takeIf { it.exists() }?.let { File(dir, it.readText()) }?.takeIf { it.exists() }
-                        ?: download(font.url)?.also { ref.writeText(it.name) }
+                    val ref = refFor(font.url)
+                    val file = kept(font.url) ?: download(font.url)?.also { ref.writeText(it.name) }
                     if (file == null) continue
                     val now = System.currentTimeMillis()
                     file.setLastModified(now)
@@ -63,6 +74,20 @@ class FontCache @Inject constructor(
             fonts
         }
     }
+
+    /** Keeps [data], read from the file itself, as [font] for the next time the file plays. */
+    fun keep(font: FontRequest, data: ByteArray) {
+        // Off the loading thread: the file's first frames come right after its fonts.
+        writes.launch {
+            if (kept(font.url) == null) runCatching { store(data)?.let { refFor(font.url).writeText(it.name) } }
+        }
+    }
+
+    private fun refFor(url: String) = File(dir, sha1(url.toByteArray()) + REF)
+
+    /** The kept file of the font at [url], or null. */
+    private fun kept(url: String): File? =
+        refFor(url).takeIf { it.exists() }?.let { File(dir, it.readText()) }?.takeIf { it.exists() }
 
     /** Downloads the font at [url] and returns its file, named by its contents. */
     private suspend fun download(url: String): File? = suspendCancellableCoroutine { continuation ->
@@ -79,18 +104,23 @@ class FontCache @Inject constructor(
                         check(it.isSuccessful) { "HTTP ${it.code}" }
                         val data = it.body.bytes()
                         if (!continuation.isActive) return@use null
-                        dir.mkdirs()
-                        val target = File(dir, sha1(data) + FONT)
-                        if (!target.exists()) {
-                            val partial = File.createTempFile("font-", PART, dir)
-                            try { partial.writeBytes(data); partial.renameTo(target) } finally { partial.delete() }
-                        }
-                        target.takeIf { it.exists() }
+                        store(data)
                     }
                 }.onFailure { AppLog.w(TAG, "Font download failed: ${it.message}") }.getOrNull()
                 continuation.resume(file)
             }
         })
+    }
+
+    /** Writes [data] under its contents' name, unless it is there already, and returns its file. */
+    private fun store(data: ByteArray): File? {
+        dir.mkdirs()
+        val target = File(dir, sha1(data) + FONT)
+        if (!target.exists()) {
+            val partial = File.createTempFile("font-", PART, dir)
+            try { partial.writeBytes(data); partial.renameTo(target) } finally { partial.delete() }
+        }
+        return target.takeIf { it.exists() }
     }
 
     /** Trims the cache to its size; daily housekeeping runs it, so nothing waits on a tune to free the space. */

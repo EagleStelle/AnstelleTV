@@ -42,7 +42,7 @@ data class ProgramStream(
     /** Ties the stream to playback reports. Generated locally; no server round trip. */
     val playSessionId: String,
     val subtitles: List<SideloadedSubtitle> = emptyList(),
-    /** Fonts to hand libass before playing; empty unless an ASS subtitle is side-loaded. */
+    /** The item's fonts for libass, when it has ASS subtitles: side-loaded, or in a file that carries them itself. */
     val fonts: List<FontRequest> = emptyList(),
     /** Whether libass may draw this stream's subtitles. */
     val hasAss: Boolean = false,
@@ -144,6 +144,13 @@ class JellyfinStreams @Inject constructor(
             return SideloadedSubtitle("sub${stream.index}", url, mimeType, stream.language, stream.title, stream.isDefault, stream.isForced)
         }
 
+        fun fonts() = tracks.fonts.map {
+            FontRequest(
+                api.createUrl("/Videos/{itemId}/{mediaSourceId}/Attachments/{index}", path + mapOf("mediaSourceId" to source, "index" to it.index), emptyMap(), false),
+                it.fileName,
+            )
+        }
+
         if (!transcode) {
             val url = api.createUrl(
                 "/Videos/{itemId}/stream",
@@ -153,7 +160,7 @@ class JellyfinStreams @Inject constructor(
             )
             // Streams inside the file come with it; files next to it are loaded alongside.
             val external = tracks.subtitles.filter { it.isExternal && it.isText }.map(::subtitle)
-            return ProgramStream(url, mimeType = null, transcoded = false, playSessionId, external, hasAss = tracks.hasAss)
+            return ProgramStream(url, mimeType = null, transcoded = false, playSessionId, external, fonts = if (tracks.hasAss) fonts() else emptyList(), hasAss = tracks.hasAss)
         }
 
         val audio = TrackRules.pickAudio(tracks.audio, prefs.audioLanguages)
@@ -161,16 +168,7 @@ class JellyfinStreams @Inject constructor(
         val texts = tracks.subtitles.filter { it.isText }
         val pick = TrackRules.pickSubtitle(texts.map { SubtitleCandidate(it.language, it.isForced, it.isDefault) }, prefs, audioLanguage)
         val chosen = pick?.let(texts::get)
-        val fonts = if (chosen?.isAss == true) {
-            tracks.fonts.map {
-                FontRequest(
-                    api.createUrl("/Videos/{itemId}/{mediaSourceId}/Attachments/{index}", path + mapOf("mediaSourceId" to source, "index" to it.index), emptyMap(), false),
-                    it.fileName,
-                )
-            }
-        } else {
-            emptyList()
-        }
+        val fonts = if (chosen?.isAss == true) fonts() else emptyList()
         val query = buildMap<String, Any> {
             put("mediaSourceId", source)
             put("playSessionId", playSessionId)

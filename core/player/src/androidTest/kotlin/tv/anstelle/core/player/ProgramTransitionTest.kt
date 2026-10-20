@@ -21,6 +21,8 @@ import androidx.media3.exoplayer.source.SinglePeriodTimeline
 import androidx.media3.exoplayer.video.PlaceholderSurface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -171,6 +173,58 @@ class ProgramTransitionTest {
         }
     }
 
+    @Test fun directPlayKeepsTheFileFontsThenSkipsThemUnread() {
+        val fonts = FontCache(context, OkHttpClient(), StreamAuth(), Dispatchers.IO)
+        // fonts.mkv is styled.mkv with a 512 KiB attachment, Example.ttf, ahead of its first cluster.
+        val stream = ProgramStream(
+            "${server.baseUrl}/fonts.mkv", mimeType = null, transcoded = false, playSessionId = "fonts",
+            fonts = listOf(FontRequest("${server.baseUrl}/attachments/0", "Example.ttf")), hasAss = true,
+        )
+        assertTrue("A first play has nothing kept", runBlocking { fonts.load(stream) }.isEmpty())
+        val read = bytesLoaded(stream, fonts)
+        val deadline = SystemClock.elapsedRealtime() + 10_000
+        var kept = runBlocking { fonts.load(stream) }
+        while (kept.isEmpty() && SystemClock.elapsedRealtime() < deadline) {
+            SystemClock.sleep(50)
+            kept = runBlocking { fonts.load(stream) }
+        }
+        assertEquals("The file's font was not kept", ATTACHMENT_BYTES, kept.singleOrNull()?.data?.size)
+        val skipped = bytesLoaded(stream, fonts)
+        Log.i("Anstelle/TransitionTest", "Attachments read: $read bytes loaded; skipped: $skipped")
+        assertTrue("The first play skipped the fonts: $read bytes", read >= ATTACHMENT_BYTES)
+        assertTrue("The fonts were read again: $skipped bytes", skipped < ATTACHMENT_BYTES)
+    }
+
+    /** Plays [stream] directly with the fonts [fonts] gives it, and returns the bytes its whole file took to load. */
+    private fun bytesLoaded(stream: ProgramStream, fonts: FontCache): Long {
+        val given = runBlocking { fonts.load(stream) }
+        val loaded = CountDownLatch(1)
+        var bytes = -1L
+        var error: PlaybackException? = null
+        val pooled = onMain {
+            PlayerFactory(context, OkHttpClient(), StreamAuth(), fonts).create().also { pooled ->
+                pooled.player.addAnalyticsListener(object : AnalyticsListener {
+                    override fun onLoadCompleted(time: AnalyticsListener.EventTime, load: LoadEventInfo, media: MediaLoadData) {
+                        if (media.dataType == C.DATA_TYPE_MEDIA) bytes = load.bytesLoaded.also { loaded.countDown() }
+                    }
+                    override fun onPlayerError(time: AnalyticsListener.EventTime, e: PlaybackException) { error = e; loaded.countDown() }
+                })
+                pooled.player.setMediaItem(stream.mediaItem("fonts"))
+                pooled.subtitles.addFonts(given, stream)
+                pooled.player.prepare()
+            }
+        }
+        try {
+            assertTrue("The file never finished loading", loaded.await(10, TimeUnit.SECONDS))
+            assertNull(error?.cause?.toString(), error)
+            assertTrue("Never ready", awaitMain { pooled.player.playbackState == Player.STATE_READY })
+            assertTrue("The subtitle track is missing", onMain { pooled.player.currentTracks.isTypeSupported(C.TRACK_TYPE_TEXT) })
+        } finally {
+            onMain { pooled.release() }
+        }
+        return bytes
+    }
+
     private fun <T> onMain(block: () -> T): T {
         var result: Result<T>? = null
         instrumentation.runOnMainSync { result = runCatching(block) }
@@ -282,7 +336,11 @@ class ProgramTransitionTest {
         }
     }
 
-    private fun factory() =PlayerFactory(context, OkHttpClient(), StreamAuth())
+    private companion object {
+        const val ATTACHMENT_BYTES = 512 * 1024
+    }
+
+    private fun factory() =PlayerFactory(context, OkHttpClient(), StreamAuth(), FontCache(context, OkHttpClient(), StreamAuth(), Dispatchers.IO))
     private fun sample(file: String, id: String) = MediaItem.Builder()
         .setUri("${server.baseUrl}/$file").setMediaId(id).build()
 }

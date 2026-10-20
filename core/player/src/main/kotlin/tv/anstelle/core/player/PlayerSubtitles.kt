@@ -1,16 +1,22 @@
 package tv.anstelle.core.player
 
+import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
 import androidx.annotation.MainThread
 import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorInput
+import androidx.media3.extractor.ExtractorOutput
 import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.PositionHolder
+import androidx.media3.extractor.SniffFailure
 import androidx.media3.extractor.mkv.MatroskaExtractor
 import androidx.media3.extractor.text.SubtitleParser
 import io.github.peerless2012.ass.media.AssHandler
@@ -36,7 +42,7 @@ class FontFile(val name: String, val data: ByteArray)
  * released, so each font goes in only once.
  */
 @OptIn(UnstableApi::class)
-class PlayerSubtitles internal constructor() {
+class PlayerSubtitles internal constructor(private val cache: FontCache) {
     internal val handler = AssHandler(AssRenderType.OVERLAY_OPEN_GL, AssHandlerConfig(maxRenderPixels = MAX_RENDER_PIXELS))
     internal val parserFactory = AssSubtitleParserFactory(handler)
 
@@ -54,13 +60,20 @@ class PlayerSubtitles internal constructor() {
     var fontBytes = 0L
         private set
 
-    /** Matroska extraction that hands the file's font attachments to libass. */
-    internal val extractorsFactory = ExtractorsFactory {
-        DefaultExtractorsFactory().createExtractors().also { extractors ->
-            for (i in extractors.indices) {
-                if (extractors[i] is MatroskaExtractor) extractors[i] = FontMatroskaExtractor(parserFactory, this)
+    /** The fonts the item being loaded attaches in its own file; null for a transcoded stream. */
+    @Volatile
+    private var carried: Carried? = null
+
+    /** Matroska extraction that hands the file's font attachments to libass, or skips them when it has them all. */
+    internal val extractorsFactory = object : ExtractorsFactory {
+        override fun createExtractors(): Array<Extractor> = createExtractors(Uri.EMPTY, emptyMap())
+
+        override fun createExtractors(uri: Uri, responseHeaders: Map<String, List<String>>): Array<Extractor> =
+            DefaultExtractorsFactory().createExtractors(uri, responseHeaders).also { extractors ->
+                for (i in extractors.indices) {
+                    if (extractors[i] is MatroskaExtractor) extractors[i] = FontMatroskaExtractor(parserFactory, this@PlayerSubtitles, uri.toString())
+                }
             }
-        }
     }
 
     internal fun attach(player: ExoPlayer) {
@@ -71,9 +84,24 @@ class PlayerSubtitles internal constructor() {
         handler.init(player)
     }
 
-    /** Adds fonts for the item just set on the player (after `setMediaItems`, which drops pending fonts). */
-    fun addFonts(fonts: List<FontFile>) {
+    /**
+     * Adds [fonts] for [stream], just set on the player (after `setMediaItems`, which drops pending
+     * fonts). A Matroska file played directly carries its fonts ahead of its first frames: given
+     * all of them here, the player skips those megabytes unread; otherwise it reads them and keeps
+     * them in the [FontCache] for the next time.
+     */
+    fun addFonts(fonts: List<FontFile>, stream: ProgramStream) {
         for (font in fonts) add(font.name, font.data)
+        carried = if (stream.transcoded) null else Carried(stream.url, stream.fonts, given = stream.fonts.isNotEmpty() && fonts.size == stream.fonts.size)
+    }
+
+    /** Whether libass was given every font the file at [uri] attaches. */
+    internal fun given(uri: String): Boolean = carried?.let { it.given && it.url == uri } == true
+
+    /** Keeps [data], the font [name] the file at [uri] attaches, for the next time it plays. */
+    internal fun keep(uri: String, name: String, data: ByteArray) {
+        val carried = carried?.takeIf { !it.given && it.url == uri } ?: return
+        carried.fonts.firstOrNull { it.fileName == name }?.let { cache.keep(it, data) }
     }
 
     @Synchronized
@@ -102,48 +130,101 @@ class PlayerSubtitles internal constructor() {
 
     internal fun release() = handler.release()
 
+    private class Carried(val url: String, val fonts: List<FontRequest>, val given: Boolean)
+
     private companion object {
         /** libass draws at no more than 1080p; a 4K screen scales it up. */
         const val MAX_RENDER_PIXELS = 1920 * 1080
     }
 }
 
-/** [AssMatroskaExtractor] that adds each font once and also takes fonts with a generic MIME type. */
+/**
+ * Matroska extraction through [AssMatroskaExtractor] that adds each font once, also takes fonts
+ * with a generic MIME type, and skips the file's attachments when libass already has them all
+ * ([PlayerSubtitles.given]). They come before the first frames, so the file is requested again
+ * from their end instead. `MatroskaExtractor.read` is final, so the skip is a seek returned from
+ * here once its reader, between two elements, reads again.
+ */
 @OptIn(UnstableApi::class)
 private class FontMatroskaExtractor(
     parserFactory: SubtitleParser.Factory,
     private val subtitles: PlayerSubtitles,
-) : AssMatroskaExtractor(parserFactory, subtitles.handler) {
-    private var name: String? = null
-    private var mimeType: String? = null
+    private val uri: String,
+) : Extractor {
+    /** Where the attachments being skipped end. */
+    private var skipTo = C.INDEX_UNSET.toLong()
+    private var input: Skippable? = null
 
-    override fun startMasterElement(id: Int, contentPosition: Long, contentSize: Long) {
-        if (id == ID_ATTACHED_FILE) {
-            name = null
-            mimeType = null
+    private val matroska = object : AssMatroskaExtractor(parserFactory, subtitles.handler) {
+        private var name: String? = null
+        private var mimeType: String? = null
+
+        override fun startMasterElement(id: Int, contentPosition: Long, contentSize: Long) {
+            when (id) {
+                ID_ATTACHED_FILE -> {
+                    name = null
+                    mimeType = null
+                }
+                ID_ATTACHMENTS -> if (subtitles.given(uri)) skipTo = contentPosition + contentSize
+            }
+            super.startMasterElement(id, contentPosition, contentSize)
         }
-        super.startMasterElement(id, contentPosition, contentSize)
+
+        override fun stringElement(id: Int, value: String) {
+            when (id) {
+                ID_FILE_NAME -> name = value
+                ID_FILE_MIME_TYPE -> mimeType = value
+            }
+            super.stringElement(id, value)
+        }
+
+        override fun binaryElement(id: Int, contentSize: Int, input: ExtractorInput) {
+            if (id != ID_FILE_DATA) return super.binaryElement(id, contentSize, input)
+            val fontName = name
+            if (fontName != null && (mimeType in fontMimeTypes || FontAttachment.isFont(fontName, mimeType))) {
+                val data = ByteArray(contentSize)
+                input.readFully(data, 0, contentSize)
+                subtitles.add(fontName, data)
+                subtitles.keep(uri, fontName, data)
+            } else {
+                input.skipFully(contentSize)
+            }
+        }
     }
 
-    override fun stringElement(id: Int, value: String) {
-        when (id) {
-            ID_FILE_NAME -> name = value
-            ID_FILE_MIME_TYPE -> mimeType = value
-        }
-        super.stringElement(id, value)
+    override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int = try {
+        val skippable = this.input?.takeIf { it.input === input } ?: Skippable(input).also { this.input = it }
+        matroska.read(skippable, seekPosition)
+    } catch (_: SkipAttachments) {
+        seekPosition.position = skipTo
+        skipTo = C.INDEX_UNSET.toLong()
+        Extractor.RESULT_SEEK
     }
 
-    override fun binaryElement(id: Int, contentSize: Int, input: ExtractorInput) {
-        if (id != ID_FILE_DATA) return super.binaryElement(id, contentSize, input)
-        val fontName = name
-        if (fontName != null && (mimeType in fontMimeTypes || FontAttachment.isFont(fontName, mimeType))) {
-            val data = ByteArray(contentSize)
-            input.readFully(data, 0, contentSize)
-            subtitles.add(fontName, data)
-        } else {
-            input.skipFully(contentSize)
+    override fun sniff(input: ExtractorInput): Boolean = matroska.sniff(input)
+
+    override fun getSniffFailureDetails(): List<SniffFailure> = matroska.sniffFailureDetails
+
+    override fun init(output: ExtractorOutput) = matroska.init(output)
+
+    override fun seek(position: Long, timeUs: Long) {
+        skipTo = C.INDEX_UNSET.toLong()
+        matroska.seek(position, timeUs)
+    }
+
+    override fun release() = matroska.release()
+
+    override fun getUnderlyingImplementation(): Extractor = matroska
+
+    /** The input, which stops the reader before its next element while the attachments are to be skipped. */
+    private inner class Skippable(val input: ExtractorInput) : ExtractorInput by input {
+        override fun readFully(target: ByteArray, offset: Int, length: Int, allowEndOfInput: Boolean): Boolean {
+            if (skipTo != C.INDEX_UNSET.toLong()) throw SkipAttachments
+            return input.readFully(target, offset, length, allowEndOfInput)
         }
     }
+
+    private object SkipAttachments : RuntimeException()
 }
 
 /**

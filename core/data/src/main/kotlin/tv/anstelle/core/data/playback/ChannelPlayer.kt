@@ -531,8 +531,8 @@ class ChannelPlayer @Inject constructor(
     }
 
     /**
-     * Prepares [programs] on [pooled] from [slot]'s live position. Fonts for side-loaded ASS
-     * subtitles are fetched first and handed to libass once the playlist is set. Returns false,
+     * Prepares [programs] on [pooled] from [slot]'s live position. The first program's fonts
+     * ([FontCache.load]) are fetched first and handed to libass once the playlist is set. Returns false,
      * leaving the player alone, when [stillWanted] no longer holds after the fonts arrive.
      */
     private suspend fun load(
@@ -546,7 +546,7 @@ class ChannelPlayer @Inject constructor(
         currentCoroutineContext().ensureActive()
         if (!stillWanted()) return false
         pooled.player.setMediaItems(programs.map { it.mediaItem }, 0, (time.nowUtcMs() - slot.startUtcMs).coerceAtLeast(0))
-        pooled.subtitles.addFonts(fontFiles)
+        pooled.subtitles.addFonts(fontFiles, programs.first().stream)
         pooled.player.prepare()
         return true
     }
@@ -817,7 +817,7 @@ class ChannelPlayer @Inject constructor(
             val fontFiles = fonts.load(next.stream)
             if (queue.firstOrNull() !== program || pool.preparedStandby() !== standby) return@launch
             standby.player.setMediaItems(listOf(next.mediaItem), 0, 0)
-            standby.subtitles.addFonts(fontFiles)
+            standby.subtitles.addFonts(fontFiles, next.stream)
             standby.player.prepare()
             standby.channelId = next.slot.channelId
             nextOnStandby = next

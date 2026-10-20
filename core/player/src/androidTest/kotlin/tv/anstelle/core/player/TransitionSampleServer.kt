@@ -7,7 +7,7 @@ import java.util.concurrent.Executors
 
 /** Tiny loopback HTTP/range server: tests exercise the real OkHttp media data source. */
 internal class TransitionSampleServer(context: Context) : AutoCloseable {
-    private val samples = listOf("plain.mp4", "styled.mkv").associateWith {
+    private val samples = listOf("plain.mp4", "styled.mkv", "fonts.mkv").associateWith {
         context.assets.open("transitions/$it").use { input -> input.readBytes() }
     }
     private val workers = Executors.newCachedThreadPool()

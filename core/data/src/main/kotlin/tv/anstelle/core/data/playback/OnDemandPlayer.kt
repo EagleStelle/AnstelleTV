@@ -233,11 +233,12 @@ class OnDemandPlayer @Inject constructor(
         queueNext()
     }
 
-    /** Prepares the queue from [positionMs], handing libass the fonts of a side-loaded ASS subtitle. */
+    /** Prepares the queue from [positionMs], handing libass the first item's fonts. */
     private suspend fun load(pooled: PooledPlayer, positionMs: Long) {
-        val fontFiles = fonts.load(queue.first().stream)
+        val stream = queue.first().stream
+        val fontFiles = fonts.load(stream)
         pooled.player.setMediaItems(queue.map { it.mediaItem }, 0, positionMs.coerceAtLeast(0))
-        pooled.subtitles.addFonts(fontFiles)
+        pooled.subtitles.addFonts(fontFiles, stream)
         pooled.player.prepare()
     }
 
