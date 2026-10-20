@@ -83,7 +83,7 @@ class ProgramTransitionTest {
         instrumentation.runOnMainSync {
             val pool = PlayerPool(factory())
             try {
-                val standby = pool.standby
+                val standby = pool.standby()
                 pool.quiet(standby, concurrentVideoDecoders = false)
                 val changes = mutableListOf<TrackSelectionParameters>()
                 standby.player.addListener(object : Player.Listener {
@@ -98,17 +98,39 @@ class ProgramTransitionTest {
         }
     }
 
-    @Test fun poolCreatesStandbyOnlyWhenNeededAndReleasesItWhenIdle() {
+    @Test fun poolCreatesTwoStandbysOnlyWhenNeededSwapsFromEitherAndReleasesThem() {
         instrumentation.runOnMainSync {
             val pool = PlayerPool(factory())
             try {
-                assertNull(pool.preparedStandby)
-                pool.active
-                assertNull(pool.preparedStandby)
-                val standby = pool.standby
-                assertTrue(pool.preparedStandby === standby)
+                val active = pool.active
+                assertNull(pool.preparedStandby(0))
+                assertNull(pool.preparedStandby(1))
+                val first = pool.standby(0)
+                val second = pool.standby(1)
+                assertTrue(pool.preparedStandby(0) === first && pool.preparedStandby(1) === second && first !== second)
+                pool.quiet(second, concurrentVideoDecoders = true)
+                assertTrue("Only the first standby may decode video", C.TRACK_TYPE_VIDEO in second.player.trackSelectionParameters.disabledTrackTypes)
+
+                // Either slot swaps; the other stays, and the old active player takes the slot's place, stopped.
+                for ((slot, next) in listOf(1 to second, 0 to first)) {
+                    val previous = pool.active
+                    previous.player.setMediaItem(sample("plain.mp4", "left"))
+                    previous.channelId = 1L
+                    assertTrue(pool.swap(slot) === next && pool.active === next)
+                    assertTrue(pool.preparedStandby(slot) === previous && pool.preparedStandby(1 - slot) !== next)
+                    assertTrue(previous.player.mediaItemCount == 0 && previous.channelId == null)
+                    assertTrue(previous.loadControl.standby && !next.loadControl.standby)
+                }
+                assertTrue(pool.preparedStandby(0) === second && pool.preparedStandby(1) === active)
+
+                pool.releaseStandby(1)
+                assertNull(pool.preparedStandby(1))
+                assertTrue(pool.preparedStandby(0) === second)
+                pool.standby(1)
                 pool.stopAll()
-                assertNull(pool.preparedStandby)
+                assertNull(pool.preparedStandby(0))
+                assertNull(pool.preparedStandby(1))
+                assertTrue(pool.active === first)
             } finally { pool.release() }
         }
     }
@@ -118,7 +140,7 @@ class ProgramTransitionTest {
         var loads = 0
         try {
             val standby = onMain {
-                pool.standby.also { standby ->
+                pool.standby().also { standby ->
                     pool.quiet(standby, concurrentVideoDecoders = false)
                     standby.player.addAnalyticsListener(object : AnalyticsListener {
                         override fun onLoadStarted(time: AnalyticsListener.EventTime, load: LoadEventInfo, media: MediaLoadData, retryCount: Int) { loads++ }
@@ -214,7 +236,7 @@ class ProgramTransitionTest {
         instrumentation.runOnMainSync {
             val players = PlayerPool(factory()).also { pool = it }
             surface = PlaceholderSurface.newInstance(context, false)
-            val standby = players.standby
+            val standby = players.standby()
             players.quiet(standby, concurrentVideoDecoders = false)
             standby.player.setMediaItem(sample("styled.mkv", "next"))
             standby.player.prepare()
@@ -260,7 +282,7 @@ class ProgramTransitionTest {
         }
     }
 
-    private fun factory() = PlayerFactory(context, OkHttpClient(), StreamAuth())
+    private fun factory() =PlayerFactory(context, OkHttpClient(), StreamAuth())
     private fun sample(file: String, id: String) = MediaItem.Builder()
         .setUri("${server.baseUrl}/$file").setMediaId(id).build()
 }

@@ -16,8 +16,9 @@ import org.junit.runner.RunWith
 
 /**
  * Surfing in the full-screen player: each channel change to its first frame, the "Tune" trace
- * section (`TuneTrace`). The first press tunes cold, the later ones mostly from the standby.
- * Needs a library on a reachable server: the frames come from it.
+ * section (`TuneTrace`). Presses alternate up and down, so each one goes back the way the last
+ * came: only standbys on both sides keep them warm. Needs a library on a reachable server: the
+ * frames come from it.
  */
 @OptIn(ExperimentalMetricApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -42,7 +43,7 @@ class ChannelSwitchBenchmark {
         },
     ) {
         repeat(SURFS) {
-            device.pressKeyCode(android.view.KeyEvent.KEYCODE_CHANNEL_UP)
+            device.pressKeyCode(if (it % 2 == 0) android.view.KeyEvent.KEYCODE_CHANNEL_UP else android.view.KeyEvent.KEYCODE_CHANNEL_DOWN)
             Thread.sleep(SETTLE_MS)
         }
     }

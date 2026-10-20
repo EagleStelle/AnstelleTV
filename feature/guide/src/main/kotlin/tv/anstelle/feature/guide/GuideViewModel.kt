@@ -27,6 +27,7 @@ import tv.anstelle.core.data.guide.GuideRepository
 import tv.anstelle.core.data.guide.ProgramDetails
 import tv.anstelle.core.data.guide.ProgramStrip
 import tv.anstelle.core.data.playback.ChannelPlayer
+import tv.anstelle.core.data.playback.surfNeighbours
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.ChannelGroup
 import tv.anstelle.core.model.ProfileAccess
@@ -303,9 +304,9 @@ class GuideViewModel @Inject constructor(
     fun preview(channelId: Long) {
         if (previewJob?.isActive == true || _follow.value != null) return
         if (!previewWanted || !previewStarted || inPlayer) return
-        val next = nextRow(_state.value.channels, from = playback.state.value.channel?.id, to = channelId)
+        val around = neighbourRows(_state.value.channels, from = playback.state.value.channel?.id, to = channelId)
         playback.tune(channelId)
-        next?.let(playback::prewarm)
+        if (around.isNotEmpty()) playback.prewarm(around)
     }
 
     fun stopPreview() {
@@ -348,12 +349,11 @@ class GuideViewModel @Inject constructor(
     }
 }
 
-/** The row after [to] in the direction browsing moved from [from] (down when [from] isn't a row); null at either end. */
-internal fun nextRow(rows: List<GuideChannel>, from: Long?, to: Long): Long? {
+/** The rows either side of [to], the one in the direction browsing moved from [from] first (down when [from] isn't a row). */
+internal fun neighbourRows(rows: List<GuideChannel>, from: Long?, to: Long): List<Long> {
     val target = rows.indexOfFirst { it.id == to }
-    if (target < 0) return null
     val step = if (rows.indexOfFirst { it.id == from } > target) -1 else 1
-    return rows.getOrNull(target + step)?.id
+    return surfNeighbours(rows.map { it.id }, target, step, wrap = false)
 }
 
 /** What the guide's rows are made from. */

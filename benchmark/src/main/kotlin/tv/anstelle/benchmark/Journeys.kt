@@ -17,12 +17,13 @@ internal fun MacrobenchmarkScope.openGuide() {
     check(device.wait(Until.hasObject(By.res(GUIDE_GRID)), WAIT_MS)) { "The guide didn't open: a profile picker or an empty library?" }
 }
 
-/** From the guide: OK shows the selected channel in the preview, OK again watches it full screen. */
+/** From the guide: OK shows the selected channel in the preview, OK again (or the first, once it plays there) watches it full screen. */
 internal fun MacrobenchmarkScope.watchFullScreen() {
-    device.pressDPadCenter()
-    device.waitForIdle()
-    if (device.hasObject(By.res(GUIDE_GRID))) device.pressDPadCenter()
-    check(device.wait(Until.gone(By.res(GUIDE_GRID)), WAIT_MS)) { "Full-screen playback did not open" }
+    repeat(3) {
+        device.pressDPadCenter()
+        if (device.wait(Until.gone(By.res(GUIDE_GRID)), WAIT_MS / 2)) return
+    }
+    error("Full-screen playback did not open")
 }
 
 /** Opens a destination of the navigation rail (or bar) by its label. */

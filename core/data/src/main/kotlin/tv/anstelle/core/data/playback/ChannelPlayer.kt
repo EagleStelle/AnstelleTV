@@ -118,6 +118,9 @@ internal class Program(
     fun shifted(deltaMs: Long) = Program(slot.copy(startUtcMs = slot.startUtcMs + deltaMs, endUtcMs = slot.endUtcMs + deltaMs), item, server, account, stream, logoUrl, mediaItem)
 }
 
+/** What a surfing standby holds: [program] from its live position, prepared as [profileId] with [prefs]. */
+private class Ready(val program: Program, val profileId: Long, val prefs: TrackPrefs)
+
 /**
  * Plays channels: what a channel airs comes from SQLite and the stream URL is built locally,
  * so tuning makes no server call.
@@ -134,10 +137,11 @@ internal class Program(
  * - **Tracks:** each program starts on the watching profile's audio and subtitle defaults.
  * - **Who plays:** each program streams as the profile's Jellyfin user on its server
  *   ([ProfileRepository.watchAccount]), and its watch history goes there.
- * - **Pool:** the channel in the surfing direction (or the one focused in the guide) is
- *   pre-warmed on the standby player, and tuning to it swaps the players. The standby is kept
- *   near the live position only while the viewer surfs: [STANDBY_IDLE_MS] after the last tune
- *   or guide focus it is let go, so a long watch streams, buffers and decodes one channel.
+ * - **Pool:** while the viewer surfs, the channels either side (the guide's rows around the one
+ *   browsed to) are pre-warmed on two standby players, the one in the surfing direction first,
+ *   and tuning to one swaps the players. Resting [SURF_REST_MS] on a channel drops back to one
+ *   standby, and [STANDBY_IDLE_MS] after the last tune or guide move it is let go too, so a
+ *   long watch streams, buffers and decodes one channel.
  * - **Seeking** works as in any video, and the channel's schedule moves with it: the airing
  *   now starts where the new position puts it, and everything after it on the channel moves by
  *   the same amount, so the guide and the next program follow what is on screen.
@@ -190,22 +194,21 @@ class ChannelPlayer @Inject constructor(
     private var direction = 1
     private var holders = 0
 
-    /** The channel to pre-warm instead of the next one in the surfing direction. */
-    private var standbyTarget: Long? = null
+    /** The channels to pre-warm instead of the neighbours in the surfing direction, most likely first. */
+    private var standbyTargets: List<Long> = emptyList()
 
-    /** When the viewer last tuned or focused a channel in the guide; the standby follows only while that is recent. */
+    /** When the viewer last tuned or focused a channel in the guide; the standbys follow only while that is recent. */
     private var surfedAtMs = 0L
 
     /** The on-screen player's playlist; the first entry is playing. */
     private val queue = ArrayDeque<Program>()
-    private var standbyQueue: List<Program> = emptyList()
+    /** What each standby slot of the pool holds ready for surfing. */
+    private val ready = arrayOfNulls<Ready>(PlayerPool.STANDBYS)
     /** Upcoming program prepared at position zero, separate from surfing's wall-clock standby. */
     private var nextOnStandby: Program? = null
     private var boundaryJob: Job? = null
     private var prewarmJob: Job? = null
     private var queueJob: Job? = null
-    private var standbyProfileId = 0L
-    private var standbyPrefs = TrackPrefs()
     private var session: ReportSession? = null
     /** Last item's end position, captured before an automatic playlist transition resets it. */
     private var leftAtMs: Long? = null
@@ -265,17 +268,14 @@ class ChannelPlayer @Inject constructor(
         lineup.firstOrNull { it.id == channelId }?.let { tuneTo(it, surf = 0) }
     }
 
-    /** Readies [channelId] on the standby player as the next likely tune, e.g. the guide row browsing heads to. */
-    fun prewarm(channelId: Long) {
-        if (channelId == current?.id) return
+    /** Readies [channelIds] on the standbys as the next likely tunes, most likely first, e.g. the guide rows around the one browsed to. */
+    fun prewarm(channelIds: List<Long>) {
         if (nextOnStandby != null || boundaryJob?.isActive == true) return
-        standbyTarget = channelId
+        standbyTargets = channelIds.filter { it != current?.id }
         surfedAtMs = time.nowUtcMs()
         if (_player.value?.isPlaying != true || _state.value.status != TuneStatus.PLAYING) return
-        lineup.firstOrNull { it.id == channelId }?.let { target ->
-            prewarmJob?.cancel()
-            prewarmJob = scope.launch { prewarm(target) }
-        }
+        prewarmJob?.cancel()
+        refreshStandby()
     }
 
     /** Tunes to channel [number]; false when there is no such channel. */
@@ -401,7 +401,7 @@ class ChannelPlayer @Inject constructor(
         detach()
         pool.stopAll()
         queue.clear()
-        standbyQueue = emptyList()
+        ready.fill(null)
         current = null
         _state.update { PlaybackState(tuneCount = it.tuneCount) }
     }
@@ -410,10 +410,10 @@ class ChannelPlayer @Inject constructor(
         queueJob?.cancel()
         boundaryJob?.cancel()
         prewarmJob?.cancel()
-        if (nextOnStandby != null) { pool.stop(pool.standby); standbyQueue = emptyList() }
+        if (nextOnStandby != null) pool.preparedStandby()?.let(pool::stop)
         nextOnStandby = null
         if (surf != 0) direction = surf
-        standbyTarget = null
+        standbyTargets = emptyList()
         surfedAtMs = time.nowUtcMs()
         current = channel
         tuneJob?.cancel()
@@ -441,9 +441,9 @@ class ChannelPlayer @Inject constructor(
         }
         val profile = profiles.observeActiveProfile().first()
         if (profile.id != profileId) {
-            // The standby was readied as the profile before, as its Jellyfin user.
-            pool.releaseStandby()
-            standbyQueue = emptyList()
+            // The standbys were readied as the profile before, as its Jellyfin user.
+            pool.releaseStandbys()
+            ready.fill(null)
         }
         profileId = profile.id
         access = profiles.access(profile.id)
@@ -467,31 +467,30 @@ class ChannelPlayer @Inject constructor(
             restricted(channel, slot, item)
             return
         }
-        val prepared = standbyQueue.firstOrNull()?.takeIf { cached ->
-            standbyProfileId == profileId && standbyPrefs == prefs && cached.slot == slot && cached.item == item &&
-                pool.preparedStandby?.let { it.channelId == channel.id && it.player.playerError == null } == true
-        }?.takeIf { cached ->
+        val standby = ready.indices.firstOrNull { readyFor(it, channel, slot, item) }
+        val held = standby?.let { ready[it] }?.takeIf { held ->
+            val cached = held.program
             serverDao.byId(cached.server.id) == cached.server && withContext(io) { tokens.get(cached.server.jellyfinServerId) }
                 ?.let { profiles.watchAccount(profileId, cached.server, it) } == cached.account
         }
-        if (prepared == null) stopStandby()
+        if (held == null) stopStandby()
         val resolving = TuneTrace.begin("TuneResolve")
-        val program = try { prepared ?: resolve(slot, forceTranscode = false) } finally { resolving.end() }
+        val program = try { held?.program ?: resolve(slot, forceTranscode = false) } finally { resolving.end() }
         currentCoroutineContext().ensureActive()
         if (program == null) {
             failAndRetry("This program can't be played. Check the server's and the profile's sign-in.")
             return
         }
-        val swapped = prepared != null
-        val pooled = if (swapped) {
+        val swapped = held != null
+        val pooled = if (standby != null && held != null) {
             detach()
             // The standby waited at a keyframe; it catches up with the wall clock at the newest
             // one, inside its buffer, so the first frame needs no decoding up to the exact spot.
-            pool.standby.player.seekTo(0, (time.nowUtcMs() - slot.startUtcMs).coerceAtLeast(0))
-            pool.swap().also {
+            pool.standby(standby).player.seekTo(0, (time.nowUtcMs() - slot.startUtcMs).coerceAtLeast(0))
+            pool.swap(standby).also {
                 queue.clear()
-                queue.addAll(standbyQueue)
-                standbyQueue = emptyList()
+                queue.add(held.program)
+                ready[standby] = null
             }
         } else {
             // Keep the active player reusable; replacing its media stops the old stream.
@@ -522,6 +521,13 @@ class ChannelPlayer @Inject constructor(
         // Persisting the last channel is unrelated to preparing its first frame.
         scope.launch { settings.set(Settings.lastChannel(profileId), channel.id) }
         AppLog.d(TAG, "Tuned ${channel.number} ${if (swapped) "from the standby" else "cold"}")
+    }
+
+    /** Whether standby slot [standby] holds [item], airing on [channel] in [slot], ready as the watching profile with its defaults. */
+    private fun readyFor(standby: Int, channel: Channel, slot: ScheduleSlotEntity, item: MediaItemEntity?): Boolean {
+        val held = ready[standby] ?: return false
+        return held.profileId == profileId && held.prefs == prefs && held.program.slot == slot && held.program.item == item &&
+            pool.preparedStandby(standby)?.let { it.channelId == channel.id && it.player.playerError == null } == true
     }
 
     /**
@@ -722,12 +728,14 @@ class ChannelPlayer @Inject constructor(
         followStandby()
     }
 
-    /** The surfing standby's program airs on while it waits; the standby follows it inside its buffer. */
+    /** The surfing standbys' programs air on while they wait; each standby follows its program inside its buffer. */
     private fun followStandby() {
-        val program = standbyQueue.firstOrNull() ?: return
         val now = time.nowUtcMs()
-        if (now >= program.slot.endUtcMs) return
-        pool.preparedStandby?.takeIf { it.channelId == program.slot.channelId }?.let { pool.followLive(it, now - program.slot.startUtcMs) }
+        for (standby in ready.indices) {
+            val program = ready[standby]?.program ?: continue
+            if (now >= program.slot.endUtcMs) continue
+            pool.preparedStandby(standby)?.takeIf { it.channelId == program.slot.channelId }?.let { pool.followLive(it, now - program.slot.startUtcMs) }
+        }
     }
 
     /** A measured duration can replace the airing being watched; follow that repair without waiting for a bad header's end. */
@@ -746,21 +754,43 @@ class ChannelPlayer @Inject constructor(
         }
     }
 
+    /**
+     * Points the standbys at the channels to keep ready ([surfTargets]): a standby already on one
+     * stays, the rest are re-aimed, and those left over once the viewer rests are let go.
+     */
     private fun refreshStandby() {
-        if (nextOnStandby != null || boundaryJob?.isActive == true) return
-        if (time.nowUtcMs() - surfedAtMs > STANDBY_IDLE_MS) {
-            // Nobody is surfing: the next tune is likely minutes away, when this buffer is long stale.
-            if (pool.preparedStandby != null) {
-                pool.releaseStandby()
-                standbyQueue = emptyList()
+        if (nextOnStandby != null || boundaryJob?.isActive == true || prewarmJob?.isActive == true) return
+        val idle = time.nowUtcMs() - surfedAtMs
+        if (idle > STANDBY_IDLE_MS) {
+            // Nobody is surfing: the next tune is likely minutes away, when these buffers are long stale.
+            if (ready.indices.any { pool.preparedStandby(it) != null }) {
+                pool.releaseStandbys()
+                ready.fill(null)
                 AppLog.d(TAG, "Standby let go")
             }
             return
         }
-        if (_player.value?.isPlaying != true || _state.value.buffering) return
-        val target = standbyTarget?.let { id -> lineup.firstOrNull { it.id == id } } ?: neighbor(direction) ?: return
-        if (prewarmJob?.isActive == true) return
-        prewarmJob = scope.launch { prewarm(target) }
+        val targets = surfTargets(resting = idle > SURF_REST_MS)
+        val held = ready.indices.map { standby -> pool.preparedStandby(standby)?.channelId?.takeIf { ready[standby] != null } }
+        val free = ready.indices.filter { held[it] !in targets.map(Channel::id) }.toMutableList()
+        val plan = targets.mapNotNull { target -> (held.indexOf(target.id).takeIf { it >= 0 } ?: free.removeFirstOrNull())?.let { target to it } }
+        for (standby in free) if (pool.preparedStandby(standby) != null) {
+            pool.releaseStandby(standby)
+            ready[standby] = null
+        }
+        if (plan.isEmpty() || _player.value?.isPlaying != true || _state.value.buffering) return
+        prewarmJob = scope.launch {
+            for ((target, standby) in plan) prewarm(target, standby, directOnly = target !== targets.first())
+        }
+    }
+
+    /**
+     * The channels to keep ready, most likely first: the guide's picks, else the neighbours in the
+     * surfing direction; only the first while the viewer rests on a channel.
+     */
+    private fun surfTargets(resting: Boolean): List<Channel> {
+        val ids = standbyTargets.ifEmpty { surfNeighbours(lineup.map(Channel::id), lineup.indexOfFirst { it.id == current?.id }, direction, wrap = true) }
+        return ids.mapNotNull { id -> lineup.firstOrNull { it.id == id } }.take(if (resting) 1 else PlayerPool.STANDBYS)
     }
 
     /**
@@ -779,15 +809,17 @@ class ChannelPlayer @Inject constructor(
         boundaryJob = scope.launch {
             val next = nextProgram(program.slot) ?: return@launch
             if (queue.firstOrNull() !== program) return@launch
-            val standby = pool.renewIfFull(pool.standby)
+            // The viewer rests: one standby takes the next program, and surfing's are let go.
+            ready.fill(null)
+            for (other in 1 until PlayerPool.STANDBYS) pool.releaseStandby(other)
+            val standby = pool.renewIfFull(pool.standby())
             pool.quiet(standby, withContext(io) { probe.capabilities }.concurrentVideoDecoders, prefs)
             val fontFiles = fonts.load(next.stream)
-            if (queue.firstOrNull() !== program || pool.preparedStandby !== standby) return@launch
+            if (queue.firstOrNull() !== program || pool.preparedStandby() !== standby) return@launch
             standby.player.setMediaItems(listOf(next.mediaItem), 0, 0)
             standby.subtitles.addFonts(fontFiles)
             standby.player.prepare()
             standby.channelId = next.slot.channelId
-            standbyQueue = emptyList()
             nextOnStandby = next
             AppLog.i(TAG, "Next program preloading on ${current?.number}")
         }
@@ -797,7 +829,7 @@ class ChannelPlayer @Inject constructor(
     private fun handOff(finished: Program?, end: Long?, moving: Job?): Boolean {
         val next = nextOnStandby ?: return false
         if (finished == null || next.slot.channelId != finished.slot.channelId ||
-            next.slot.startUtcMs != finished.slot.endUtcMs || pool.standby.player.playerError != null) return false
+            next.slot.startUtcMs != finished.slot.endUtcMs || pool.standby().player.playerError != null) return false
         nextOnStandby = null
         val delta = end?.minus(finished.slot.endUtcMs) ?: 0L
         detach()
@@ -821,33 +853,31 @@ class ChannelPlayer @Inject constructor(
         return true
     }
 
-    /** Prepares [channel]'s program on the standby player without playing it. */
-    private suspend fun prewarm(channel: Channel) {
+    /**
+     * Prepares [channel]'s program on the standby in slot [standby] without playing it. With
+     * [directOnly] a program the server would transcode is left out: it would go on encoding a
+     * channel nobody watches.
+     */
+    private suspend fun prewarm(channel: Channel, standby: Int, directOnly: Boolean) {
         if (channel.id == current?.id) return
-        val standby = pool.standby
         val now = time.nowUtcMs()
         val slot = slotAt(channel.id, now, scheduleIfMissing = false)?.takeIf { it.kind == SlotKind.PROGRAM }
-        if (slot == null) {
-            pool.stop(standby)
-            standbyQueue = emptyList()
-            return
-        }
         // Already ready: [followStandby] keeps it at the live position.
-        if (standby.channelId == channel.id && standbyQueue.firstOrNull()?.slot?.startUtcMs == slot.startUtcMs) return
-        val program = resolve(slot, forceTranscode = false)?.takeIf { allowed(it.item) }
+        if (slot != null && pool.preparedStandby(standby)?.channelId == channel.id &&
+            ready[standby]?.program?.slot?.startUtcMs == slot.startUtcMs) return
+        val program = slot?.let { resolve(it, forceTranscode = false) }?.takeIf { allowed(it.item) && !(directOnly && it.stream.transcoded) }
+        ready[standby] = null
         if (program == null) {
-            pool.stop(standby)
-            standbyQueue = emptyList()
+            pool.preparedStandby(standby)?.let(pool::stop)
             return
         }
-        pool.quiet(standby, withContext(io) { probe.capabilities }.concurrentVideoDecoders, prefs)
-        val programs = listOf(program)
+        // Re-aimed again and again, a standby gathers channel after channel's fonts in libass.
+        val pooled = pool.renewIfFull(pool.standby(standby))
+        pool.quiet(pooled, withContext(io) { probe.capabilities }.concurrentVideoDecoders, prefs)
         // A tune may swap the pool while fonts load; then this player is on screen.
-        if (!load(standby, programs, slot) { pool.preparedStandby === standby }) return
-        standby.channelId = channel.id
-        standbyQueue = programs
-        standbyProfileId = profileId
-        standbyPrefs = prefs
+        if (!load(pooled, listOf(program), program.slot) { pool.preparedStandby(standby) === pooled }) return
+        pooled.channelId = channel.id
+        ready[standby] = Ready(program, profileId, prefs)
         AppLog.d(TAG, "Standby ready on ${channel.number}")
     }
 
@@ -893,8 +923,8 @@ class ChannelPlayer @Inject constructor(
         prewarmJob?.cancel()
         boundaryJob?.cancel()
         nextOnStandby = null
-        pool.preparedStandby?.let(pool::stop)
-        standbyQueue = emptyList()
+        for (standby in ready.indices) pool.preparedStandby(standby)?.let(pool::stop)
+        ready.fill(null)
     }
 
     private fun attach(player: Player) {

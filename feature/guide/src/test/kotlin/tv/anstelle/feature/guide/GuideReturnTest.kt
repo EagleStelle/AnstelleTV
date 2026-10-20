@@ -148,23 +148,23 @@ class GuideReturnTest {
         assertEquals(1L, first.model.follow.value)
     }
 
-    @Test fun previewReadiesTheRowBrowsingHeadsTo() = runTest(dispatcher) {
+    @Test fun previewReadiesTheRowsAroundTheOneBrowsedTo() = runTest(dispatcher) {
         val f = fixture(playingIndex = 2)
         runCurrent(); f.model.startPreview(); runCurrent(); f.model.followed()
         f.model.preview(2)
         verify(f.playback).tune(2)
-        verify(f.playback).prewarm(1)
+        verify(f.playback).prewarm(listOf(1L, 3L))
         f.playing.value = PlaybackState(channel = channels.first())
         f.model.preview(2)
-        verify(f.playback).prewarm(3)
+        verify(f.playback).prewarm(listOf(3L, 1L))
     }
 
-    @Test fun nextRowStopsAtEitherEndAndGoesDownWithoutADirection() {
+    @Test fun neighbourRowsStopAtEitherEndAndGoDownWithoutADirection() {
         val rows = channels.map { GuideChannel(it.id, it.number, it.name, null, it.isFavorite) }
-        assertEquals(2L, nextRow(rows, from = null, to = 1))
-        assertNull(nextRow(rows, from = 2, to = 3))
-        assertNull(nextRow(rows, from = 2, to = 1))
-        assertNull(nextRow(rows, from = 1, to = 99))
+        assertEquals(listOf(2L), neighbourRows(rows, from = null, to = 1))
+        assertEquals(listOf(2L), neighbourRows(rows, from = 2, to = 3))
+        assertEquals(listOf(2L), neighbourRows(rows, from = 2, to = 1))
+        assertEquals(emptyList<Long>(), neighbourRows(rows, from = 1, to = 99))
     }
 
     @Test fun leavingBeforeStartupFinishesCannotTuneOrEmitAStaleFollow() = runTest(dispatcher) {

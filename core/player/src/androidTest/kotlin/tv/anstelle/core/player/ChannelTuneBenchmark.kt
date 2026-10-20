@@ -50,7 +50,7 @@ class ChannelTuneBenchmark {
                         instrumentation.runOnMainSync {
                             val players = PlayerPool(PlayerFactory(context, OkHttpClient(), StreamAuth())).also { pool = it }
                             surface = PlaceholderSurface.newInstance(context, false)
-                            val target = if (warm) players.standby.also {
+                            val target = if (warm) players.standby().also {
                                 players.quiet(it, concurrentVideoDecoders = false)
                             } else players.active
                             target.player.addListener(object : Player.Listener {

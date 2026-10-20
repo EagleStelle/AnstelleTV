@@ -43,12 +43,12 @@ class PooledPlayer(
 }
 
 /**
- * Two ExoPlayers: the one on screen and a standby pre-warmed for the next likely channel.
- * Tuning to the standby's channel swaps the two instead of preparing from scratch, so the
- * connection, container parsing and (when the device can run two video decoders) the first
- * video frames are already done. A player whose libass holds more than [FONT_BUDGET_BYTES] of
- * fonts is replaced by a new one the next time it stops, since libass never lets a font go.
- * Main thread only.
+ * The ExoPlayer on screen and up to [STANDBYS] standbys pre-warmed for the next likely channels.
+ * Tuning to a standby's channel swaps it with the active player instead of preparing from
+ * scratch, so the connection, container parsing and (when the device can run two video decoders)
+ * the first video frames are already done. A player whose libass holds more than
+ * [FONT_BUDGET_BYTES] of fonts is replaced by a new one the next time it stops, since libass
+ * never lets a font go. Main thread only.
  */
 @Singleton
 @OptIn(UnstableApi::class)
@@ -56,36 +56,38 @@ class PlayerPool @Inject constructor(
     private val factory: PlayerFactory,
 ) {
     private var activeSlot: PooledPlayer? = null
-    private var standbySlot: PooledPlayer? = null
+    private val standbySlots = arrayOfNulls<PooledPlayer>(STANDBYS)
 
     @get:MainThread
     val active: PooledPlayer get() = activeSlot ?: factory.create(PlaybackMode.LIVE_TV).also { activeSlot = it }
 
-    @get:MainThread
-    val standby: PooledPlayer get() = standbySlot ?: factory.create(PlaybackMode.LIVE_TV).also {
+    /** The standby in [slot], created when there is none. */
+    @MainThread
+    fun standby(slot: Int = 0): PooledPlayer = standbySlots[slot] ?: factory.create(PlaybackMode.LIVE_TV).also {
         it.loadControl.standby = true
-        standbySlot = it
+        standbySlots[slot] = it
     }
 
-    @get:MainThread
-    val preparedStandby: PooledPlayer? get() = standbySlot
+    /** The standby in [slot], or null while there is none. */
+    @MainThread
+    fun preparedStandby(slot: Int = 0): PooledPlayer? = standbySlots[slot]
 
     @MainThread
-    fun releaseStandby() {
-        standbySlot?.release()
-        standbySlot = null
+    fun releaseStandby(slot: Int) {
+        standbySlots[slot]?.release()
+        standbySlots[slot] = null
     }
 
     /**
-     * Makes the standby the active player, seeking exactly again on screen. The old active
-     * player stops and becomes the standby.
+     * Makes [slot]'s standby the active player, seeking exactly again on screen. The old active
+     * player stops and becomes that slot's standby.
      */
     @MainThread
-    fun swap(): PooledPlayer {
-        val next = standby
+    fun swap(slot: Int = 0): PooledPlayer {
+        val next = standby(slot)
         val previous = active
         activeSlot = next
-        standbySlot = previous
+        standbySlots[slot] = previous
         next.loadControl.standby = false
         next.player.setSeekParameters(SeekParameters.DEFAULT)
         previous.loadControl.standby = true
@@ -95,8 +97,9 @@ class PlayerPool @Inject constructor(
 
     /**
      * Prepares a muted standby: video stays off unless the device can run a second video
-     * decoder (Fire TV sticks can't). It seeks to keyframes, where its buffer starts, so every
-     * seek it makes, the swap's included, stays inside that buffer.
+     * decoder (Fire TV sticks can't), and then only in the first slot, so at most two decoders
+     * ever run. It seeks to keyframes, where its buffer starts, so every seek it makes, the
+     * swap's included, stays inside that buffer.
      */
     @MainThread
     fun quiet(player: PooledPlayer, concurrentVideoDecoders: Boolean, prefs: TrackPrefs = TrackPrefs()) {
@@ -105,7 +108,7 @@ class PlayerPool @Inject constructor(
         player.player.setSeekParameters(SeekParameters.PREVIOUS_SYNC)
         player.trackSelector.setPrefs(prefs)
         // Apply defaults and decoder limits together; never enable an old standby's video first.
-        player.resetTrackParameters(prefs, videoDisabled = factory.lowMemory || !concurrentVideoDecoders)
+        player.resetTrackParameters(prefs, videoDisabled = factory.lowMemory || !concurrentVideoDecoders || player !== standbySlots[0])
     }
 
     /**
@@ -133,33 +136,39 @@ class PlayerPool @Inject constructor(
      */
     @MainThread
     fun renewIfFull(player: PooledPlayer): PooledPlayer {
-        if (player !== activeSlot && player !== standbySlot) return player
+        val slot = standbySlots.indexOf(player)
+        if (player !== activeSlot && slot < 0) return player
         val budget = if (factory.lowMemory) 16L * 1024 * 1024 else FONT_BUDGET_BYTES
         if (player.subtitles.fontBytes <= budget) return player
-        val isStandby = player === standbySlot
         player.release()
         return factory.create(PlaybackMode.LIVE_TV).also {
-            it.loadControl.standby = isStandby
-            if (isStandby) standbySlot = it else activeSlot = it
+            it.loadControl.standby = slot >= 0
+            if (slot >= 0) standbySlots[slot] = it else activeSlot = it
         }
     }
 
-    /** Stops the active player for reuse and releases the idle standby. */
+    /** Stops the active player for reuse and releases the idle standbys. */
     @MainThread
     fun stopAll() {
         activeSlot?.let(::stop)
-        releaseStandby()
+        releaseStandbys()
     }
+
+    @MainThread
+    fun releaseStandbys() = standbySlots.indices.forEach(::releaseStandby)
 
     @MainThread
     fun release() {
         activeSlot?.release()
         activeSlot = null
-        releaseStandby()
+        releaseStandbys()
     }
 
-    private companion object {
+    companion object {
+        /** The channels either side of the one on screen while someone surfs. */
+        const val STANDBYS = 2
+
         /** A few shows' embedded fonts (anime often carries 10–30 MB of them). */
-        const val FONT_BUDGET_BYTES = 48L * 1024 * 1024
+        private const val FONT_BUDGET_BYTES = 48L * 1024 * 1024
     }
 }
