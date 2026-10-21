@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -115,7 +114,9 @@ import tv.anstelle.core.theme.PanelShape
  * - nothing at all: a fact, which nothing presses ([InfoRow]).
  *
  * Rows are things; verbs are buttons ([SettingsButtons]), and a destructive verb is a
- * [DangerButton] at the page's foot that asks first.
+ * [DangerButton] at the page's foot that asks first. A page whose edits wait to be kept holds
+ * Save and Discard (a pane, Done and Discard) across its top, where they never scroll away
+ * ([SettingsPage]).
  */
 
 /** Settings use the guided panel on TV and on touch screens at least this wide. */
@@ -268,8 +269,11 @@ fun rememberSettingsSheets(): SettingsSheets = remember { SettingsSheets() }
  * on phones a back arrow when there is one). [about] says what the page does: under the title
  * on TV, as the footer on phones, the way Android closes a page with its note. [aside] shows
  * what the page is about (a preview, a readout): under the title on TV, at the list's top on
- * phones. [sheets] lets the page open a sheet of its own, not from a row (the next step of
- * something under way).
+ * phones, where [pinAside] holds it above the list instead (a sample that answers each pick).
+ * [actions] are the page's standing verbs (Save and Discard; a pane's Done and Discard), one
+ * line across the list's top that never scrolls away: under the bar on phones, atop the list's
+ * panel on TV, one Up from its first row. [sheets] lets the page open a sheet of its own, not
+ * from a row (the next step of something under way).
  */
 @Composable
 fun SettingsPage(
@@ -280,6 +284,8 @@ fun SettingsPage(
     showBack: Boolean = trail.isNotEmpty(),
     listState: LazyListState = rememberLazyListState(),
     aside: (@Composable ColumnScope.() -> Unit)? = null,
+    pinAside: Boolean = false,
+    actions: (@Composable () -> Unit)? = null,
     sheets: SettingsSheets = rememberSettingsSheets(),
     content: LazyListScope.() -> Unit,
 ) {
@@ -287,9 +293,9 @@ fun SettingsPage(
     CompositionLocalProvider(LocalSettingsSheets provides sheets) {
         Box(modifier.fillMaxSize()) {
             if (guided) {
-                GuidedPage(title, trail, about, showBack, listState, aside, content)
+                GuidedPage(title, trail, about, showBack, listState, aside, actions, content)
             } else {
-                PhonePage(title, about, showBack, listState, aside, content)
+                PhonePage(title, about, showBack, listState, aside, pinAside, actions, content)
             }
             val sheet = sheets.open
             if (sheet != null) {
@@ -314,10 +320,15 @@ private fun PhonePage(
     showBack: Boolean,
     listState: LazyListState,
     aside: (@Composable ColumnScope.() -> Unit)?,
+    pinAside: Boolean,
+    actions: (@Composable () -> Unit)?,
     content: LazyListScope.() -> Unit,
 ) {
     val theme = LocalAnstelleTheme.current
     val back = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    val asideColumn: @Composable () -> Unit = {
+        if (aside != null) Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = aside)
+    }
     val colors = TopAppBarDefaults.topAppBarColors(
         containerColor = theme.background,
         scrolledContainerColor = theme.background,
@@ -345,6 +356,8 @@ private fun PhonePage(
                 windowInsets = WindowInsets(0),
             )
         }
+        if (actions != null) PageActions(Modifier, actions)
+        if (pinAside) asideColumn()
         // Buttons here take the TV panel's fill, so a settings page's buttons match across devices.
         CompositionLocalProvider(LocalOnPanel provides true) {
             LazyColumn(
@@ -352,16 +365,22 @@ private fun PhonePage(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(bottom = 24.dp),
             ) {
-                if (aside != null) {
-                    item(key = "aside") {
-                        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = aside)
-                    }
-                }
+                if (aside != null && !pinAside) item(key = "aside") { asideColumn() }
                 content()
                 if (about != null) item(key = "about") { AboutFooter(about) }
             }
         }
     }
+}
+
+/**
+ * A page's standing verbs across the list's top, sharing the line evenly as [SettingsButtons]
+ * does, in the panel's fill so they match on TV and phone. They aren't rows: coming back to the
+ * page lands on the row left, never on them.
+ */
+@Composable
+private fun PageActions(modifier: Modifier, actions: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalOnPanel provides true, LocalPageFocus provides null) { SettingsButtons(modifier, actions) }
 }
 
 /** Android's closing note: an info mark and the page's explanation, quiet. */
@@ -382,11 +401,13 @@ private fun GuidedPage(
     showBack: Boolean,
     listState: LazyListState,
     aside: (@Composable ColumnScope.() -> Unit)?,
+    actions: (@Composable () -> Unit)?,
     content: LazyListScope.() -> Unit,
 ) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val back = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    val edge = if (isTv) 40.dp else 24.dp
     Row(Modifier.fillMaxSize().background(theme.background)) {
         Guidance(
             trail = trail,
@@ -398,13 +419,16 @@ private fun GuidedPage(
             modifier = Modifier.weight(GUIDANCE_WEIGHT).fillMaxHeight(),
         )
         Panel(Modifier.weight(PANEL_WEIGHT).fillMaxHeight()) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = if (isTv) 40.dp else 24.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                content = content,
-            )
+            Column(Modifier.fillMaxSize()) {
+                if (actions != null) PageActions(Modifier.padding(start = 12.dp, end = 12.dp, top = edge - 8.dp), actions)
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = if (actions != null) 8.dp else edge, bottom = edge),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    content = content,
+                )
+            }
         }
     }
 }

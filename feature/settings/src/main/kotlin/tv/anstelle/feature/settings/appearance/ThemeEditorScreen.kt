@@ -1,6 +1,5 @@
 package tv.anstelle.feature.settings.appearance
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -17,9 +16,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FormatSize
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.TableRows
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Title
@@ -30,7 +27,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,7 +52,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -78,15 +73,11 @@ import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.ResolvedTheme
 import tv.anstelle.core.theme.components.AnstelleTextField
-import tv.anstelle.core.theme.components.ConfirmSheet
 import tv.anstelle.core.theme.components.DangerButton
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.LinkRow
-import tv.anstelle.core.theme.components.OptionRow
 import tv.anstelle.core.theme.components.OsdButton
-import tv.anstelle.core.theme.components.PageFocusScope
 import tv.anstelle.core.theme.components.SegmentLadder
-import tv.anstelle.core.theme.components.SettingsButtons
 import tv.anstelle.core.theme.components.SettingsNotice
 import tv.anstelle.core.theme.components.SettingsPage
 import tv.anstelle.core.theme.components.TextRow
@@ -95,6 +86,13 @@ import tv.anstelle.core.theme.components.rememberInitialFocus
 import tv.anstelle.core.theme.components.rememberSettingsSheets
 import tv.anstelle.core.theme.components.section
 import tv.anstelle.core.theme.components.settingsEdge
+import tv.anstelle.feature.settings.Draft
+import tv.anstelle.feature.settings.EditPane
+import tv.anstelle.feature.settings.Edits
+import tv.anstelle.feature.settings.PanedPage
+import tv.anstelle.feature.settings.SaveButtons
+import tv.anstelle.feature.settings.SaveOnBack
+import tv.anstelle.feature.settings.choiceRows
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
@@ -108,14 +106,8 @@ class ThemeEditorViewModel @Inject constructor(
     /** Matches the `themeId` argument of the navigation route. */
     private val themeId: Long = checkNotNull(savedState.get<Long>("themeId"))
 
-    private val _spec = MutableStateFlow<ThemeSpec?>(null)
-    val spec: StateFlow<ThemeSpec?> = _spec.asStateFlow()
-
-    /** The theme as last saved; [spec] differs from it while there are edits to save. */
-    private val saved = MutableStateFlow<ThemeSpec?>(null)
-
-    val unsaved: StateFlow<Boolean> = combine(_spec, saved) { edited, kept -> edited != kept }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    private val edits = Edits<ThemeSpec>(appScope) { themes.save(themeId, it) }
+    val draft: StateFlow<Draft<ThemeSpec>?> = edits.draft
 
     /** True once it turns out there is no theme of the user's own to edit. */
     private val _gone = MutableStateFlow(false)
@@ -127,31 +119,18 @@ class ThemeEditorViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val theme = themes.observeTheme(themeId).first()
-            if (theme == null || theme.isBuiltIn) {
-                _gone.value = true
-            } else {
-                saved.value = theme.spec
-                _spec.value = theme.spec
-            }
+            if (theme == null || theme.isBuiltIn) _gone.value = true else edits.load(theme.spec)
         }
     }
 
-    /** Changes the theme here; nothing is kept until [save]. */
-    fun change(transform: (ThemeSpec) -> ThemeSpec) {
-        _spec.value = transform(_spec.value ?: return)
-    }
+    fun change(transform: (ThemeSpec) -> ThemeSpec) = edits.change(transform)
 
-    /** Keeps the edits; the app scope finishes the write even if the page closes. A failed write leaves Save on. */
-    fun save() {
-        appScope.launch { runCatching { saveEdits() } }
-    }
+    fun save() = edits.save()
+
+    fun discard() = edits.discard()
 
     /** Saves any edits first, so the theme put on is the one on screen. */
-    fun use() {
-        appScope.launch {
-            if (runCatching { saveEdits() }.isSuccess) themes.use(profiles.activeProfile().id, themeId)
-        }
-    }
+    fun use() = edits.save { themes.use(profiles.activeProfile().id, themeId) }
 
     fun delete() {
         appScope.launch {
@@ -159,20 +138,13 @@ class ThemeEditorViewModel @Inject constructor(
             _gone.value = true
         }
     }
-
-    private suspend fun saveEdits() {
-        val edited = _spec.value ?: return
-        if (edited == saved.value) return
-        themes.save(themeId, edited)
-        saved.value = edited
-    }
 }
 
 /**
  * The theme designer: the theme's name, each color role (opened into brightness, saturation
  * and hue ladders, or a hex code), then each Type and Screen choice (opened into its values),
  * every one on its own page beside the preview, kept by Done and dropped by Discard or Back. Edits wait for
- * Save; leaving with edits unsaved asks to discard them. A worn theme changes the whole app once saved. Colors that are hard to read
+ * Save (Discard drops them); leaving with edits unsaved asks to save or discard them. A worn theme changes the whole app once saved. Colors that are hard to read
  * against each other are named at the top, with which one to make brighter or darker.
  */
 @Composable
@@ -181,32 +153,28 @@ fun ThemeEditorScreen(
     modifier: Modifier = Modifier,
     viewModel: ThemeEditorViewModel = hiltViewModel(),
 ) {
-    val spec by viewModel.spec.collectAsStateWithLifecycle()
+    val draft by viewModel.draft.collectAsStateWithLifecycle()
     val gone by viewModel.gone.collectAsStateWithLifecycle()
     val inUse by viewModel.inUse.collectAsStateWithLifecycle()
-    val unsaved by viewModel.unsaved.collectAsStateWithLifecycle()
     LaunchedEffect(gone) { if (gone) onGone() }
-    val current = spec ?: return
+    val edits = draft ?: return
+    val current = edits.value
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
-    // The menu keeps its scroll and focused row while a color or choice is open, so Done lands back on it.
-    val panes = rememberSaveableStateHolder()
-
-    Box(modifier) {
-        val role = editing?.let { key -> colorRoles(current.colors).firstOrNull { it.key == key } }
-        val choice = editing?.let { key -> themeChoices.firstOrNull { it.key == key } }
-        val close = { editing = null }
-        // A pane's edits reach the theme only through Done.
-        val apply = { edited: ThemeSpec ->
-            viewModel.change { edited }
-            editing = null
-        }
-        when {
-            role != null -> PageFocusScope { ColorEditor(current, role, onApply = apply, onClose = close) }
-            choice != null -> PageFocusScope { ChoiceEditor(current, choice, onApply = apply, onClose = close) }
-            else -> panes.SaveableStateProvider("menu") {
-                PageFocusScope { EditorMenu(current, inUse, unsaved, viewModel, onOpen = { editing = it }, onDiscard = onGone) }
-            }
-        }
+    val role = editing?.let { key -> colorRoles(current.colors).firstOrNull { it.key == key } }
+    val choice = editing?.let { key -> themeChoices.firstOrNull { it.key == key } }
+    val close = { editing = null }
+    // A pane's edits reach the theme only through Done.
+    val apply = { edited: ThemeSpec ->
+        viewModel.change { edited }
+        editing = null
+    }
+    val pane: (@Composable () -> Unit)? = when {
+        role != null -> { { ColorEditor(current, role, onApply = apply, onClose = close) } }
+        choice != null -> { { ChoiceEditor(current, choice, onApply = apply, onClose = close) } }
+        else -> null
+    }
+    PanedPage(pane, modifier) {
+        EditorMenu(current, inUse, edits.unsaved, viewModel, onOpen = { editing = it }, onLeave = onGone)
     }
 }
 
@@ -217,29 +185,25 @@ private fun EditorMenu(
     unsaved: Boolean,
     viewModel: ThemeEditorViewModel,
     onOpen: (String) -> Unit,
-    onDiscard: () -> Unit,
+    onLeave: () -> Unit,
 ) {
     val firstFocus = rememberInitialFocus()
     val sheets = rememberSettingsSheets()
-    BackHandler(enabled = unsaved) {
-        sheets.show(ConfirmSheet("Discard changes?", "Edits since you last saved will be lost.", "Discard", Icons.Filled.Delete, onDiscard))
-    }
+    SaveOnBack(unsaved, sheets, viewModel::save, onLeave)
     SettingsPage(
         title = spec.name,
         trail = listOf("Settings", "Themes"),
         aside = { Preview(spec) },
+        actions = {
+            SaveButtons(unsaved, viewModel::save, viewModel::discard)
+            if (!inUse) OsdButton("Use theme", onClick = viewModel::use, icon = Icons.Filled.Check)
+        },
         sheets = sheets,
     ) {
         val problems = ThemeContrast.problems(spec.colors)
         for ((floor, _) in problems) {
             item(key = "problem-${floor.foreground}-${floor.background}") {
                 SettingsNotice(readability(floor, spec.colors), isError = true)
-            }
-        }
-        item(key = "actions") {
-            SettingsButtons {
-                OsdButton("Save", onClick = viewModel::save, icon = Icons.Filled.Save, primary = true, enabled = unsaved)
-                if (!inUse) OsdButton("Use theme", onClick = viewModel::use, icon = Icons.Filled.Check)
             }
         }
         item(key = "name") {
@@ -300,12 +264,7 @@ private val ChoiceIcons = mapOf(
 @Composable
 private fun Preview(spec: ThemeSpec) = ThemePreview(spec, Modifier.fillMaxWidth())
 
-/**
- * A color or choice opened from the menu ([id]): its own page beside the preview, editing its own
- * copy of [spec]. [content] reads the copy and changes it through `edit`. Done hands the copy to
- * the theme; Discard, red and on only while there are edits, or Back drops it. The two head the
- * page on every device, as Save and Use theme head the menu.
- */
+/** A color or choice opened from the menu ([id]), beside the preview of its own copy of [spec]. */
 @Composable
 private fun DesignerPane(
     title: String,
@@ -314,36 +273,14 @@ private fun DesignerPane(
     onApply: (ThemeSpec) -> Unit,
     onClose: () -> Unit,
     content: LazyListScope.(working: ThemeSpec, edit: ((ThemeSpec) -> ThemeSpec) -> Unit) -> Unit,
-) {
-    var working by remember(id) { mutableStateOf(spec) }
-    BackHandler(onBack = onClose)
-    SettingsPage(title = title, trail = listOf("Settings", "Themes", spec.name), aside = { Preview(working) }) {
-        item(key = "actions") {
-            SettingsButtons {
-                OsdButton("Done", onClick = { onApply(working) }, icon = Icons.Filled.Check, primary = true)
-                OsdButton("Discard", onClick = onClose, icon = Icons.Filled.Delete, enabled = working != spec, danger = true)
-            }
-        }
-        content(working) { transform -> working = transform(working) }
-    }
-}
+) = EditPane(title, id, spec, listOf("Settings", "Themes", spec.name), onApply, onClose, aside = { Preview(it) }, content = content)
 
 /** One choice, opened: its values as a radio list; a pick shows in the preview, and Done keeps it. */
 @Composable
 private fun ChoiceEditor(spec: ThemeSpec, choice: ThemeChoice, onApply: (ThemeSpec) -> Unit, onClose: () -> Unit) {
     val firstFocus = rememberInitialFocus()
     DesignerPane(choice.title, choice.key, spec, onApply, onClose) { working, edit ->
-        val selected = choice.selected(working)
-        choice.labels.forEachIndexed { i, label ->
-            item(key = "option-$i") {
-                OptionRow(
-                    title = label,
-                    selected = i == selected,
-                    onClick = { edit { choice.apply(it, i) } },
-                    modifier = if (i == selected.coerceAtLeast(0)) Modifier.focusRequester(firstFocus) else Modifier,
-                )
-            }
-        }
+        choiceRows("option", choice.labels.indices.toList(), choice.selected(working), choice.labels::get, onPick = { i -> edit { choice.apply(it, i) } }, firstFocus = firstFocus)
     }
 }
 
