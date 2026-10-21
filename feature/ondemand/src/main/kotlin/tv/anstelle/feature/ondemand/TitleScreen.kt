@@ -1,6 +1,5 @@
 package tv.anstelle.feature.ondemand
 
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -11,9 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -37,14 +34,9 @@ import tv.anstelle.core.model.WatchKind
 import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.data.playback.PlaybackReporter
 import tv.anstelle.core.model.MediaProgress
-import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.ActionDialog
-import tv.anstelle.core.theme.components.dialogActions
+import tv.anstelle.core.theme.components.EpisodeActionsDialog
 import tv.anstelle.core.theme.components.WatchIcons
-import tv.anstelle.core.theme.components.requestWhenReady
-import tv.anstelle.core.theme.components.WatchStrip
-import tv.anstelle.core.theme.components.Poster
-import tv.anstelle.core.theme.components.Notice
+import tv.anstelle.core.theme.components.splitEpisodeLabel
 import javax.inject.Inject
 
 @Immutable
@@ -114,9 +106,8 @@ class TitleViewModel @Inject constructor(
 }
 
 /**
- * A movie's or series' own page, opened from On Demand's catalog, as its listing card: the
- * poster, the logo, a readout of what was watched and what it is, the ways to watch as bars, the
- * whole synopsis. A movie resumes where it was left or plays from the start; a series goes on
+ * A movie's or series' details over its backdrop: logo, facts, whole synopsis, watch strip and
+ * action keys. A movie resumes where it was left or plays from the start; a series goes on
  * with its next episode, and shows every episode as a carousel by season, opened at that
  * episode. OK on an episode opens its own page; holding it (or Menu) offers the quick ways to
  * play it.
@@ -142,7 +133,6 @@ fun TitleScreen(
         if (state.loaded) LaunchedEffect(Unit) { onGone() }
         return
     }
-    val isTv = LocalIsTv.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     // An episode airing on a channel right now opens that channel's page, not its own.
     val openEpisode: (Long) -> Unit = { id ->
@@ -160,67 +150,43 @@ fun TitleScreen(
     val returnFocus = remember { FocusRequester() }
     var lastTouched by rememberSaveable { mutableStateOf<Long?>(null) }
     var holding by remember { mutableStateOf<EpisodeEntry?>(null) }
-    val firstFocus = rememberProgrammeFocus(page.id, listState, lastTouched, returnFocus, page.overview != null || edit.error != null)
+    val firstFocus = rememberProgrammeFocus(page.id, listState, lastTouched, returnFocus)
 
     val next = remember(page, watch) { NextEpisode.of(page.episodes, watch) }
     val seasons = remember(page) { page.episodes.groupBy { it.seasonLabel } }
-    val navigation = rememberEpisodeNavigation(listState, page.overview != null || edit.error != null, seasons.size, firstFocus)
+    val navigation = rememberEpisodeNavigation(listState, seasons.size, firstFocus, hasDescription = page.overview != null)
     var season by rememberSaveable { mutableStateOf<String?>(null) }
     val openSeason = season ?: next?.seasonLabel ?: seasons.keys.firstOrNull()
-    val actions = titleActions(page, next, watch).map { action ->
-        SheetAction(action.label, action.icon) {
-            lastTouched = null
-            onPlay(action.itemId, action.positionMs)
-        }
+    val actions = titleActions(page, next, watch) { itemId, positionMs ->
+        lastTouched = null
+        onPlay(itemId, positionMs)
     } + listOfNotNull(
         watchedAction(watched, edit.saving, watch.known) { viewModel.setWatched(!watched) }.takeIf { !page.kind.episodic || page.episodes.isNotEmpty() },
-        SheetAction("Add to a channel", WatchIcons.AddToChannel) { onAddToChannel?.invoke(page.id) }.takeIf { onAddToChannel != null },
+        addToChannelAction(page.id, onAddToChannel),
     )
 
     Page(
         backdropUrl = page.artwork.backdropUrl,
         hero = {
             ProgrammeSheet(
-                shape = PictureShape.POSTER,
-                picture = { slot ->
-                    // A movie's poster says what was watched of it, as an episode's still does.
-                    Poster(
-                        page.posterUrl,
-                        page.title,
-                        slot,
-                        shaded = watched,
-                    ) {
-                        WatchStrip(
-                            MediaProgress(if (page.kind.episodic) 0 else page.durationMs, resume),
-                            watched,
-                            Modifier.align(Alignment.BottomStart),
-                        )
-                    }
-                },
-                title = {
-                    SheetLogo(page.artwork.logoUrl, page.title)
-                    SheetTitle(page.title)
-                },
+                title = page.title,
+                logoUrl = page.artwork.logoUrl,
                 readout = { MediaFacts(page.year, page.rating, page.genres, page.durationMs,
                     seasonCount = page.seasonCount.takeIf { page.kind.episodic }, episodeCount = page.episodes.size.takeIf { page.kind.episodic }) },
+                overview = page.overview,
+                error = edit.error,
+                navigation = navigation,
+                progress = MediaProgress(if (page.kind.episodic) 0 else page.durationMs, resume),
                 bars = { WatchKeys(actions, listState, firstFocus, navigation = navigation, onFocused = { lastTouched = null }) },
             )
         },
         modifier = modifier,
         listState = listState,
+        seasonTabs = if (page.episodes.isNotEmpty()) {
+            { EpisodesHeading(seasons, openSeason, watch, navigation = navigation) { season = it } }
+        } else null,
     ) {
-        if (page.overview != null || edit.error != null) {
-            item(key = "synopsis") {
-                androidx.compose.foundation.layout.Column(Modifier.padding(top = if (isTv) 12.dp else 8.dp)) {
-                    edit.error?.let { Notice(it, isError = true) }
-                    page.overview?.let { Synopsis(it) }
-                }
-            }
-        }
         if (page.episodes.isNotEmpty()) {
-            item(key = "episodes-heading") {
-                EpisodesHeading(seasons, openSeason, watch, Modifier.padding(top = if (isTv) 20.dp else 14.dp), navigation) { season = it }
-            }
             item(key = "episodes") {
                 EpisodeCarousel(
                     episodes = seasons[openSeason].orEmpty(),
@@ -243,48 +209,39 @@ fun TitleScreen(
     }
 
     holding?.let { episode ->
-        val resume = watch.resumeMs(episode.id, episode.durationMs)
-        val choices = WatchChoices.episodeActions(resume, canAddToChannel = onAddToChannel != null)
-        val dismiss = {
-            holding = null
-            if (isTv) scope.launch { returnFocus.requestWhenReady() }
-            Unit
-        }
-        ActionDialog(
-            actions = choices.dialogActions { choice ->
-                holding = null
+        EpisodeActionsDialog(
+            show = page.title,
+            label = episode.label,
+            facts = episode.facts,
+            choices = WatchChoices.episodeActions(watch.resumeMs(episode.id, episode.durationMs), canAddToChannel = onAddToChannel != null),
+            returnFocus = returnFocus,
+            onDismiss = { holding = null },
+            onAction = { choice ->
                 when (choice.kind) {
                     WatchKind.ADD_TO_CHANNEL -> onAddToChannel?.invoke(episode.id)
                     else -> onPlay(episode.id, choice.positionMs)
                 }
             },
-            onDismiss = dismiss,
-        ) { EpisodeDialogHeader(page.title, episode) }
+        )
     }
 }
-
-/** One of a title page's keys: what it says and wears, and the item it plays from where. */
-private data class TitleAction(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val itemId: Long, val positionMs: Long = 0)
 
 /**
  * The page's ways to watch: a movie's Resume (or Play) and From the start; a series' next
  * episode, resumed or played, and its first episode from the start.
  */
-private fun titleActions(page: TitlePage, next: EpisodeEntry?, watch: WatchMarks): List<TitleAction> {
+private fun titleActions(page: TitlePage, next: EpisodeEntry?, watch: WatchMarks, onPlay: (Long, Long) -> Unit): List<SheetAction> {
     if (!page.kind.episodic) {
         val resume = watch.resumeMs(page.id, page.durationMs)
-        return listOfNotNull(
-            if (resume > 0) TitleAction("Resume", WatchIcons.play(resume, false), page.id, resume) else TitleAction("Play", WatchIcons.play(0, false), page.id),
-            TitleAction("From the start", WatchIcons.StartOver, page.id).takeIf { resume > 0 },
-        )
+        return playActions(page.id, resume, onPlay)
     }
     next ?: return emptyList()
     val resume = watch.resumeMs(next.id, next.durationMs)
     val number = splitEpisodeLabel(next.label).first
     val first = page.episodes.firstOrNull { it.season != 0 } ?: page.episodes.first()
     return listOfNotNull(
-        TitleAction(listOfNotNull(if (resume > 0) "Resume" else "Play", number).joinToString(" "), WatchIcons.play(resume, false), next.id, resume),
+        SheetAction(listOfNotNull(if (resume > 0) "Resume" else "Play", number).joinToString(" "), WatchIcons.play(resume, false)) { onPlay(next.id, resume) },
         // The show from its first episode, once going on with it would start somewhere else.
-        TitleAction("From the start", WatchIcons.StartOver, first.id).takeIf { next.id != first.id || resume > 0 },
+        SheetAction("From the start", WatchIcons.StartOver) { onPlay(first.id, 0) }.takeIf { next.id != first.id || resume > 0 },
     )
 }

@@ -57,7 +57,6 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,6 +85,7 @@ import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdBadge
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.SegmentRing
+import tv.anstelle.core.theme.components.osdKeyHeight
 
 /** The line under the title: S1E2 - its title for an episode, the year for a movie. */
 @Composable
@@ -471,9 +471,6 @@ private fun glyphSpan(icon: ImageVector) = when (icon) {
     else -> 20f
 }
 
-internal val playerKeySize: Dp
-    @Composable get() = 48.dp * maxOf(1f, LocalDensity.current.fontScale * LocalAnstelleTheme.current.spec.typography.scale)
-
 /** How much of the muted ink a key keeps while it can't act. */
 private const val DISABLED_ALPHA = 0.45f
 
@@ -528,7 +525,7 @@ internal fun OsdKey(
         } else {
             Row(
                 Modifier
-                    .height(playerKeySize)
+                    .height(osdKeyHeight)
                     .padding(horizontal = KEY_PADDING),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

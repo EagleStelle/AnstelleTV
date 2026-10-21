@@ -1,6 +1,5 @@
 package tv.anstelle.feature.ondemand
 
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import tv.anstelle.core.model.MediaProgress
 import androidx.compose.runtime.Composable
@@ -13,9 +12,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -36,15 +33,9 @@ import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.model.WatchKind
 import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.data.playback.PlaybackReporter
-import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.ActionDialog
-import tv.anstelle.core.theme.components.dialogActions
+import tv.anstelle.core.theme.components.EpisodeActionsDialog
 import tv.anstelle.core.theme.components.goToSeriesAction
-import tv.anstelle.core.theme.components.WatchIcons
 import tv.anstelle.core.theme.components.requestWhenReady
-import tv.anstelle.core.theme.components.WatchStrip
-import tv.anstelle.core.theme.components.Poster
-import tv.anstelle.core.theme.components.Notice
 import javax.inject.Inject
 
 @Immutable
@@ -114,9 +105,8 @@ class EpisodeViewModel @Inject constructor(
 
 /**
  * An episode's own page, opened from its show's carousel on a channel's or series' page: the
- * channel page's sheet without the channel. Its still with what was watched at its foot, the
- * show's logo, the episode, a readout of what was watched and what it is, Resume (or Play) and
- * From the start and Go to Series as bars, the whole synopsis, then the season's carousel opened on this episode,
+ * shared detail sheet over the episode's still. Logo, episode title, facts, whole synopsis,
+ * watch strip and action keys precede the season's carousel opened on this episode,
  * so the next one is a press away. OK on another episode opens its page in this one's place, so
  * Back still returns to the page that opened the first.
  */
@@ -142,7 +132,6 @@ fun EpisodeScreen(
         if (state.loaded) LaunchedEffect(Unit) { onGone() }
         return
     }
-    val isTv = LocalIsTv.current
     val scope = rememberCoroutineScope()
     // An episode airing on a channel right now opens that channel's page, not its own.
     val openEpisode: (Long) -> Unit = { id ->
@@ -159,65 +148,42 @@ fun EpisodeScreen(
     val returnFocus = remember { FocusRequester() }
     var lastTouched by rememberSaveable { mutableStateOf<Long?>(null) }
     var holding by remember { mutableStateOf<EpisodeEntry?>(null) }
-    val firstFocus = rememberProgrammeFocus(item.id, listState, lastTouched, returnFocus, item.overview != null || edit.error != null)
+    val firstFocus = rememberProgrammeFocus(item.id, listState, lastTouched, returnFocus)
 
     val self = page.episodes.firstOrNull { it.id == item.id }
     val seasons = remember(page) { page.episodes.groupBy { it.seasonLabel } }
-    val navigation = rememberEpisodeNavigation(listState, item.overview != null || edit.error != null, seasons.size, firstFocus)
+    val navigation = rememberEpisodeNavigation(listState, seasons.size, firstFocus, hasDescription = item.overview != null)
     var season by rememberSaveable(item.id) { mutableStateOf(self?.seasonLabel ?: seasons.keys.firstOrNull()) }
     val resume = watch.resumeMs(item.id, item.durationMs)
     val watched = watch.watched(item.id, item.durationMs)
-    val actions = listOfNotNull(
-        if (resume > 0) {
-            SheetAction("Resume", WatchIcons.play(resume, false)) { onPlay(item.id, resume) }
-        } else {
-            SheetAction("Play", WatchIcons.play(0, false)) { onPlay(item.id, 0) }
-        },
-        SheetAction("From the start", WatchIcons.StartOver) { onPlay(item.id, 0) }.takeIf { resume > 0 },
+    val actions = playActions(item.id, resume, onPlay) + listOfNotNull(
         watchedAction(watched, edit.saving, watch.known) { viewModel.setWatched(!watched) },
         page.seriesId?.let { seriesId -> SheetAction(goToSeriesAction { onOpenSeries(seriesId) }) },
-        SheetAction("Add to a channel", WatchIcons.AddToChannel) { onAddToChannel?.invoke(item.id) }.takeIf { onAddToChannel != null },
+        addToChannelAction(item.id, onAddToChannel),
     )
 
     Page(
-        backdropUrl = item.artwork.backdropUrl,
+        backdropUrl = self?.stillUrl,
         hero = {
             ProgrammeSheet(
-                shape = PictureShape.STILL,
-                picture = { slot ->
-                    Poster(
-                        item.imageUrl,
-                        item.title,
-                        slot,
-                        shaded = watched,
-                    ) {
-                        WatchStrip(MediaProgress(item.durationMs, resume), watched, Modifier.align(Alignment.BottomStart))
-                    }
-                },
-                title = {
-                    SheetLogo(item.artwork.logoUrl, item.title)
-                    SheetTitle(item.title)
-                    item.detail?.let { EpisodeLine(it) }
-                },
+                title = item.title,
+                logoUrl = item.artwork.logoUrl,
+                detail = item.detail,
                 readout = { MediaFacts(item.year, item.rating, item.genres, item.durationMs) },
+                overview = item.overview,
+                error = edit.error,
+                navigation = navigation,
+                progress = MediaProgress(item.durationMs, resume),
                 bars = { WatchKeys(actions, listState, firstFocus, navigation = navigation, onFocused = { lastTouched = null }) },
             )
         },
         modifier = modifier,
         listState = listState,
+        seasonTabs = if (page.episodes.isNotEmpty()) {
+            { EpisodesHeading(seasons, season, watch, navigation = navigation) { season = it } }
+        } else null,
     ) {
-        if (item.overview != null || edit.error != null) {
-            item(key = "synopsis") {
-                androidx.compose.foundation.layout.Column(Modifier.padding(top = if (isTv) 12.dp else 8.dp)) {
-                    edit.error?.let { Notice(it, isError = true) }
-                    item.overview?.let { Synopsis(it) }
-                }
-            }
-        }
         if (page.episodes.isNotEmpty()) {
-            item(key = "episodes-heading") {
-                EpisodesHeading(seasons, season, watch, Modifier.padding(top = if (isTv) 20.dp else 14.dp), navigation) { season = it }
-            }
             item(key = "episodes") {
                 EpisodeCarousel(
                     episodes = seasons[season].orEmpty(),
@@ -248,22 +214,19 @@ fun EpisodeScreen(
     }
 
     holding?.let { episode ->
-        val held = watch.resumeMs(episode.id, episode.durationMs)
-        val choices = WatchChoices.episodeActions(held, canAddToChannel = onAddToChannel != null)
-        val dismiss = {
-            holding = null
-            if (isTv) scope.launch { returnFocus.requestWhenReady() }
-            Unit
-        }
-        ActionDialog(
-            actions = choices.dialogActions { choice ->
-                holding = null
+        EpisodeActionsDialog(
+            show = item.title,
+            label = episode.label,
+            facts = episode.facts,
+            choices = WatchChoices.episodeActions(watch.resumeMs(episode.id, episode.durationMs), canAddToChannel = onAddToChannel != null),
+            returnFocus = returnFocus,
+            onDismiss = { holding = null },
+            onAction = { choice ->
                 when (choice.kind) {
                     WatchKind.ADD_TO_CHANNEL -> onAddToChannel?.invoke(episode.id)
                     else -> onPlay(episode.id, choice.positionMs)
                 }
             },
-            onDismiss = dismiss,
-        ) { EpisodeDialogHeader(item.title, episode) }
+        )
     }
 }

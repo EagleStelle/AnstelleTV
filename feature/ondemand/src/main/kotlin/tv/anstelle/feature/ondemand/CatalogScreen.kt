@@ -53,6 +53,7 @@ import tv.anstelle.core.data.ondemand.WatchCard
 import tv.anstelle.core.model.WatchChoice
 import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.model.MediaProgress
+import tv.anstelle.core.theme.components.TILE_FRAME
 import tv.anstelle.core.theme.components.WatchProgress
 import tv.anstelle.core.theme.components.browseHeading
 import tv.anstelle.core.data.ondemand.WatchFilter

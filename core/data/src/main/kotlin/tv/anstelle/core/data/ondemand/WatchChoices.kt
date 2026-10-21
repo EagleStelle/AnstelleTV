@@ -148,8 +148,11 @@ object WatchChoices {
     fun addToChannel(isMovie: Boolean) = WatchChoice(
         WatchKind.ADD_TO_CHANNEL,
         if (isMovie) "Add movie to a channel" else "Add show to a channel",
-        "Pick a channel to always air it.",
+        ADD_TO_CHANNEL_DETAIL,
     )
+
+    /** What adding to a channel does, in the guide's dialog and a detail page's More alike. */
+    const val ADD_TO_CHANNEL_DETAIL = "Pick a channel to always air it."
 
     /**
      * An episode list's word on where it was left on demand, "12 min left", in place of its

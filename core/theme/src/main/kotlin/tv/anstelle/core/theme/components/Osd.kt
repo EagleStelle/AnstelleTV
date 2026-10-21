@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -74,6 +75,12 @@ val screenEdge: Dp @Composable get() = if (LocalIsTv.current) 12.dp else 8.dp
 
 /** The guide's gap between its bands (preview, tabs, grid); On demand's between its rows. */
 val screenGap: Dp @Composable get() = if (LocalIsTv.current) 8.dp else 6.dp
+
+/** How much keys grow: with the system font and the theme's type scale, never below their own size. */
+val osdKeyScale: Float @Composable get() = maxOf(1f, LocalDensity.current.fontScale * LocalAnstelleTheme.current.spec.typography.scale)
+
+/** One key height for the player's banner and every detail page's watch keys, so the two always match. */
+val osdKeyHeight: Dp @Composable get() = 48.dp * osdKeyScale
 
 /** A short tag in the field voice on a flat fill: a profile's role, the default theme. */
 @Composable
@@ -182,9 +189,9 @@ fun osdTabLabel(compact: Boolean): TextStyle {
 }
 
 /**
- * A tab: flat text, the open one underlined in the accent; focus fills it. [count] is set in
- * tabular figures after the label; a [done] tab (a season watched through) carries the watched
- * square in its place. [compact] tabs (the guide's, on TV) take a smaller label and less
+ * A tab: flat text, the open one underlined in the accent; focus fills it. [count] follows the
+ * label as a coal chip in the field voice, inverted on the focus fill; a [done] tab (a season
+ * watched through) carries the watched square in its place. [compact] tabs (the guide's, on TV) take a smaller label and less
  * height, so the grid under them keeps its rows.
  */
 @Composable
@@ -214,19 +221,14 @@ fun OsdTab(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                androidx.compose.material3.Text(
-                    buildAnnotatedString {
-                        append(label)
-                        if (count != null && !done) {
-                            withStyle(SpanStyle(color = color.copy(alpha = 0.7f))) { append("  $count") }
-                        }
-                    },
-                    style = osdTabLabel(compact),
-                    color = color,
-                    maxLines = 1,
-                )
+                androidx.compose.material3.Text(label, style = osdTabLabel(compact), color = color, maxLines = 1)
                 // The square follows the label's ink, its tick cut in whatever the tab sits on.
-                if (done) WatchedMarker(color = color, tick = if (focused) theme.accent else theme.background)
+                if (done) {
+                    WatchedMarker(color = color, tick = if (focused) theme.accent else theme.background)
+                } else if (count != null) {
+                    // A chip a step down in the field voice, so the count never reads as the label's next word.
+                    OsdChip("$count", fill = if (focused) theme.onAccent else theme.surface, ink = if (focused) theme.accent else theme.textMuted)
+                }
             }
             OsdTabIndicator(selected, focused)
         }
@@ -505,7 +507,7 @@ fun WatchProgress(
             time,
             style = (if (compact) androidx.compose.material3.MaterialTheme.typography.labelSmall else androidx.compose.material3.MaterialTheme.typography.labelMedium)
                 .merge(TextStyle(fontFeatureSettings = "tnum")),
-            color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
+            color = quietInk(focused),
             maxLines = 1,
             modifier = Modifier.align(Alignment.CenterVertically).semantics { contentDescription = "$time remaining" },
         )

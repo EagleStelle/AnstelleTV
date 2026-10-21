@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -102,6 +101,12 @@ import tv.anstelle.core.theme.components.PlaceholderAction
 import tv.anstelle.core.theme.components.PlaceholderScreen
 import tv.anstelle.core.theme.components.WatchStrip
 import tv.anstelle.core.theme.components.browseHeading
+import tv.anstelle.core.theme.components.CaptionLine
+import tv.anstelle.core.theme.components.TILE_FRAME
+import tv.anstelle.core.theme.components.TileCaptionPadding
+import tv.anstelle.core.theme.components.numbered
+import tv.anstelle.core.theme.components.quietInk
+import tv.anstelle.core.theme.components.splitEpisodeLabel
 import tv.anstelle.core.theme.components.StatusLine
 import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.screenEdge
@@ -627,17 +632,7 @@ private fun ChannelSlide(slide: ChannelNow) {
         label = "On now",
         text = WatchChoices.clockRange(slide.startUtcMs, slide.endUtcMs),
     )
-    slide.overview?.let {
-        androidx.compose.material3.Text(
-            it,
-            style = typography.bodyMedium,
-            color = theme.text,
-            minLines = 2,
-            maxLines = if (isTv) 5 else 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 620.dp),
-        )
-    }
+    slide.overview?.let { BannerDescription(it) }
 }
 
 /**
@@ -700,7 +695,7 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                     modifier = Modifier.align(Alignment.BottomStart),
                 )
             }
-            Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(Modifier.padding(TileCaptionPadding), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     ChannelNumber(tile.channel.number, focused, typography.labelLarge)
                     androidx.compose.material3.Text(
@@ -716,7 +711,7 @@ private fun ChannelTileCard(tile: ChannelTile, nowMs: Long, onClick: () -> Unit,
                         if (now == null) "Nothing scheduled".uppercase() else "Until ${WatchChoices.clockTime(now.endUtcMs)}".uppercase(),
                         // Label-medium keeps body-small's line height, so a dark tile stands as tall as the rest.
                         style = typography.labelMedium,
-                        color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
+                        color = quietInk(focused),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

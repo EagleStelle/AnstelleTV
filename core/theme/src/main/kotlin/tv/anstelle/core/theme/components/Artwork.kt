@@ -32,8 +32,7 @@ import tv.anstelle.core.theme.LocalAnstelleTheme
 
 /**
  * An image from the server, or the title's first letter on the surface step when there is none.
- * [shaded] applies the watched shade; [playing] keeps the picture clear and puts the shared
- * status line in its top-left corner. [content] supplies overlays such as the watch strip.
+ * [shaded] applies the watched shade. [content] supplies overlays such as the watch strip.
  */
 @Composable
 fun Poster(
@@ -41,7 +40,6 @@ fun Poster(
     title: String,
     modifier: Modifier = Modifier,
     shaded: Boolean = false,
-    playing: Boolean = false,
     content: @Composable BoxScope.() -> Unit = {},
 ) {
     val theme = LocalAnstelleTheme.current
@@ -59,18 +57,8 @@ fun Poster(
                 modifier = Modifier.matchParentSize(),
             )
         }
-        if (shaded && !playing) Box(Modifier.matchParentSize().background(PastShade))
+        if (shaded) Box(Modifier.matchParentSize().background(PastShade))
         content()
-        if (playing) {
-            StatusLine(
-                onAir = true,
-                label = "Playing",
-                text = "",
-                modifier = Modifier.align(Alignment.TopStart)
-                    .background(theme.background.copy(alpha = BACKDROP_WASH))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            )
-        }
     }
 }
 

@@ -29,6 +29,7 @@ import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdChip
+import tv.anstelle.core.theme.components.quietInk
 
 /** The tile's side on this device. */
 internal val tileSize: Dp @Composable get() = if (LocalIsTv.current) 148.dp else 104.dp
@@ -118,7 +119,7 @@ internal fun ProfileTile(
                     androidx.compose.material3.Text(
                         detail ?: " ",
                         style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                        color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
+                        color = quietInk(focused),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

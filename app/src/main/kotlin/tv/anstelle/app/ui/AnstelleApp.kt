@@ -43,6 +43,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.focus.FocusRequester
@@ -350,7 +351,7 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onStartOver = { navController.navigate(PlayerRoute(it, restart = true)) },
                     onPlay = { itemId, position -> navController.navigate(OnDemandPlayRoute(itemId, position, page.channelId, page.atUtcMs)) },
                     onOpenEpisode = { navController.navigate(OnDemandEpisodeRoute(it, page.channelId, page.atUtcMs)) },
-                    onOpenOnDemand = navController::openOnDemandDetails,
+                    onOpenTitle = { navController.openOnDemandDetails(it, isEpisode = false) },
                     onAddToChannel = addToChannel,
                     onGone = { navController.popBackStack() },
                 )
@@ -358,9 +359,10 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
         }
         composable<OnDemandPlayRoute> { entry ->
             val playing = entry.toRoute<OnDemandPlayRoute>()
-            OnDemandPlayerScreen(onExit = { itemId, isEpisode ->
-                navController.leaveOnDemandPlayer(playing, itemId, isEpisode)
-            })
+            OnDemandPlayerScreen(
+                onExit = { itemId, isEpisode -> navController.leaveOnDemandPlayer(playing, itemId, isEpisode) },
+                onAddToChannel = addToChannel,
+            )
         }
         adminOnly<AddToChannelRoute>(navController) { AddToChannelScreen(onGone = { navController.popBackStack() }) }
         composable<DashboardRoute> { DashboardScreen(onTurnedOff = { navController.navigateTopLevel(TopLevelDestination.Guide) }) }
@@ -536,7 +538,8 @@ private fun NavRail(destinations: List<TopLevelDestination>, selected: TopLevelD
     val isTv = LocalIsTv.current
     val requesters = remember { TopLevelDestination.entries.associateWith { FocusRequester() } }
     val railDestination = selected?.takeIf { it in destinations } ?: destinations.firstOrNull()
-    Box(Modifier.fillMaxHeight().background(theme.surface)) {
+    // Drawn above the screen beside it, whose artwork may bleed past its start edge.
+    Box(Modifier.zIndex(1f).fillMaxHeight().background(theme.surface)) {
         Column(
             modifier
                 .fillMaxHeight()

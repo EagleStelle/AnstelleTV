@@ -14,23 +14,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import tv.anstelle.core.data.ondemand.WatchChoices
 import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
-
-/** The readable media name always appears, including when a graphical logo is available. */
-@Composable
-internal fun SheetTitle(title: String, modifier: Modifier = Modifier) {
-    val typography = androidx.compose.material3.MaterialTheme.typography
-    androidx.compose.material3.Text(
-        title,
-        style = if (LocalIsTv.current) typography.headlineSmall else typography.titleLarge,
-        color = LocalAnstelleTheme.current.text,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier,
-    )
-}
+import tv.anstelle.core.theme.components.WatchIcons
 
 /** Familiar values speak for themselves: year, rating, duration/counts, then genre. */
 @Composable
@@ -76,3 +64,14 @@ internal fun watchedAction(watched: Boolean, saving: Boolean, known: Boolean, on
     watched = watched,
     onClick = onClick,
 )
+
+/** A movie or episode resumes at its saved point, with a separate key to start again. */
+internal fun playActions(itemId: Long, resumeMs: Long, onPlay: (Long, Long) -> Unit): List<SheetAction> = listOfNotNull(
+    SheetAction(if (resumeMs > 0) "Resume" else "Play", WatchIcons.play(resumeMs, false)) { onPlay(itemId, resumeMs) },
+    SheetAction("From the start", WatchIcons.StartOver) { onPlay(itemId, 0) }.takeIf { resumeMs > 0 },
+)
+
+internal fun addToChannelAction(itemId: Long, onAddToChannel: ((Long) -> Unit)?): SheetAction? =
+    onAddToChannel?.let { add ->
+        SheetAction("Add to a channel", WatchIcons.AddToChannel, detail = WatchChoices.ADD_TO_CHANNEL_DETAIL) { add(itemId) }
+    }

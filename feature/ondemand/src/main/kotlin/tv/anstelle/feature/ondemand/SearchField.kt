@@ -62,6 +62,7 @@ import tv.anstelle.core.theme.components.osdTabLabel
 import tv.anstelle.core.theme.components.osdTabContentHeight
 import tv.anstelle.core.theme.components.osdTabHeight
 import tv.anstelle.core.theme.components.OsdTabIndicator
+import tv.anstelle.core.theme.components.quietInk
 import tv.anstelle.core.theme.components.requestWhenReady
 
 /** What the search slab says while nothing is typed. */
@@ -135,7 +136,7 @@ internal fun SearchField(
     // Focus is a fill, as on any key; typing, the slab is coal again with a rose caret.
     val lit = isTv && focused && !typing
     val ink = if (lit) theme.onAccent else theme.text
-    val quiet = if (lit) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted
+    val quiet = quietInk(lit)
     val clearable = open && query.isNotEmpty()
 
     if (!open) {

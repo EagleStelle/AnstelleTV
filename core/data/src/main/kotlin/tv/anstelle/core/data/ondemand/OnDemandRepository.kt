@@ -93,6 +93,10 @@ data class WatchMarks(val resume: Map<Long, Long> = emptyMap(), val played: Set<
     /** Progress-only playback must not create a watched badge or advance the watched episode. */
     fun watched(id: Long, durationMs: Long): Boolean = id in played
 
+    /** The seasons of [seasons] watched through, whose tabs carry the watched square. */
+    fun doneSeasons(seasons: Map<String, List<EpisodeEntry>>): Set<String> =
+        seasons.filterValues { list -> list.isNotEmpty() && list.all { watched(it.id, it.durationMs) } }.keys
+
     /** Apply a confirmed manual change without changing any other item's history. */
     fun withPlayed(ids: Set<Long>, watched: Boolean): WatchMarks = copy(
         resume = if (watched) resume - ids else resume,
@@ -148,6 +152,8 @@ data class ChannelPage(
      * blacked out and it can't be played on demand.
      */
     val restriction: Restriction? = null,
+    /** An episode's accessible parent series, or null for a movie or when the series is missing or unavailable. */
+    val seriesId: Long? = null,
 )
 
 /**
@@ -263,6 +269,7 @@ class OnDemandRepository @Inject constructor(
             },
             episodes = episodes.map { it.toEntry(base) },
             restriction = restriction,
+            seriesId = accessibleSeries(series, access),
         )
     }
 
@@ -293,9 +300,13 @@ class OnDemandRepository @Inject constructor(
         EpisodePage(
             itemPage(entity, series, base),
             showEpisodes(entity, access).map { it.toEntry(base) },
-            seriesId = series?.takeIf { it.type == MediaType.SERIES && access.allows(it.id, it.ratingScore) }?.id,
+            seriesId = accessibleSeries(series, access),
         )
     }
+
+    /** The id of [series] when it is a series page the profile may open; null otherwise. */
+    private fun accessibleSeries(series: MediaItemEntity?, access: ProfileAccess): Long? =
+        series?.takeIf { it.type == MediaType.SERIES && access.allows(it.id, it.ratingScore) }?.id
 
     /** Where the run of restricted programs ending one at [fromUtcMs] on [channelId] ends. */
     private suspend fun restrictedUntil(channelId: Long, fromUtcMs: Long, access: ProfileAccess): Long =

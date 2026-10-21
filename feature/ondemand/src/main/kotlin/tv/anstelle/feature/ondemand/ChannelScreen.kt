@@ -1,9 +1,7 @@
 package tv.anstelle.feature.ondemand
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,21 +43,13 @@ import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.ChannelLogo
-import tv.anstelle.core.theme.components.dialogActions
+import tv.anstelle.core.theme.components.EpisodeActionsDialog
+import tv.anstelle.core.theme.components.goToSeriesAction
 import tv.anstelle.core.theme.components.icon
 import tv.anstelle.core.theme.components.onDemandNavigation
 import tv.anstelle.core.theme.components.NumberBlock
-import tv.anstelle.core.theme.components.RestrictedMark
-import tv.anstelle.core.theme.components.StandInSize
-import tv.anstelle.core.theme.components.WatchIcons
-import tv.anstelle.core.theme.components.obscured
-import tv.anstelle.core.theme.components.requestWhenReady
-import tv.anstelle.core.theme.components.Notice
 import tv.anstelle.core.theme.components.StatusLine
-import tv.anstelle.core.theme.components.WatchStrip
-import tv.anstelle.core.theme.components.Poster
 import javax.inject.Inject
 
 @Immutable
@@ -90,15 +80,6 @@ class ChannelViewModel @Inject constructor(
     val state: StateFlow<ChannelUiState> = _state.asStateFlow()
 
     private var profileId = 0L
-    val watchEditor = WatchedEditor(repository, viewModelScope)
-
-    fun setWatched(watched: Boolean) {
-        val page = _state.value.page ?: return
-        if (page.restriction != null) return
-        watchEditor.setWatched(page.item.id, profileId, watched, ::refreshWatch) { ids ->
-            _state.update { it.copy(watch = it.watch.withPlayed(ids, watched)) }
-        }
-    }
 
     init {
         viewModelScope.launch {
@@ -122,22 +103,19 @@ class ChannelViewModel @Inject constructor(
     /** Reads what was watched again, e.g. after watching some of it. */
     fun refreshWatch() {
         val page = _state.value.page ?: return
-        val revision = watchEditor.revision
         viewModelScope.launch {
             val watch = repository.watchMarks(page, profileId)
-            if (revision == watchEditor.revision && !watchEditor.state.value.saving) {
-                _state.update { it.copy(watch = if (watch.known) watch else it.watch.copy(known = false)) }
-            }
+            _state.update { it.copy(watch = if (watch.known) watch else it.watch.copy(known = false)) }
         }
     }
 }
 
 /**
  * A channel in On demand, as the listing card of the program it airs now (or next, while it is
- * off air): the picture with the airing's ladder, the channel's ident, the logo, a readout of when
- * it airs and what it is, the ways to watch as bars, the whole synopsis, and for a show its
- * episodes as a carousel, opened at the one on the channel. Only the sheet says what the channel
- * airs; the carousel says what was watched on demand. OK on an episode opens its own page;
+ * off air): backdrop, channel ident, logo, airing and media facts, whole synopsis, airing ladder
+ * and action keys. A show adds its
+ * episodes as a carousel, opened at the one on the channel, ringed as the page's current one. Only
+ * the sheet says when the channel airs it; the carousel says what was watched on demand. OK on an episode opens its own page;
  * holding it (or Menu) offers the quick ways to play it.
  */
 @Composable
@@ -146,8 +124,8 @@ fun ChannelScreen(
     onStartOver: (channelNumber: Int) -> Unit,
     onPlay: (itemId: Long, positionMs: Long) -> Unit,
     onOpenEpisode: (itemId: Long) -> Unit,
-    /** Opens this channel's movie or episode in the on-demand library. */
-    onOpenOnDemand: (itemId: Long, isEpisode: Boolean) -> Unit,
+    /** Opens a title's page in the on-demand library: the movie on the channel, or its episode's series. */
+    onOpenTitle: (titleId: Long) -> Unit,
     /** Null for a member: adding to a channel is the owner's and admins'. */
     onAddToChannel: ((itemId: Long) -> Unit)?,
     onGone: () -> Unit,
@@ -164,23 +142,19 @@ fun ChannelScreen(
         if (state.loaded) LaunchedEffect(Unit) { onGone() }
         return
     }
-    val isTv = LocalIsTv.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val edit by viewModel.watchEditor.state.collectAsStateWithLifecycle()
     val clock = rememberClock()
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     // The episode last opened or held, so Back and a closed dialog land on it again.
     val returnFocus = remember { FocusRequester() }
     var lastTouched by rememberSaveable { mutableStateOf<Long?>(null) }
     var holding by remember { mutableStateOf<EpisodeEntry?>(null) }
-    val firstFocus = rememberProgrammeFocus(page.channel.id to page.startUtcMs, listState, lastTouched, returnFocus,
-        page.restriction != null || page.item.overview != null || edit.error != null)
+    val firstFocus = rememberProgrammeFocus(page.channel.id to page.startUtcMs, listState, lastTouched, returnFocus)
 
     val item = page.item
     val restricted = page.restriction != null
     val topicEpisode = page.episodes.firstOrNull { it.id == item.id }
     val seasons = remember(page) { page.episodes.groupBy { it.seasonLabel } }
-    val navigation = rememberEpisodeNavigation(listState, restricted || item.overview != null || edit.error != null, seasons.size, firstFocus)
+    val navigation = rememberEpisodeNavigation(listState, seasons.size, firstFocus, hasDescription = item.overview != null)
     var season by rememberSaveable { mutableStateOf(topicEpisode?.seasonLabel ?: seasons.keys.firstOrNull()) }
     val choices = topicChoices(page, state.openedAtMs)
 
@@ -200,38 +174,24 @@ fun ChannelScreen(
             act(choice, item.id)
         }
     } + listOfNotNull(
-        SheetAction("Add to a channel", WatchIcons.AddToChannel) { onAddToChannel?.invoke(item.id) }.takeIf { onAddToChannel != null },
+        // An episode leads to its series; only a movie opens on demand itself.
+        if (item.isEpisode) {
+            page.seriesId?.takeIf { !restricted }?.let { seriesId -> SheetAction(goToSeriesAction { onOpenTitle(seriesId) }) }
+        } else {
+            choices.onDemandNavigation(isEpisode = false) { onOpenTitle(item.id) }?.let { SheetAction(it) }
+        },
+        addToChannelAction(item.id, onAddToChannel),
     )
 
     Page(
-        backdropUrl = item.artwork.backdropUrl,
+        backdropUrl = if (item.isEpisode) topicEpisode?.stillUrl.takeUnless { restricted } else item.artwork.backdropUrl,
         hero = {
-            val shape = if (item.isEpisode) PictureShape.STILL else PictureShape.POSTER
             val tense = if (page.onNow) AiringTense.of(page.startUtcMs, page.endUtcMs, clock.value) else AiringTense.LATER
             ProgrammeSheet(
-                shape = shape,
-                // A restricted program's placeholder shows no letter of its title.
-                picture = { slot ->
-                    Poster(
-                        item.imageUrl, item.title.takeUnless { restricted }.orEmpty(), slot,
-                    ) {
-                        if (!restricted && tense == AiringTense.ON_NOW) {
-                            WatchStrip(
-                                MediaProgress(page.endUtcMs - page.startUtcMs, clock.value - page.startUtcMs),
-                                watched = false,
-                                modifier = Modifier.align(Alignment.BottomStart),
-                            )
-                        }
-                    }
-                },
-                title = {
-                    ChannelIdent(page.channel)
-                    // A restricted program's title, logo and episode are blurred.
-                    val theme = LocalAnstelleTheme.current
-                    SheetLogo(item.artwork.logoUrl, item.title, Modifier.obscured(restricted, theme.textMuted, radius = 12.dp))
-                    SheetTitle(item.title, Modifier.obscured(restricted, theme.textMuted, radius = 12.dp))
-                    if (item.isEpisode) item.detail?.let { EpisodeLine(it, Modifier.obscured(restricted, theme.textMuted, radius = 6.dp)) }
-                },
+                title = item.title,
+                logoUrl = item.artwork.logoUrl,
+                detail = item.detail.takeIf { item.isEpisode },
+                ident = { ChannelIdent(page.channel) },
                 readout = {
                     androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         StatusLine(
@@ -242,38 +202,31 @@ fun ChannelScreen(
                         if (!restricted) MediaFacts(item.year, item.rating, item.genres, item.durationMs)
                     }
                 },
+                overview = item.overview,
+                restriction = page.restriction,
+                navigation = navigation,
+                progress = MediaProgress(page.endUtcMs - page.startUtcMs, clock.value - page.startUtcMs)
+                    .takeIf { !restricted && tense == AiringTense.ON_NOW },
                 bars = {
                     WatchKeys(
                         actions, listState, firstFocus, navigation = navigation, onFocused = { lastTouched = null },
-                        dialogDetails = choices.onDemandNavigation(item.isEpisode) {
-                            onOpenOnDemand(item.id, item.isEpisode)
-                        },
                     )
                 },
             )
         },
         modifier = modifier,
         listState = listState,
+        seasonTabs = if (page.episodes.isNotEmpty()) {
+            { EpisodesHeading(seasons, season, state.watch, navigation = navigation) { season = it } }
+        } else null,
     ) {
-        if (restricted || item.overview != null || edit.error != null) {
-            item(key = "synopsis") {
-                Column(Modifier.padding(top = if (isTv) 12.dp else 8.dp)) {
-                    edit.error?.let { Notice(it, isError = true) }
-                    // For a program the profile may not watch, the synopsis is blacked out with the pictures.
-                    page.restriction?.let { RestrictedMark(it.title, size = StandInSize.LINE, alignStart = true) }
-                    item.overview?.let { Synopsis(it) }
-                }
-            }
-        }
         if (page.episodes.isNotEmpty()) {
-            item(key = "episodes-heading") {
-                EpisodesHeading(seasons, season, state.watch, Modifier.padding(top = if (isTv) 20.dp else 14.dp), navigation) { season = it }
-            }
             item(key = "episodes") {
                 EpisodeCarousel(
                     episodes = seasons[season].orEmpty(),
                     watch = state.watch,
                     target = lastTouched ?: topicEpisode?.id,
+                    current = topicEpisode?.id,
                     onOpen = {
                         lastTouched = it.id
                         onOpenEpisode(it.id)
@@ -291,31 +244,20 @@ fun ChannelScreen(
     }
 
     holding?.let { episode ->
-        val resume = state.watch.resumeMs(episode.id, episode.durationMs)
-        // The episode on the channel offers what the page's bars do, live included.
-        val episodeChoices = if (episode.id == item.id) {
-            choices + listOfNotNull(WatchChoices.addToChannel(isMovie = false).takeIf { onAddToChannel != null })
-        } else {
-            WatchChoices.episodeActions(resume, canAddToChannel = onAddToChannel != null)
-        }
-        val dismiss = {
-            holding = null
-            if (isTv) scope.launch { returnFocus.requestWhenReady() }
-            Unit
-        }
-        ActionDialog(
-            actions = episodeChoices.dialogActions(
-                isEpisode = true,
-                onOpenDetails = {
-                    holding = null
-                    onOpenOnDemand(episode.id, true)
-                },
-            ) { choice ->
-                holding = null
-                act(choice, episode.id)
+        EpisodeActionsDialog(
+            show = item.title,
+            label = episode.label,
+            facts = episode.facts,
+            // The episode on the channel offers what the page's bars do, live included.
+            choices = if (episode.id == item.id) {
+                choices + listOfNotNull(WatchChoices.addToChannel(isMovie = false).takeIf { onAddToChannel != null })
+            } else {
+                WatchChoices.episodeActions(state.watch.resumeMs(episode.id, episode.durationMs), canAddToChannel = onAddToChannel != null)
             },
-            onDismiss = dismiss,
-        ) { EpisodeDialogHeader(item.title, episode) }
+            returnFocus = returnFocus,
+            onDismiss = { holding = null },
+            onAction = { choice -> act(choice, episode.id) },
+        )
     }
 }
 
@@ -359,19 +301,4 @@ private fun topicChoices(page: ChannelPage, nowMs: Long): List<WatchChoice> {
     )
     // Off air now, or the program has ended since the page opened: the channel is elsewhere.
     return listOfNotNull(WatchChoices.liveOffAir(page.startUtcMs).takeIf { !page.onNow && page.restriction == null }) + watch
-}
-
-/** The header of a held episode's choices: the show, then the episode with its length. */
-@Composable
-internal fun EpisodeDialogHeader(show: String, episode: EpisodeEntry) {
-    val theme = LocalAnstelleTheme.current
-    val typography = androidx.compose.material3.MaterialTheme.typography
-    androidx.compose.material3.Text(show, style = typography.headlineSmall, color = theme.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    androidx.compose.material3.Text(
-        listOfNotNull(episode.label.replace(" - ", "  "), episode.facts).joinToString("  "),
-        style = typography.bodyMedium,
-        color = theme.textMuted,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-    )
 }

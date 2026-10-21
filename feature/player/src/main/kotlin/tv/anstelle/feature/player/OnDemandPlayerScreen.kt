@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -57,7 +56,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -89,16 +87,18 @@ import tv.anstelle.core.data.profiles.Restriction
 import tv.anstelle.core.model.ProfileAccess
 import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.model.SegmentType
+import tv.anstelle.core.model.WatchChoice
+import tv.anstelle.core.model.WatchKind
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
-import tv.anstelle.core.theme.components.AirMarker
-import tv.anstelle.core.theme.components.FocusSurface
-import tv.anstelle.core.theme.components.OsdTab
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.StandInSize
-import tv.anstelle.core.theme.components.Poster
 import tv.anstelle.core.theme.components.TitleLogo
-import tv.anstelle.core.theme.components.WatchStrip
+import tv.anstelle.core.theme.components.osdKeyHeight
+import tv.anstelle.core.theme.components.EpisodeActionsDialog
+import tv.anstelle.core.theme.components.EpisodeCard
+import tv.anstelle.core.theme.components.SeasonTabs
+import tv.anstelle.core.theme.components.episodeCardSpacing
 
 import javax.inject.Inject
 
@@ -215,6 +215,8 @@ class OnDemandPlayerViewModel @Inject constructor(
 @Composable
 fun OnDemandPlayerScreen(
     onExit: (itemId: Long, isEpisode: Boolean) -> Unit,
+    /** Null for a member: adding to a channel is the owner's and admins'. */
+    onAddToChannel: ((itemId: Long) -> Unit)?,
     modifier: Modifier = Modifier,
     viewModel: OnDemandPlayerViewModel = hiltViewModel(),
 ) {
@@ -477,10 +479,25 @@ fun OnDemandPlayerScreen(
                     null
                 } else {
                     {
-                        EpisodeStrip(episodes, playingId = state.itemId) { episode, resumeMs ->
-                            if (episode.id != state.itemId) viewModel.playEpisode(episode.id, resumeMs)
-                            panel = null
-                        }
+                        EpisodeStrip(
+                            episodes,
+                            title = state.title.orEmpty(),
+                            playingId = state.itemId,
+                            canAddToChannel = onAddToChannel != null,
+                            onPick = { episode, resumeMs ->
+                                if (episode.id != state.itemId) viewModel.playEpisode(episode.id, resumeMs)
+                                panel = null
+                            },
+                            onChoice = { episode, choice ->
+                                when {
+                                    choice.kind == WatchKind.ADD_TO_CHANNEL -> onAddToChannel?.invoke(episode.id)
+                                    // Held, the one playing takes the spot the choice names too.
+                                    episode.id == state.itemId -> viewModel.seekTo(choice.positionMs)
+                                    else -> viewModel.playEpisode(episode.id, choice.positionMs)
+                                }
+                                panel = null
+                            },
+                        )
                     }
                 },
                 keys = when (panel) {
@@ -589,7 +606,7 @@ private fun RowScope.DemandKeys(
         content = tracks,
     )
     Row(
-        Modifier.width(playerKeySize * 5 + KEY_GAP * 4),
+        Modifier.width(osdKeyHeight * 5 + KEY_GAP * 4),
         horizontalArrangement = Arrangement.spacedBy(KEY_GAP),
         verticalAlignment = Alignment.CenterVertically,
         content = transport,
@@ -615,18 +632,32 @@ private fun SkipKey(type: SegmentType, onClick: () -> Unit, modifier: Modifier =
 
 /**
  * The banner's keys while Episodes is open, the way a track list takes their place: EPISODES in
- * rose with the show's season tabs, then a strip of its episodes, opened on the one playing
- * (focused on TV). OK or a tap plays one from where it was left; the one playing just closes it.
+ * rose with the show's [SeasonTabs], then its [EpisodeCard]s, opened on the one playing (focused
+ * on TV), the same rail a detail page shows. OK or a tap plays one from where it was left; the
+ * one playing just closes it. Holding one (or Menu) offers the quick ways to play it, as on a
+ * detail page; [onChoice] does the one picked.
  */
 @Composable
-private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode: EpisodeEntry, resumeMs: Long) -> Unit) {
+private fun EpisodeStrip(
+    show: ShowEpisodes?,
+    title: String,
+    playingId: Long,
+    canAddToChannel: Boolean,
+    onPick: (episode: EpisodeEntry, resumeMs: Long) -> Unit,
+    onChoice: (EpisodeEntry, WatchChoice) -> Unit,
+) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     val list = show?.episodes
+    val watch = show?.watch ?: WatchMarks()
     val seasons = remember(list) { list.orEmpty().groupBy { it.seasonLabel } }
     val playingSeason = remember(list, playingId) { list?.firstOrNull { it.id == playingId }?.seasonLabel }
     var season by remember(list) { mutableStateOf(playingSeason ?: seasons.keys.firstOrNull()) }
+    var holding by remember { mutableStateOf<EpisodeEntry?>(null) }
+    // The card last held keeps the requester after its dialog closes, so Back lands on it again.
+    var held by remember { mutableStateOf<Long?>(null) }
+    val returnFocus = remember { FocusRequester() }
     Column(
         Modifier.fillMaxWidth().padding(top = if (isTv) 2.dp else 0.dp),
         verticalArrangement = Arrangement.spacedBy(if (isTv) 6.dp else 4.dp),
@@ -638,23 +669,7 @@ private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode:
                 // It reads from SQLite at once, so nothing stands in while it loads.
                 list == null -> Unit
                 list.isEmpty() -> androidx.compose.material3.Text("NONE TO WATCH", style = typography.labelMedium, color = theme.textMuted)
-                seasons.size > 1 -> LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    val watch = show.watch
-                    items(seasons.keys.toList(), key = { it }) { key ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (key == playingSeason) AirMarker(onAir = true, modifier = Modifier.padding(start = 6.dp))
-                            val episodes = seasons.getValue(key)
-                            OsdTab(
-                                key,
-                                selected = key == season,
-                                onClick = { season = key },
-                                count = episodes.size,
-                                compact = true,
-                                done = episodes.all { watch.watched(it.id, it.durationMs) },
-                            )
-                        }
-                    }
-                }
+                else -> SeasonTabs(seasons.mapValues { it.value.size }, season, watch.doneSeasons(seasons), onSelect = { season = it })
             }
         }
         val shown = seasons[season].orEmpty()
@@ -667,66 +682,39 @@ private fun EpisodeStrip(show: ShowEpisodes?, playingId: Long, onPick: (episode:
                 withFrameNanos { }
                 runCatching { targetFocus.requestFocus() }
             }
-            LazyRow(state = listState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(state = listState, horizontalArrangement = Arrangement.spacedBy(episodeCardSpacing)) {
                 items(shown, key = { it.id }) { episode ->
-                    val resume = show?.watch?.resumeMs(episode.id, episode.durationMs) ?: 0
+                    val resume = watch.resumeMs(episode.id, episode.durationMs)
                     EpisodeCard(
-                        episode = episode,
-                        playing = episode.id == playingId,
-                        resumeMs = resume,
-                        watched = show?.watch?.watched(episode.id, episode.durationMs) == true,
+                        label = episode.label,
+                        stillUrl = episode.stillUrl,
+                        progress = MediaProgress(episode.durationMs, resume),
+                        watched = watch.watched(episode.id, episode.durationMs),
+                        current = episode.id == playingId,
                         onClick = { onPick(episode, resume) },
-                        modifier = if (episode.id == target.id) Modifier.focusRequester(targetFocus) else Modifier,
+                        onHold = {
+                            held = episode.id
+                            holding = episode
+                        },
+                        touchWidth = 132.dp,
+                        modifier = Modifier
+                            .let { if (episode.id == target.id) it.focusRequester(targetFocus) else it }
+                            .let { if (episode.id == held) it.focusRequester(returnFocus) else it },
                     )
                 }
             }
         }
     }
-}
-
-/**
- * One episode in the strip, a channel tile's way: its still in a small inset, what was watched
- * and remaining time at its foot ([WatchStrip]), PLAYING behind the on-air square in the
- * picture's top-left corner, then its number and title. One watched through reads as aired, as on a
- * channel's page: the still under the past shade and the title quiet, except the one playing.
- * Focus fills the whole card rose, so the still sits in a rose frame.
- */
-@Composable
-private fun EpisodeCard(episode: EpisodeEntry, playing: Boolean, resumeMs: Long, watched: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
-    val typography = androidx.compose.material3.MaterialTheme.typography
-    FocusSurface(onClick = onClick, color = Color.Transparent, modifier = modifier.width(if (isTv) 174.dp else 132.dp)) { focused ->
-        Column(Modifier.padding(3.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Poster(
-                episode.stillUrl, episode.label,
-                Modifier.fillMaxWidth().aspectRatio(16f / 9f),
-                shaded = watched,
-                playing = playing,
-            ) {
-                WatchStrip(MediaProgress(episode.durationMs, resumeMs), watched, Modifier.align(Alignment.BottomStart))
-            }
-            Column(Modifier.padding(start = 3.dp, end = 3.dp, bottom = 3.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                androidx.compose.material3.Text(
-                    episode.label,
-                    style = typography.titleSmall,
-                    color = if (watched && !playing && !focused) theme.textMuted else Color.Unspecified,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (!playing && episode.durationMs <= 0) {
-                    episode.facts?.let {
-                        androidx.compose.material3.Text(
-                            it,
-                            style = typography.bodySmall,
-                            color = if (focused) theme.onAccent.copy(alpha = 0.76f) else theme.textMuted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-        }
+    holding?.let { episode ->
+        EpisodeActionsDialog(
+            show = title,
+            label = episode.label,
+            facts = episode.facts,
+            choices = WatchChoices.episodeActions(watch.resumeMs(episode.id, episode.durationMs), canAddToChannel),
+            returnFocus = returnFocus,
+            onDismiss = { holding = null },
+            onAction = { choice -> onChoice(episode, choice) },
+        )
     }
 }
 

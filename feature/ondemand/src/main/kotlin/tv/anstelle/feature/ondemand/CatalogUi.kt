@@ -55,6 +55,9 @@ import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.Backdrop
+import tv.anstelle.core.theme.components.CaptionLine
+import tv.anstelle.core.theme.components.TILE_FRAME
+import tv.anstelle.core.theme.components.TileCaptionPadding
 import tv.anstelle.core.theme.components.TV_BANNER_ASPECT
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.LocalRailFocus
@@ -65,9 +68,6 @@ import tv.anstelle.core.theme.components.browseHeading
 import tv.anstelle.core.theme.components.screenGap
 import tv.anstelle.core.theme.components.screenSide
 import kotlin.math.abs
-
-/** The inset that focus fills round a tile's, card's or poster's picture. */
-internal val TILE_FRAME = 3.dp
 
 /** How far a swipe has to travel to step a banner. */
 private val SWIPE = 48.dp
@@ -213,17 +213,7 @@ internal fun ColumnScope.TitleSlide(title: Title, watch: CatalogWatch) {
     )
     TitleFacts(title.year, title.rating, title.genres, if (title.durationMs > 0) MediaProgress.span(title.durationMs) else null, Modifier.padding(top = 2.dp))
     WatchLine(title, watch)
-    title.overview?.let {
-        androidx.compose.material3.Text(
-            it,
-            style = typography.bodyMedium,
-            color = theme.text,
-            minLines = 2,
-            maxLines = if (isTv) 5 else 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 620.dp),
-        )
-    }
+    title.overview?.let { BannerDescription(it) }
 }
 
 /**
@@ -352,7 +342,7 @@ private fun PosterCardSurface(
                 WatchStrip(progress, watched, Modifier.align(Alignment.BottomStart), remaining = null)
                 if (!watched && unwatched != null && unwatched > 0) UnwatchedCount(unwatched, Modifier.align(Alignment.TopEnd).padding(6.dp))
             }
-            Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(Modifier.padding(TileCaptionPadding), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 androidx.compose.material3.Text(
                     title,
                     style = typography.titleSmall,
@@ -389,7 +379,7 @@ internal fun WatchCardTile(card: WatchCard, onClick: () -> Unit, onHold: () -> U
             Poster(card.imageUrl, card.title, Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                 WatchStrip(MediaProgress(card.durationMs, card.positionMs), watched = false, modifier = Modifier.align(Alignment.BottomStart))
             }
-            Column(Modifier.padding(start = 4.dp, end = 4.dp, top = 7.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(Modifier.padding(TileCaptionPadding), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 androidx.compose.material3.Text(card.title, style = typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (card.number != null || card.episodeTitle != null) CaptionLine(card.number, card.episodeTitle, focused)
             }
