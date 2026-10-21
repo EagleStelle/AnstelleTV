@@ -88,6 +88,7 @@ import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.player.SubtitleStyle
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
+import tv.anstelle.core.theme.LocalSubtitleLook
 import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.AirMarker
 import tv.anstelle.core.theme.components.Backdrop
@@ -475,6 +476,7 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
     val shape = if (edgeToEdge) RectangleShape else RoundedCornerShape(topStart = 2.dp, bottomStart = 2.dp)
     // The channel strip's height, in pixels: the subtitles keep clear of it.
     val strip = remember { mutableIntStateOf(0) }
+    val subtitleLook = LocalSubtitleLook.current
     Box(
         modifier
             .aspectRatio(16f / 9f)
@@ -494,7 +496,6 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
                     setKeepContentOnPlayerReset(true)
                     isFocusable = false
                     subtitleView?.let { subtitles ->
-                        SubtitleStyle.applyTo(subtitles)
                         // The picture's frame takes the video's shape once it is known, after any update.
                         subtitles.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> keepSubtitlesClear(strip.intValue) }
                     }
@@ -502,6 +503,7 @@ private fun Preview(player: Player?, playback: PlaybackState, onWatch: () -> Uni
             },
             update = { view ->
                 view.player = player
+                view.subtitleView?.let { SubtitleStyle.applyTo(it, subtitleLook) }
                 // libass draws ASS subtitles in a layer of its own over the video.
                 view.subtitleView?.let { SubtitleOverlays.attach(it, player) }
                 view.keepSubtitlesClear(strip.intValue)

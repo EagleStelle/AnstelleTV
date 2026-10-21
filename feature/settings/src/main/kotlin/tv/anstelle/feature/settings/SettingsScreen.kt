@@ -8,9 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material.icons.filled.ClosedCaption
-import androidx.compose.material.icons.filled.ClosedCaptionDisabled
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -18,7 +15,6 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.InsertChart
 import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SettingsBackupRestore
@@ -74,7 +70,6 @@ import tv.anstelle.core.database.dao.TypeCount
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.core.model.MediaServer
 import tv.anstelle.core.model.MediaType
-import tv.anstelle.core.model.SubtitleMode
 import tv.anstelle.core.model.ThemeSpec
 import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.model.WatchSync
@@ -87,8 +82,11 @@ import tv.anstelle.core.theme.components.StatusLine
 import tv.anstelle.core.theme.components.rememberInitialFocus
 import tv.anstelle.core.theme.components.settingsGuided
 import tv.anstelle.feature.settings.appearance.ThemePreview
+import tv.anstelle.feature.settings.playback.LanguageList
+import tv.anstelle.feature.settings.playback.PlaybackPane
 import tv.anstelle.feature.settings.playback.SyncPlace
 import tv.anstelle.feature.settings.playback.languageName
+import tv.anstelle.feature.settings.playback.languagesEmpty
 import tv.anstelle.feature.settings.playback.modeName
 import tv.anstelle.feature.settings.playback.syncName
 import tv.anstelle.feature.settings.servers.syncedAgo
@@ -440,38 +438,31 @@ private fun OnDemandReadout(summary: OnDemandSummary) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 ReadoutHeading(kind.icon, kind.label)
                 if (rows.isEmpty()) ReadoutFact(null, "None yet", quiet = true)
-                rows.forEachIndexed { i, row -> ReadoutRank(i + 1, row, compact = true) }
+                rows.forEachIndexed { i, row -> ReadoutRank(i + 1, row) }
             }
         }
     }
 }
 
-/** The audio languages in order, then the subtitle mode and its languages. */
+/**
+ * The audio languages, then the subtitle languages under the mode, each list's first ones
+ * numbered under its heading and tightly stacked, as On Demand names its tabs' rows.
+ */
 @Composable
 private fun PlaybackReadout(prefs: TrackPrefs) {
     ReadoutFrame {
-        ReadoutHeading(Icons.Filled.Audiotrack, "Audio", prefs.audioLanguages.size.takeIf { it > 1 }?.let { "$it in order" })
-        if (prefs.audioLanguages.isEmpty()) {
-            ReadoutFact(Icons.Filled.Audiotrack, "Each program's default track", quiet = true)
-        } else {
-            Languages(prefs.audioLanguages)
-        }
-        ReadoutRule()
-        ReadoutHeading(Icons.Filled.ClosedCaption, "Subtitles", modeName(prefs.subtitleMode))
-        when {
-            prefs.subtitleMode == SubtitleMode.OFF -> ReadoutFact(Icons.Filled.ClosedCaptionDisabled, "Turned on while watching", quiet = true)
-            prefs.subtitleLanguages.isEmpty() -> ReadoutFact(Icons.Filled.ErrorOutline, "No language chosen")
-            else -> Languages(prefs.subtitleLanguages)
-        }
+        Languages(LanguageList.AUDIO, prefs.audioLanguages) { ReadoutHeading(PlaybackPane.AUDIO_LANGUAGES.icon, "Audio") }
+        Languages(LanguageList.SUBTITLES, prefs.subtitleLanguages) { ReadoutHeading(PlaybackPane.SUBTITLE_MODE.icon, "Subtitles", modeName(prefs.subtitleMode)) }
     }
 }
 
-/** A language list in order: the first four, then how many more. */
+/** A language list under its [heading]: its first ones numbered in order, or what an empty one means. */
 @Composable
-private fun Languages(codes: List<String>) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+private fun Languages(list: LanguageList, codes: List<String>, heading: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        heading()
+        if (codes.isEmpty()) ReadoutFact(null, languagesEmpty(list), quiet = true)
         codes.take(SHOWN_LANGUAGES).forEachIndexed { i, code -> ReadoutRank(i + 1, languageName(code)) }
-        if (codes.size > SHOWN_LANGUAGES) ReadoutFact(Icons.Filled.MoreHoriz, "${codes.size - SHOWN_LANGUAGES} more", quiet = true)
     }
 }
 
@@ -540,7 +531,8 @@ private fun title(area: SettingsArea) = when (area) {
     SettingsArea.BACKUP -> "Backup"
 }
 
-private const val SHOWN_LANGUAGES = 4
+/** How many of each language list the readout names, as many as On Demand names of a tab's rows. */
+private const val SHOWN_LANGUAGES = OnDemandSummary.SHOWN_ROWS
 private const val SHOWN_BROWSERS = 4
 
 private fun serversSummary(servers: List<MediaServer>): String = when {

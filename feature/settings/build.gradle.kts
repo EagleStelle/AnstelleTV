@@ -7,4 +7,6 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     // Turning the dashboard off asks the same keep-or-delete question there and here.
     implementation(projects.feature.dashboard)
+    // The subtitle style's sample is drawn by the players' own subtitle view.
+    implementation(libs.androidx.media3.ui)
 }

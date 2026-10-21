@@ -103,8 +103,6 @@ import tv.anstelle.feature.settings.channels.ChannelGroupsScreen
 import tv.anstelle.feature.settings.channels.ChannelLineupScreen
 import tv.anstelle.feature.settings.channels.ChannelListScreen
 import tv.anstelle.feature.settings.channels.ChannelsScreen
-import tv.anstelle.feature.settings.playback.LanguageList
-import tv.anstelle.feature.settings.playback.LanguagePickerScreen
 import tv.anstelle.feature.settings.playback.PlaybackLanguagesScreen
 import tv.anstelle.feature.settings.playback.WatchHistoryScreen
 import tv.anstelle.feature.settings.servers.AddServerScreen
@@ -123,8 +121,9 @@ fun AnstelleApp(isTv: Boolean, onLightTheme: (Boolean) -> Unit) {
     val needsServer by startup.needsServer.collectAsStateWithLifecycle()
     val dashboard by startup.dashboard.collectAsStateWithLifecycle()
     val theme by startup.theme.collectAsStateWithLifecycle()
+    val subtitleLook by startup.subtitleLook.collectAsStateWithLifecycle()
     LaunchedEffect(theme.spec.isLight) { onLightTheme(theme.spec.isLight) }
-    AnstelleTheme(isTv = isTv, theme = theme) {
+    AnstelleTheme(isTv = isTv, theme = theme, subtitleLook = subtitleLook) {
         val effects = theme.spec.effects
         // Test tags double as resource ids, so macrobenchmarks can find the guide grid.
         Box(
@@ -382,11 +381,8 @@ private fun AppNavHost(navController: NavHostController, startDestination: Any, 
                     onOpenBackup = { navController.navigate(BackupRoute()) },
                 )
             }
-            page<PlaybackLanguagesRoute> {
-                PlaybackLanguagesScreen(onAddLanguage = { navController.navigate(LanguagePickerRoute(subtitles = it == LanguageList.SUBTITLES)) })
-            }
+            page<PlaybackLanguagesRoute> { PlaybackLanguagesScreen(onLeave = { navController.popBackStack() }) }
             page<WatchHistoryRoute> { WatchHistoryScreen() }
-            page<LanguagePickerRoute> { LanguagePickerScreen(onPicked = { navController.popBackStack() }) }
             // App-wide: the owner's and admins'.
             adminOnly<ChannelsRoute>(navController) {
                 ChannelsScreen(

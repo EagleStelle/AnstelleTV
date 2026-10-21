@@ -9,9 +9,15 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import tv.anstelle.core.data.SettingKey
 import tv.anstelle.core.data.Settings
 import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.model.Languages
+import tv.anstelle.core.model.PlaybackDefaults
+import tv.anstelle.core.model.SegmentAction
+import tv.anstelle.core.model.SegmentType
+import tv.anstelle.core.model.SubtitleLook
 import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.model.codeOf
 import tv.anstelle.core.player.PooledPlayer
@@ -33,8 +39,8 @@ data class TrackOption(
 )
 
 /**
- * Audio and subtitle choices. The profile's defaults (Settings, Audio and subtitles) pick the
- * tracks of every program; a pick in the player only changes the program on now.
+ * Audio and subtitle choices. The profile's defaults (Settings, Playback) pick the tracks of
+ * every program; a pick in the player only changes the program on now.
  */
 @Singleton
 @OptIn(UnstableApi::class)
@@ -56,13 +62,40 @@ class TrackChoices @Inject constructor(
         TrackPrefs(Languages.decodeList(audio), codeOf(mode), Languages.decodeList(subtitles))
     }
 
-    /** Changes the profile's defaults; programs started from now on follow them. */
-    suspend fun update(profileId: Long, change: (TrackPrefs) -> TrackPrefs) {
-        val old = prefs(profileId)
-        val new = change(old)
-        if (new.audioLanguages != old.audioLanguages) settings.set(Settings.audioLanguages(profileId), Languages.encodeList(new.audioLanguages))
-        if (new.subtitleMode != old.subtitleMode) settings.set(Settings.subtitleMode(profileId), new.subtitleMode.code)
-        if (new.subtitleLanguages != old.subtitleLanguages) settings.set(Settings.subtitleLanguages(profileId), Languages.encodeList(new.subtitleLanguages))
+    fun observeLook(profileId: Long): Flow<SubtitleLook> = combine(
+        settings.observe(Settings.subtitleSize(profileId)),
+        settings.observe(Settings.subtitleFont(profileId)),
+        settings.observe(Settings.subtitleColor(profileId)),
+        settings.observe(Settings.subtitleEdge(profileId)),
+        settings.observe(Settings.subtitleBackground(profileId)),
+    ) { size, font, color, edge, background ->
+        SubtitleLook(codeOf(size), codeOf(font), codeOf(color), codeOf(edge), codeOf(background))
+    }
+
+    /** What On demand does while each kind of segment plays. */
+    suspend fun skipping(profileId: Long): Map<SegmentType, SegmentAction> =
+        SegmentType.entries.associateWith { codeOf(settings.get(Settings.segmentAction(profileId, it))) }
+
+    /** Everything the Playback page sets, as last saved. */
+    suspend fun defaults(profileId: Long) = PlaybackDefaults(prefs(profileId), observeLook(profileId).first(), skipping(profileId))
+
+    /** Keeps the profile's Playback settings; programs started from now on follow them, and every player shows the look at once. */
+    suspend fun save(profileId: Long, defaults: PlaybackDefaults) {
+        val (prefs, look, skipping) = defaults
+        put(Settings.audioLanguages(profileId), Languages.encodeList(prefs.audioLanguages))
+        put(Settings.subtitleMode(profileId), prefs.subtitleMode.code)
+        put(Settings.subtitleLanguages(profileId), Languages.encodeList(prefs.subtitleLanguages))
+        put(Settings.subtitleSize(profileId), look.size.code)
+        put(Settings.subtitleFont(profileId), look.font.code)
+        put(Settings.subtitleColor(profileId), look.color.code)
+        put(Settings.subtitleEdge(profileId), look.edge.code)
+        put(Settings.subtitleBackground(profileId), look.background.code)
+        for ((type, action) in skipping) put(Settings.segmentAction(profileId, type), action.code)
+    }
+
+    /** Writes only what changed, so a save wakes no observer of a setting it left alone. */
+    private suspend fun <T> put(key: SettingKey<T>, value: T) {
+        if (settings.get(key) != value) settings.set(key, value)
     }
 
     /**

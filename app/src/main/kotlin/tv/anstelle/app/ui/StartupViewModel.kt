@@ -21,8 +21,10 @@ import kotlinx.coroutines.launch
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ThemeRepository
 import tv.anstelle.core.data.playback.ChannelPlayer
+import tv.anstelle.core.data.playback.TrackChoices
 import tv.anstelle.core.data.stats.DashboardHistory
 import tv.anstelle.core.model.ProfileRights
+import tv.anstelle.core.model.SubtitleLook
 import tv.anstelle.core.theme.DefaultTheme
 import tv.anstelle.core.theme.ResolvedTheme
 import javax.inject.Inject
@@ -42,6 +44,7 @@ class StartupViewModel @Inject constructor(
     themes: ThemeRepository,
     channelPlayer: ChannelPlayer,
     history: DashboardHistory,
+    tracks: TrackChoices,
 ) : ViewModel() {
     private val _session = MutableStateFlow<AppSession?>(null)
 
@@ -57,6 +60,13 @@ class StartupViewModel @Inject constructor(
         .distinctUntilChanged()
         .flatMapLatest { history.observeEnabled(it) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    /** How the watching profile's plain subtitles look, for every player. */
+    val subtitleLook: StateFlow<SubtitleLook> = _session.filterNotNull()
+        .map { it.profileId }
+        .distinctUntilChanged()
+        .flatMapLatest { tracks.observeLook(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SubtitleLook())
 
     private val _needsServer = MutableStateFlow(false)
 

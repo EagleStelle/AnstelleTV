@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class TrackRulesTest {
-    private fun sub(language: String?, forced: Boolean = false, default: Boolean = false) = SubtitleCandidate(language, forced, default)
+    private fun sub(language: String?, forced: Boolean = false, default: Boolean = false, title: String? = null) = SubtitleCandidate(language, title, forced, default)
 
     private fun prefs(mode: SubtitleMode, vararg languages: String) = TrackPrefs(subtitleMode = mode, subtitleLanguages = languages.toList())
 
@@ -29,24 +29,45 @@ class TrackRulesTest {
     }
 
     @Test
-    fun `full track beats forced, then default wins`() {
+    fun `always shows only full tracks, the default first`() {
         val tracks = listOf(sub("eng", forced = true, default = true), sub("eng"), sub("eng", default = true))
         assertEquals(2, TrackRules.pickSubtitle(tracks, prefs(SubtitleMode.ALWAYS, "eng"), "jpn"))
-        assertEquals(0, TrackRules.pickSubtitle(listOf(sub("eng", forced = true)), prefs(SubtitleMode.ALWAYS, "eng"), "jpn"))
+        assertNull(TrackRules.pickSubtitle(listOf(sub("eng", forced = true)), prefs(SubtitleMode.ALWAYS, "eng"), "jpn"))
     }
 
     @Test
-    fun `when audio differs`() {
-        val mode = prefs(SubtitleMode.WHEN_AUDIO_DIFFERS, "eng")
+    fun `a track titled forced counts as forced without the flag`() {
+        val tracks = listOf(sub("eng", default = true, title = "English [Forced]"), sub("eng", default = true, title = "Full"), sub("spa", title = "Foreign parts"))
+        assertEquals(1, TrackRules.pickSubtitle(tracks, prefs(SubtitleMode.ALWAYS, "eng"), "jpn"))
+        assertEquals(0, TrackRules.pickSubtitle(tracks, prefs(SubtitleMode.FORCED, "eng"), "jpn"))
+        assertEquals(2, TrackRules.pickSubtitle(tracks, prefs(SubtitleMode.SMART, "spa"), "spa"))
+        assertEquals(0, TrackRules.pickSubtitle(listOf(sub("eng", title = "Unforced")), prefs(SubtitleMode.ALWAYS, "eng"), "jpn"))
+    }
+
+    @Test
+    fun `forced shows only forced tracks, in the language order`() {
+        val tracks = listOf(sub("eng"), sub("spa", forced = true), sub("eng", forced = true), sub("eng", forced = true, default = true))
+        assertEquals(3, TrackRules.pickSubtitle(tracks, prefs(SubtitleMode.FORCED, "eng", "spa"), "eng"))
+        assertEquals(1, TrackRules.pickSubtitle(tracks, prefs(SubtitleMode.FORCED, "fra", "spa", "eng"), "jpn"))
+        assertNull(TrackRules.pickSubtitle(listOf(sub("eng")), prefs(SubtitleMode.FORCED, "eng"), "eng"))
+    }
+
+    @Test
+    fun `smart shows full tracks for foreign audio`() {
+        val mode = prefs(SubtitleMode.SMART, "eng")
         assertEquals(1, TrackRules.pickSubtitle(anime, mode, "jpn"))
         assertEquals(1, TrackRules.pickSubtitle(anime, mode, "ja"))
-        assertNull(TrackRules.pickSubtitle(anime, mode, "en"))
-        assertNull(TrackRules.pickSubtitle(anime, mode, "eng"))
-        // Any subtitle language counts as understood.
-        assertNull(TrackRules.pickSubtitle(anime, prefs(SubtitleMode.WHEN_AUDIO_DIFFERS, "eng", "spa"), "spa"))
         // Unknown audio is treated as another language.
         assertEquals(1, TrackRules.pickSubtitle(anime, mode, null))
         assertEquals(1, TrackRules.pickSubtitle(anime, mode, "und"))
+    }
+
+    @Test
+    fun `smart shows forced tracks in the audio's language when it is understood`() {
+        assertEquals(0, TrackRules.pickSubtitle(anime, prefs(SubtitleMode.SMART, "eng"), "en"))
+        // Any subtitle language counts as understood, and only its own forced track will do.
+        assertNull(TrackRules.pickSubtitle(anime, prefs(SubtitleMode.SMART, "eng", "spa"), "spa"))
+        assertNull(TrackRules.pickSubtitle(listOf(sub("eng")), prefs(SubtitleMode.SMART, "eng"), "eng"))
     }
 
     @Test

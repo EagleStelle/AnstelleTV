@@ -166,7 +166,7 @@ class JellyfinStreams @Inject constructor(
         val audio = TrackRules.pickAudio(tracks.audio, prefs.audioLanguages)
         val audioLanguage = (audio ?: tracks.audio.firstOrNull { it.isDefault } ?: tracks.audio.firstOrNull())?.language
         val texts = tracks.subtitles.filter { it.isText }
-        val pick = TrackRules.pickSubtitle(texts.map { SubtitleCandidate(it.language, it.isForced, it.isDefault) }, prefs, audioLanguage)
+        val pick = TrackRules.pickSubtitle(texts.map { SubtitleCandidate(it.language, it.title, it.isForced, it.isDefault) }, prefs, audioLanguage)
         val chosen = pick?.let(texts::get)
         val fonts = if (chosen?.isAss == true) fonts() else emptyList()
         val query = buildMap<String, Any> {

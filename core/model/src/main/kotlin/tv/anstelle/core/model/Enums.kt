@@ -162,13 +162,59 @@ enum class ProfileRole(override val code: Int) : CodedEnum {
     OWNER(2),
 }
 
-/** When subtitles show. */
+/** When subtitles show, and which kind: full ones cover all dialogue, forced ones only signs and foreign lines. */
 enum class SubtitleMode(override val code: Int) : CodedEnum {
     OFF(0),
+
+    /** Full subtitles, whatever the audio. */
     ALWAYS(1),
 
-    /** Only when the audio isn't in one of the subtitle languages. */
-    WHEN_AUDIO_DIFFERS(2),
+    /** Forced subtitles when the audio is in one of the subtitle languages, full ones when it isn't. */
+    SMART(2),
+
+    /** Forced subtitles only, whatever the audio. */
+    FORCED(3),
+}
+
+/** How large plain subtitles are, against the player's default size. */
+enum class SubtitleSize(override val code: Int, val scale: Float) : CodedEnum {
+    SMALL(0, 0.75f),
+    MEDIUM(1, 1f),
+    LARGE(2, 1.25f),
+    EXTRA_LARGE(3, 1.5f),
+}
+
+/** Plain subtitles' typeface, the same families a theme offers. */
+enum class SubtitleFont(override val code: Int) : CodedEnum {
+    SANS(0),
+    CONDENSED(1),
+    SERIF(2),
+    MONO(3),
+}
+
+/** Plain subtitles' letter color, as ARGB. */
+enum class SubtitleColor(override val code: Int, val argb: Int) : CodedEnum {
+    WHITE(0, 0xFFFFFFFF.toInt()),
+    GRAY(1, 0xFFC8C8C8.toInt()),
+    YELLOW(2, 0xFFFFE14D.toInt()),
+    CYAN(3, 0xFF5CE1F2.toInt()),
+    GREEN(4, 0xFF6BE07A.toInt()),
+}
+
+/** The dark edge around plain subtitles' letters. */
+enum class SubtitleEdge(override val code: Int) : CodedEnum {
+    OUTLINE(0),
+    DROP_SHADOW(1),
+    RAISED(2),
+    SUNKEN(3),
+    NONE(4),
+}
+
+/** The box behind each line of plain subtitles, as ARGB; transparent for none. */
+enum class SubtitleBackground(override val code: Int, val argb: Int) : CodedEnum {
+    NONE(0, 0),
+    TRANSLUCENT(1, 0xA0000000.toInt()),
+    SOLID(2, 0xFF000000.toInt()),
 }
 
 /** What the on-demand player does when a kind of [MediaSegment] plays, as Jellyfin's own apps offer. */

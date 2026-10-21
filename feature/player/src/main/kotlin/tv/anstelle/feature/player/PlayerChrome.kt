@@ -81,6 +81,7 @@ import tv.anstelle.core.player.SubtitleOverlays
 import tv.anstelle.core.player.SubtitleStyle
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
+import tv.anstelle.core.theme.LocalSubtitleLook
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdBadge
 import tv.anstelle.core.theme.components.SegmentLadder
@@ -104,6 +105,7 @@ internal fun PlayerDetailLine(text: String, modifier: Modifier = Modifier, maxLi
 @OptIn(UnstableApi::class)
 @Composable
 internal fun PlayerVideo(player: Player?, subtitleLift: Int, keepContentOnPlayerReset: Boolean = false) {
+    val subtitleLook = LocalSubtitleLook.current
     AndroidView(
         factory = { context ->
             PlayerView(context).apply {
@@ -115,11 +117,11 @@ internal fun PlayerVideo(player: Player?, subtitleLift: Int, keepContentOnPlayer
                 setKeepContentOnPlayerReset(keepContentOnPlayerReset)
                 keepScreenOn = true
                 isFocusable = false
-                subtitleView?.let(SubtitleStyle::applyTo)
             }
         },
         update = { view ->
             view.player = player
+            view.subtitleView?.let { SubtitleStyle.applyTo(it, subtitleLook) }
             // libass draws ASS subtitles in a layer of its own over the video.
             view.subtitleView?.let { SubtitleOverlays.attach(it, player) }
             view.liftSubtitles(subtitleLift)

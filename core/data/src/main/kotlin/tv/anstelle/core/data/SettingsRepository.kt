@@ -64,6 +64,14 @@ object Settings {
     /** A [tv.anstelle.core.model.SubtitleMode] code: when the profile's subtitles show. */
     fun subtitleMode(profileId: Long) = SettingKey.IntKey("playback.subtitles.mode.$profileId", tv.anstelle.core.model.SubtitleMode.OFF.code)
 
+    /** The profile's plain-subtitle look ([tv.anstelle.core.model.SubtitleLook]), one code per part. */
+    fun subtitleSize(profileId: Long) = SettingKey.IntKey("playback.subtitles.size.$profileId", tv.anstelle.core.model.SubtitleSize.MEDIUM.code)
+    fun subtitleFont(profileId: Long) = SettingKey.IntKey("playback.subtitles.font.$profileId", tv.anstelle.core.model.SubtitleFont.SANS.code)
+    fun subtitleColor(profileId: Long) = SettingKey.IntKey("playback.subtitles.color.$profileId", tv.anstelle.core.model.SubtitleColor.WHITE.code)
+    fun subtitleEdge(profileId: Long) = SettingKey.IntKey("playback.subtitles.edge.$profileId", tv.anstelle.core.model.SubtitleEdge.OUTLINE.code)
+    fun subtitleBackground(profileId: Long) =
+        SettingKey.IntKey("playback.subtitles.background.$profileId", tv.anstelle.core.model.SubtitleBackground.NONE.code)
+
     /** A [tv.anstelle.core.model.SegmentAction] code: what On demand does while a [type] segment plays. */
     fun segmentAction(profileId: Long, type: tv.anstelle.core.model.SegmentType) =
         SettingKey.IntKey("playback.skip.${type.key}.$profileId", tv.anstelle.core.model.SegmentAction.ASK_TO_SKIP.code)

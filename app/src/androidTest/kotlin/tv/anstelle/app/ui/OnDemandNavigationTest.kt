@@ -47,8 +47,8 @@ class OnDemandNavigationTest {
                 }
                 navigation<SettingsGraph>(startDestination = SettingsRoute) {
                     composable<SettingsRoute> {}
-                    composable<PlaybackLanguagesRoute> {}
-                    composable<LanguagePickerRoute> {}
+                    composable<ThemesRoute> {}
+                    composable<ThemeEditorRoute> {}
                 }
                 composable<PlayerRoute> {}
                 composable<OnDemandPlayRoute> {}
@@ -118,8 +118,8 @@ class OnDemandNavigationTest {
                         navigate(OnDemandEpisodeRoute(4))
                     }
                     TopLevelDestination.Settings -> {
-                        navigate(PlaybackLanguagesRoute)
-                        navigate(LanguagePickerRoute(subtitles = true))
+                        navigate(ThemesRoute())
+                        navigate(ThemeEditorRoute(1))
                     }
                     TopLevelDestination.Profiles -> navigate(ProfileEditRoute(1))
                     else -> Unit

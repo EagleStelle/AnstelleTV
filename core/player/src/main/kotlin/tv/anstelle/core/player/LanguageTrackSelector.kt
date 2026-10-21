@@ -49,7 +49,8 @@ class LanguageTrackSelector(context: Context) : DefaultTrackSelector(context) {
                     positions += intArrayOf(renderer, g, t)
                     candidates += SubtitleCandidate(
                         language = format.language,
-                        isForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+                        title = format.label,
+                        flaggedForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
                         isDefault = format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0,
                     )
                 }

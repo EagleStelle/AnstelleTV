@@ -24,8 +24,6 @@ import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.data.Artwork
 import tv.anstelle.core.data.ProfileRepository
-import tv.anstelle.core.data.Settings
-import tv.anstelle.core.data.SettingsRepository
 import tv.anstelle.core.data.WatchAccount
 import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.profiles.Restriction
@@ -43,7 +41,6 @@ import tv.anstelle.core.model.SegmentAction
 import tv.anstelle.core.model.SegmentType
 import tv.anstelle.core.model.ServerConnectException
 import tv.anstelle.core.model.TrackPrefs
-import tv.anstelle.core.model.codeOf
 import tv.anstelle.core.model.playingAt
 import tv.anstelle.core.player.CapabilityProbe
 import tv.anstelle.core.player.FontCache
@@ -123,7 +120,6 @@ class OnDemandPlayer @Inject constructor(
     private val tracks: TrackChoices,
     private val fonts: FontCache,
     private val segmentSource: SegmentSource,
-    private val settings: SettingsRepository,
     @Dispatcher(AnstelleDispatchers.IO) private val io: CoroutineDispatcher,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -187,7 +183,7 @@ class OnDemandPlayer @Inject constructor(
         profileId = access.profileId
         scope.launch {
             prefs = tracks.prefs(profileId)
-            segmentActions = SegmentType.entries.associateWith { codeOf<SegmentAction>(settings.get(Settings.segmentAction(profileId, it))) }
+            segmentActions = tracks.skipping(profileId)
             val item = itemDao.byId(itemId)
             val restriction = item?.let { Restriction.of(it.id, it.ratingScore, access) }
             if (restriction != null) {

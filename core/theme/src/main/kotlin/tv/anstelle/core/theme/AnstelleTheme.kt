@@ -6,6 +6,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
@@ -13,12 +14,16 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import tv.anstelle.core.model.SubtitleLook
 
 /** True on TV devices (Android TV, Google TV, Fire TV): D-pad first, 10-foot layouts. */
 val LocalIsTv = staticCompositionLocalOf { false }
 
 /** The active guide theme. */
 val LocalAnstelleTheme = staticCompositionLocalOf { DefaultTheme.resolved }
+
+/** How the watching profile's plain subtitles look. Only the players read it, so a change recomposes just them. */
+val LocalSubtitleLook = compositionLocalOf { SubtitleLook() }
 
 /** Near-square corners: controls, cells and posters. */
 val ControlShape = RoundedCornerShape(2.dp)
@@ -39,12 +44,14 @@ val OnDangerColor = Color.White
 /**
  * Applies a guide theme to both Material 3 (phone layouts) and Compose for TV (TV layouts),
  * so components from either library pick up the same palette. Everything is flat: no tonal
- * tint on surfaces, no shadows; depth comes from the surface steps alone.
+ * tint on surfaces, no shadows; depth comes from the surface steps alone. [subtitleLook] goes
+ * to the players inside; a theme nested in another keeps the outer one's.
  */
 @Composable
 fun AnstelleTheme(
     isTv: Boolean,
     theme: ResolvedTheme = DefaultTheme.resolved,
+    subtitleLook: SubtitleLook = LocalSubtitleLook.current,
     content: @Composable () -> Unit,
 ) {
     val phoneColors = remember(theme) {
@@ -131,7 +138,7 @@ fun AnstelleTheme(
         )
     }
 
-    CompositionLocalProvider(LocalIsTv provides isTv, LocalAnstelleTheme provides theme) {
+    CompositionLocalProvider(LocalIsTv provides isTv, LocalAnstelleTheme provides theme, LocalSubtitleLook provides subtitleLook) {
         androidx.compose.material3.MaterialTheme(colorScheme = phoneColors, typography = typography, shapes = shapes) {
             androidx.tv.material3.MaterialTheme(
                 colorScheme = tvColors,

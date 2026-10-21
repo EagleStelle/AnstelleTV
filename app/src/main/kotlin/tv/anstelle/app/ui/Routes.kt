@@ -87,9 +87,6 @@ const val PlayerRouteNoChannel = -1
 @Serializable data class ThemesRoute(val profileId: Long = 0)
 @Serializable data class ThemeEditorRoute(val themeId: Long)
 
-/** Adds a language to the subtitle list when [subtitles], else to the audio list. */
-@Serializable data class LanguagePickerRoute(val subtitles: Boolean)
-
 /**
  * Destinations reachable from the TV navigation drawer and the phone navigation bar. Phones
  * show the filled [icon] for the open destination and the [outlinedIcon] for the rest.

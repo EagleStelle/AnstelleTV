@@ -9,7 +9,8 @@ class CodedEnumTest {
         MediaType.entries, PlaybackOrder.entries, SlotKind.entries, ChannelKind.entries,
         RuleField.entries, RuleOp.entries, SeasonMode.entries, LiveSourceType.entries,
         HdrType.entries, WatchSource.entries, WatchSync.entries, SubtitleMode.entries, ProfileRole.entries,
-        SegmentAction.entries,
+        SegmentAction.entries, SubtitleSize.entries, SubtitleFont.entries, SubtitleColor.entries, SubtitleEdge.entries,
+        SubtitleBackground.entries,
     )
 
     @Test
