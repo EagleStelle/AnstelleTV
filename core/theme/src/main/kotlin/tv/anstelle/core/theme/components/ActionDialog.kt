@@ -1,6 +1,5 @@
 package tv.anstelle.core.theme.components
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -88,19 +87,15 @@ fun ActionDialog(actions: List<DialogAction>, onDismiss: () -> Unit, header: @Co
     // A dialog opened by holding OK appears while OK is still down; its repeats and release
     // must not reach the focused row, so the first choice waits for a fresh press.
     var armed by remember { mutableStateOf(false) }
-    BackHandler(onBack = onDismiss)
+    val back = rememberBackPress(onBack = onDismiss)
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     // Its rows close with it: the page behind keeps the row the dialog was opened from as its place.
     CompositionLocalProvider(LocalPageFocus provides null) {
         Box(
             Modifier
                 .fillMaxSize()
+                .then(back)
                 .onPreviewKeyEvent { event ->
-                    // Back closes in one press: left to the focus system, it would first only clear the focused row.
-                    if (event.key == Key.Back) {
-                        if (event.type == KeyEventType.KeyUp) onDismiss()
-                        return@onPreviewKeyEvent true
-                    }
                     if (armed || event.key !in HeldKeys) return@onPreviewKeyEvent false
                     val fresh = event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0
                     if (fresh) {

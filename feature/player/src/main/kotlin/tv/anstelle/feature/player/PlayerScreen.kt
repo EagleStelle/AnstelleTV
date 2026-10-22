@@ -1,7 +1,6 @@
 package tv.anstelle.feature.player
 
 import tv.anstelle.core.theme.components.obscured
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -77,6 +76,7 @@ import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ActionDialog
 import tv.anstelle.core.theme.components.DialogAction
 import tv.anstelle.core.theme.components.dialogActions
+import tv.anstelle.core.theme.components.rememberBackPress
 import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.StandInSize
@@ -157,9 +157,7 @@ fun PlayerScreen(
         bannerVisible = panel != null
     }
     // Android owns remote and system Back; a picker returns to its opener before the banner closes.
-    BackHandler(enabled = bannerVisible && confirm == null) {
-        closePanelOrBanner()
-    }
+    val back = rememberBackPress(enabled = bannerVisible && confirm == null, onBack = ::closePanelOrBanner)
     val audioKey = remember { FocusRequester() }
     val subtitlesKey = remember { FocusRequester() }
     val onDemandKey = remember { FocusRequester() }
@@ -199,6 +197,7 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(focus)
+            .then(back)
             .onPreviewKeyEvent { event ->
                 // Any key pressed with the banner's keys in use holds the banner up a while longer.
                 if (panel != null && event.key != Key.Back && event.type == KeyEventType.KeyDown) bannerRequest++

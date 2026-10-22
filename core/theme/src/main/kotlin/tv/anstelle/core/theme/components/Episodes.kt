@@ -15,14 +15,14 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -38,6 +38,7 @@ import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.model.WatchChoice
+import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
 import tv.anstelle.core.theme.LocalIsTv
 
@@ -59,7 +60,7 @@ fun tvEpisodeCardHeight(): Dp = TILE_FRAME * 2 + (TV_EPISODE_CARD_WIDTH - TILE_F
  * One episode in a season's rail, on detail pages and in the on-demand player alike: the still in
  * the tile frame with what was watched at its foot ([WatchStrip]), then the caption line. The
  * [current] one (the episode a page is about, or the one playing) is ringed in the accent round its
- * still. One watched through reads as aired unless it is current: the still under the past shade
+ * still until focus fills it like any card. One watched through reads as aired unless it is current: the still under the past shade
  * and the title quiet. Focus fills the whole card rose. OK or a tap opens it; holding it (or Menu)
  * offers the quick ways to play it. Phones and tablets size it [touchWidth].
  */
@@ -90,7 +91,7 @@ fun EpisodeCard(
             Poster(
                 stillUrl, label,
                 Modifier.fillMaxWidth().aspectRatio(STILL_ASPECT)
-                    .then(if (current) Modifier.currentRing(if (focused) theme.onAccent else theme.accent) else Modifier),
+                    .then(if (current) Modifier.currentRing(theme.accent, shown = !focused) else Modifier),
                 shaded = aired,
             ) {
                 WatchStrip(progress, watched, Modifier.align(Alignment.BottomStart))
@@ -102,14 +103,17 @@ fun EpisodeCard(
 
 /**
  * The current episode's mark: a ring the whole width of the tile frame round its still, outside
- * the picture so none of it is covered. Drawn in [ink]: the accent, or the focus fill's ink while
- * the card is focused, so the fill never swallows it and it never reads as focus itself.
+ * the picture so none of it is covered. It is a fill the frame wider than the still, drawn behind
+ * it the way focus fills the card, so the rim keeps the cards' near-square corners inside and out.
+ * Drawn in [ink] only while [shown]: focus fills the frame anyway, so a focused current card looks
+ * like any other focused card.
  */
-private fun Modifier.currentRing(ink: Color): Modifier =
-    semantics { stateDescription = "Current" }.drawWithContent {
-        drawContent()
+private fun Modifier.currentRing(ink: Color, shown: Boolean): Modifier =
+    semantics { stateDescription = "Current" }.drawBehind {
+        if (!shown) return@drawBehind
         val ring = TILE_FRAME.toPx()
-        drawRect(ink, Offset(-ring / 2, -ring / 2), Size(size.width + ring, size.height + ring), style = Stroke(ring))
+        val corner = ControlShape.topStart.toPx(size, this)
+        drawRoundRect(ink, Offset(-ring, -ring), Size(size.width + ring * 2, size.height + ring * 2), CornerRadius(corner))
     }
 
 /**

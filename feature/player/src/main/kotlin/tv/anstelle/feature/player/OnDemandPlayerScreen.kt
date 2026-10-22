@@ -1,6 +1,5 @@
 package tv.anstelle.feature.player
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -99,6 +98,7 @@ import tv.anstelle.core.theme.components.EpisodeActionsDialog
 import tv.anstelle.core.theme.components.EpisodeCard
 import tv.anstelle.core.theme.components.SeasonTabs
 import tv.anstelle.core.theme.components.episodeCardSpacing
+import tv.anstelle.core.theme.components.rememberBackPress
 
 import javax.inject.Inject
 
@@ -297,7 +297,7 @@ fun OnDemandPlayerScreen(
         if (panel == null) hiddenByUser = true
     }
     // One owner for remote and system Back: picker, banner, then player.
-    BackHandler {
+    val back = rememberBackPress {
         if (panel != null || bannerUp()) closePanelOrBanner() else exit()
     }
     // A disabled Previous cannot retain focus after restarting the show's first episode.
@@ -364,6 +364,7 @@ fun OnDemandPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(focus)
+            .then(back)
             .onPreviewKeyEvent { event ->
                 // Any key pressed with the banner's keys in use holds the banner up a while longer.
                 if (panel != null && event.key != Key.Back && event.type == KeyEventType.KeyDown) overlay++
