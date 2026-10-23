@@ -1,6 +1,8 @@
 # Testing
 
-The project has three kinds of tests: JVM unit tests for logic, instrumented tests on a device or emulator for Room, decoders and app flows, and macrobenchmarks for performance. There is no coverage tooling and no CI configuration in the repository; checks run locally.
+The project has three kinds of tests: JVM unit tests for logic, instrumented tests on a device or emulator for Room, decoders and app flows, and macrobenchmarks for performance. There is no coverage tooling.
+
+GitHub Actions runs the checks on every push to any branch (`.github/workflows/ci.yml`): `pnpm check` for the web UI, then `assembleDebug`, `lintDebug` and all unit tests. Instrumented tests and benchmarks need a device and run locally only. A failed run keeps the build reports as an artifact for a week. Dependabot opens weekly update pull requests for Gradle, the web UI and the workflows' actions.
 
 ## Running tests
 

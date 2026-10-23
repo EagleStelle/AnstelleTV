@@ -1,0 +1,27 @@
+version: 2
+
+# Minor and patch updates come as one pull request per ecosystem; majors come one by one.
+updates:
+  - package-ecosystem: github-actions
+    directories: ['/', '/.github/actions/setup']
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      gradle:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /webui
+    schedule:
+      interval: weekly
+    groups:
+      webui:
+        update-types: [minor, patch]

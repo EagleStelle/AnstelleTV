@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Build and publish
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+
+      - name: Check the tag matches versionName
+        run: |
+          version=$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle.kts)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match versionName $version in app/build.gradle.kts"
+            exit 1
+          fi
+
+      # Without keystore.properties the build falls back to the debug key, and an APK signed
+      # with it can never be updated by a properly signed one, so a missing secret stops here.
+      - name: Set up release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Set the KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD repository secrets"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$RUNNER_TEMP/release.keystore" "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+
+      - name: Build release APKs
+        run: ./gradlew assembleRelease
+
+      - name: Collect release files
+        run: |
+          mkdir dist
+          for apk in app/build/outputs/apk/release/app-*-release.apk; do
+            abi=${apk##*/app-}
+            cp "$apk" "dist/AnstelleTV-$GITHUB_REF_NAME-${abi%-release.apk}.apk"
+          done
+          # R8 mapping, to read stack traces from release builds.
+          cp app/build/outputs/mapping/release/mapping.txt "dist/AnstelleTV-$GITHUB_REF_NAME-mapping.txt"
+          cd dist && sha256sum * > SHA256SUMS.txt
+
+      # --generate-notes writes GitHub's notes: merged pull requests, if any, and the Full Changelog link.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "AnstelleTV $GITHUB_REF_NAME"

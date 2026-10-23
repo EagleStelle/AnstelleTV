@@ -124,6 +124,7 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.20, KSP 2.3.12, Compose BOM 2026.09.00, 
 - Web UI on a device: run `adb forward tcp:8765 tcp:8765`, then open `http://localhost:8765`.
 - Web UI dev server: `cd webui && pnpm dev`. It proxies `/api` and `/ws` to `ANSTELLE_DEVICE`, default `http://127.0.0.1:8765`.
 - Release signing: add `keystore.properties` at the repo root with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`. This file is not checked in.
+- CI/CD (GitHub Actions): every branch push runs `pnpm check`, `assembleDebug`, `lintDebug` and the unit tests (`ci.yml`). A `v<versionName>` tag runs those, then builds signed release APKs and publishes a GitHub release with generated notes and the Full Changelog link (`release.yml`). The release key comes from the `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD` secrets; a missing one or a tag that doesn't match `versionName` stops the release, so no release is ever debug-signed. `versionCode` follows `versionName` (1.2.3 becomes 10203). Dependabot opens weekly grouped updates.
 
 ## Modules
 

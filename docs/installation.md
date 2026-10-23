@@ -105,6 +105,27 @@ Release builds use R8 full mode with resource shrinking and need pnpm (they fail
 | `app-x86_64-release.apk` | Emulators |
 | `app-universal-release.apk` | Any of the above, at a larger size |
 
+### Publishing a release
+
+GitHub Actions builds and publishes releases. Pushing a tag `v<versionName>` (for example `v1.0.0`) runs the CI checks, builds the release APKs with the release key and publishes a GitHub release with GitHub's generated notes, which end with the *Full Changelog* link. The release holds the four APKs, named `AnstelleTV-v1.0.0-<abi>.apk`, the R8 mapping file and `SHA256SUMS.txt`.
+
+1. Raise `versionName` in `app/build.gradle.kts`. `versionCode` follows from it (1.2.3 becomes 10203).
+2. Commit, then tag and push:
+
+   ```sh
+   git tag v1.0.0
+   git push origin main v1.0.0
+   ```
+
+The release workflow stops if the tag doesn't match `versionName` or if a signing secret is missing. It needs four repository secrets (Settings > Secrets and variables > Actions):
+
+| Secret | Value |
+|---|---|
+| `KEYSTORE_BASE64` | The keystore file, base64-encoded (`base64 -w0 release.keystore`) |
+| `KEYSTORE_PASSWORD` | `storePassword` |
+| `KEY_ALIAS` | `keyAlias` |
+| `KEY_PASSWORD` | `keyPassword` |
+
 ## Verify it works
 
 1. Launch AnstelleTV. A fresh install opens on *Add server*, which also offers *Restore backup*.
@@ -122,7 +143,7 @@ curl http://localhost:8765/api/health
 The response looks like:
 
 ```json
-{"app":"AnstelleTV","version":"0.1.0","deviceName":"...","isTv":true}
+{"app":"AnstelleTV","version":"1.0.0","deviceName":"...","isTv":true}
 ```
 
 Open `http://localhost:8765` in a browser to pair with the PIN shown on the device. From another computer on the same network, use the address shown on the Web control page instead.

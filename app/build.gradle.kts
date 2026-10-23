@@ -25,8 +25,10 @@ android {
 
     defaultConfig {
         applicationId = "tv.anstelle.app"
-        versionCode = 1
-        versionName = "0.1.0"
+        // Release tags are v<versionName>; the release workflow refuses a tag that doesn't match.
+        versionName = "1.0.0"
+        // 1.2.3 becomes 10203, so the code grows with every release.
+        versionCode = versionName!!.split('.').map(String::toInt).let { (major, minor, patch) -> major * 10_000 + minor * 100 + patch }
     }
 
     splits {
