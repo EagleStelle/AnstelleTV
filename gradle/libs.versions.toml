@@ -6,7 +6,7 @@ targetSdk = "37"
 
 # Build
 agp = "9.4.1"
-kotlin = "2.4.20"
+kotlin = "2.4.21"
 ksp = "2.3.12"
 desugar = "2.1.5"
 
@@ -38,11 +38,11 @@ libassAndroid = "0.5.1"
 
 # Libraries
 hilt = "2.60.1"
-jellyfinSdk = "1.9.1"
+jellyfinSdk = "1.9.2"
 ktor = "3.6.0"
 okhttp = "5.5.0"
 coil = "3.6.3"
-kotlinxSerialization = "1.11.0"
+kotlinxSerialization = "1.12.0"
 kotlinxCoroutines = "1.11.0"
 javaxInject = "1"
 xmlpull = "1.1.3.1"
@@ -50,7 +50,7 @@ kxml2 = "2.3.0"
 
 # Testing
 junit = "4.13.2"
-mockito = "5.20.0"
+mockito = "5.24.0"
 # The Jellyfin SDK logs through kotlin-logging, which needs SLF4J on the plain JVM (unit tests).
 slf4j = "2.0.20"
 
