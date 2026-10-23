@@ -3,9 +3,9 @@
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Android%20TV%20%7C%20Fire%20TV-3DDC84?logo=android&logoColor=white)
 ![Min API](https://img.shields.io/badge/API-25%2B-brightgreen.svg)
-![Kotlin](https://img.shields.io/badge/Kotlin-2.4.20-7F52FF?logo=kotlin&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-7F52FF?logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2026.09-4285F4?logo=jetpackcompose&logoColor=white)
-![Jellyfin](https://img.shields.io/badge/Jellyfin-SDK%201.9.1-00A4DC?logo=jellyfin&logoColor=white)
+![Jellyfin](https://img.shields.io/badge/Jellyfin-SDK%201.9.2-00A4DC?logo=jellyfin&logoColor=white)
 ![SvelteKit](https://img.shields.io/badge/SvelteKit-3-FF3E00?logo=svelte&logoColor=white)
 
 Your Jellyfin library, on the air around the clock.

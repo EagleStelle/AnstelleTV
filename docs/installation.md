@@ -12,7 +12,7 @@
 | Jellyfin | A server you can sign in to | Quick Connect needs to be enabled on the server to use it. Media segments for skipping intros need Jellyfin 10.10 or later. |
 | Python 3 with Pillow | Optional | Only for `tools/brand/generate_brand.py` and `tools/themes/generate_themes.py`. |
 
-The Gradle wrapper (9.8.0) is checked in, so Gradle itself needs no install.
+The Gradle wrapper (9.8.2) is checked in, so Gradle itself needs no install.
 
 ## Steps
 
