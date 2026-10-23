@@ -39,7 +39,7 @@ class MediaKind(
  *   Other genres modify as they are ("Sports Anime").
  * - `ignoredTags`: tags that describe the file or the credits, not the content.
  * - `minorWords`: words title case leaves lowercase ("Based on Manga").
- * - `names`: what to call the series channel of a genre ("Horror": "Fright Night"), of a media
+ * - `names`: what to call the series channel of a genre ("Horror": "Night Shivers"), of a media
  *   type with a genre ("Anime + Horror": "Anime After Dark") or of two genres ("Crime + Drama":
  *   "Case Files"); `movieNames` the same for movie channels. A channel without one is named from
  *   its genres ("Comedic Drama", "Comedic Drama Movies").

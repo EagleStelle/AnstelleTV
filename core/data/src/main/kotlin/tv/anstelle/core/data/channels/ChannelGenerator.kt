@@ -39,7 +39,7 @@ class GeneratedChannel(
 /**
  * Makes channels from the library's metadata: which channels exist and what they air come from
  * the library's genres, tags, years and studios. Genre channels take their names from [words]
- * ("Fright Night", "Anime After Dark", "Case Files") and are otherwise named from their genres.
+ * ("Night Shivers", "Anime After Dark", "Case Files") and are otherwise named from their genres.
  *
  * A genre or decade channel airs series or movies, never both, and one kind of show only:
  * anime, cartoons or neither (the catalog decides each show's kind; animation it can't place

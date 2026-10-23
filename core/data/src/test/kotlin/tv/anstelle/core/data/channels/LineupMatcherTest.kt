@@ -17,14 +17,14 @@ class LineupMatcherTest {
         listOf(
             seriesRow(900, "s-office", "The Example Office"),
             item(1, title = "Pilot", series = "s-office", show = "The Example Office", season = 1, episode = 1, genres = listOf("Comedy"),
-                 studios = listOf("NBC"), year = 2005, rating = "TV-14", score = 14, minutes = 22),
+                 studios = listOf("Example Network"), year = 2005, rating = "TV-14", score = 14, minutes = 22),
             item(2, title = "Christmas Party", series = "s-office", show = "The Example Office", season = 2, episode = 10, genres = listOf("Comedy"),
-                 studios = listOf("NBC"), year = 2005, rating = "TV-14", score = 14, minutes = 22),
-            item(3, type = MediaType.MOVIE, title = "A Christmas Story", genres = listOf("Family", "Comedy"),
+                 studios = listOf("Example Network"), year = 2005, rating = "TV-14", score = 14, minutes = 22),
+            item(3, type = MediaType.MOVIE, title = "A Christmas Example", genres = listOf("Family", "Comedy"),
                  studios = listOf("Example Pictures"), year = 1983, rating = "PG", score = 10, minutes = 94),
             item(4, type = MediaType.MOVIE, title = "The Party Planner", genres = listOf("Drama"), year = null, minutes = 120,
                  tags = listOf("trick-or-treat")),
-            item(5, title = "Space Cadets", series = "s-space", genres = listOf("Animation", "Kids"), studios = listOf("Cartoon Network"),
+            item(5, title = "Example Cadets", series = "s-space", genres = listOf("Animation", "Kids"), studios = listOf("Example Cartoon Studio"),
                  year = 1998, rating = "TV-Y7", score = 7, minutes = 11, library = "library-2"),
             item(6, type = MediaType.MUSIC_VIDEO, title = "Example Song", year = 1984, minutes = 4),
         ),
@@ -38,14 +38,14 @@ class LineupMatcherTest {
     fun `series rows only name shows`() {
         assertEquals(listOf(1L, 2L, 3L, 4L, 5L, 6L), catalog.items.map { it.id })
         assertEquals("The Example Office", catalog.titleOf("s-office"))
-        assertEquals(listOf("A Christmas Story", "Example Song", "Show s-space", "The Example Office", "The Party Planner"), catalog.shows.map { it.title })
+        assertEquals(listOf("A Christmas Example", "Example Song", "Show s-space", "The Example Office", "The Party Planner"), catalog.shows.map { it.title })
     }
 
     @Test
     fun `list fields ignore case`() {
         assertEquals(listOf(1L, 2L, 3L), ids(Rule(RuleField.GENRE, RuleOp.ANY_OF, "comedy")))
         assertEquals(listOf(4L, 5L, 6L), ids(Rule(RuleField.GENRE, RuleOp.NOT_ANY_OF, "Comedy")))
-        assertEquals(listOf(1L, 2L), ids(Rule(RuleField.STUDIO, RuleOp.EQUALS, "nbc")))
+        assertEquals(listOf(1L, 2L), ids(Rule(RuleField.STUDIO, RuleOp.EQUALS, "example network")))
         assertEquals(listOf(5L), ids(Rule(RuleField.STUDIO, RuleOp.CONTAINS, "cartoon")))
     }
 

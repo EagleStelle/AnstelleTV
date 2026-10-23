@@ -116,7 +116,7 @@ class WatchEventDaoTest {
     @Test
     fun topListsGroupAndShowTheLastItemWatched() = runTest {
         profile(1); server()
-        channel(1, 1042, "Fright Night")
+        channel(1, 1042, "Night Shivers")
         channel(2, 3001, "Case Files")
         item(10, MediaType.EPISODE, "Pilot", "Show A", "series-a", "|Horror|")
         item(11, MediaType.EPISODE, "Second", "Show A", "series-a", "|Horror|")
@@ -132,7 +132,7 @@ class WatchEventDaoTest {
             ),
         )
         val channels = dao.topChannels(1, today, today, 0, OPEN, 5)
-        assertEquals(listOf("Case Files" to 90 * minute, "Fright Night" to 44 * minute), channels.map { it.title to it.playedMs })
+        assertEquals(listOf("Case Files" to 90 * minute, "Night Shivers" to 44 * minute), channels.map { it.title to it.playedMs })
         assertEquals(listOf(3001, 1042), channels.map { it.number })
         assertEquals(11L, channels[1].itemId, "the item watched last")
 

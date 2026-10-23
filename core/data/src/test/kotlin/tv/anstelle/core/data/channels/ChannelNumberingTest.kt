@@ -13,10 +13,10 @@ class ChannelNumberingTest {
     @Test
     fun `each group numbers its channels A to Z from its start`() {
         val channels = listOf(
-            channel(1, 3, "Fright Night"),
+            channel(1, 3, "Night Shivers"),
             channel(2, 3, "case files"),
             channel(3, 3, "Ánime After Dark"),
-            channel(4, 1, "Netflix"),
+            channel(4, 1, "Example Studio"),
             channel(5, 7, "Saturday Cartoons"),
             channel(6, 7, "Kids"),
         )

@@ -114,7 +114,7 @@ class ChannelGeneratorTest {
                 named.types,
             ),
         ).map { it.name }
-        for (expected in listOf("Anime After Dark", "Anime Funhouse", "Case Files", "Crime Beat", "Center Stage", "Oddball", "Oddball Drama", "Horror Picture Show")) {
+        for (expected in listOf("Anime After Dark", "Anime Funhouse", "Case Files", "Crime Beat", "Main Stage", "Oddball", "Oddball Drama", "Horror Reels")) {
             assertTrue(expected in names, "$expected missing from $names")
         }
     }
@@ -184,13 +184,13 @@ class ChannelGeneratorTest {
     @Test
     fun `a studio's channel airs its series and movies, and one studio spelled twice is one channel`() {
         val channels = generate(
-            (1..3).flatMap { show("n$it", studios = listOf("Netflix"), year = null) } +
-                (1..6).flatMap { movie(studios = listOf("Netflix"), year = null) } +
-                (1..3).flatMap { show("t$it", studios = listOf("Toho", "Toho Co., Ltd."), year = null) },
+            (1..3).flatMap { show("n$it", studios = listOf("Example Streamer"), year = null) } +
+                (1..6).flatMap { movie(studios = listOf("Example Streamer"), year = null) } +
+                (1..3).flatMap { show("t$it", studios = listOf("Example Pictures", "Example Pictures Co., Ltd."), year = null) },
         ).filter { it.segment == ChannelSegment.PRODUCTIONS }
-        val netflix = channels.single { it.name == "Netflix" }
-        assertEquals(9, netflix.match.showCount)
-        assertEquals(1, channels.count { it.name.startsWith("Toho") })
+        val streamer = channels.single { it.name == "Example Streamer" }
+        assertEquals(9, streamer.match.showCount)
+        assertEquals(1, channels.count { it.name.startsWith("Example Pictures") })
     }
 
     @Test
@@ -308,7 +308,7 @@ class ChannelGeneratorTest {
     private fun mixedLibrary(random: Random): List<CatalogRow> {
         val genres = listOf("Comedy", "Drama", "Crime", "Romance", "Sci-Fi & Fantasy", "Science Fiction", "Anime", "Animation", "Sport", "Horror")
         val tags = listOf("isekai", "anime", "zombies", "time travel", "based on manga", "magical girl")
-        val studios = listOf("Netflix", "NBC", "TBS", "Example Studio")
+        val studios = listOf("Example Streamer", "Example Network", "Example Cable", "Example Studio")
         val audio = listOf(emptyList(), listOf("jpn"), listOf("eng"), listOf("eng", "jpn"), listOf("jpn", "eng"))
         return (1..160).flatMap { s ->
             val showGenres = genres.shuffled(random).take(random.nextInt(1, 4))

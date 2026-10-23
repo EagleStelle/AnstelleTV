@@ -77,7 +77,7 @@ fun fieldLabel(field: RuleField): String = when (field) {
 
 fun fieldHint(field: RuleField): String = when (field) {
     RuleField.GENRE -> "Comedy, Animation, Western…"
-    RuleField.STUDIO -> "NBC, Cartoon Network, Studio Ghibli…"
+    RuleField.STUDIO -> "Studios from your Jellyfin metadata"
     RuleField.TAG -> "Tags from your Jellyfin metadata"
     RuleField.OFFICIAL_RATING -> "TV-Y, PG-13, R…"
     RuleField.YEAR -> "Release year"

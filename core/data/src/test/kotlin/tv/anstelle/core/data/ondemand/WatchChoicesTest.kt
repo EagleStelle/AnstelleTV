@@ -64,9 +64,9 @@ class WatchChoicesTest {
 
     @Test
     fun `resume on demand waits until it differs from starting on demand`() {
-        val early = WatchChoices.onNow(1001, "ABC", startUtcMs = 0, endUtcMs = 30 * 60_000, nowUtcMs = 20_000, isEpisode = true)
+        val early = WatchChoices.onNow(1001, "Example Network", startUtcMs = 0, endUtcMs = 30 * 60_000, nowUtcMs = 20_000, isEpisode = true)
         assertEquals(listOf("Watch live", "Start over", "Watch on Demand"), early.map { it.title })
-        val later = WatchChoices.onNow(1001, "ABC", startUtcMs = 0, endUtcMs = 30 * 60_000, nowUtcMs = 5 * 60_000, isEpisode = true)
+        val later = WatchChoices.onNow(1001, "Example Network", startUtcMs = 0, endUtcMs = 30 * 60_000, nowUtcMs = 5 * 60_000, isEpisode = true)
         assertEquals(listOf("Watch live", "Start over", "Watch on Demand", "Resume on Demand"), later.map { it.title })
     }
 
@@ -108,9 +108,9 @@ class WatchChoicesTest {
 
     @Test
     fun `live and resume choices carry their position and the channel`() {
-        val live = WatchChoices.live(3004, "Fright Night", endUtcMs = 18 * 60_000, nowUtcMs = 0)
+        val live = WatchChoices.live(3004, "Night Shivers", endUtcMs = 18 * 60_000, nowUtcMs = 0)
         assertEquals(WatchKind.LIVE, live.kind)
-        assertEquals("3004 Fright Night · 18 min left", live.detail)
+        assertEquals("3004 Night Shivers · 18 min left", live.detail)
         assertEquals("Resume from 31 min in", WatchChoices.resume(31 * 60_000L + 10_000).title)
         assertEquals("Add movie to a channel", WatchChoices.addToChannel(isMovie = true).title)
         assertEquals("Add show to a channel", WatchChoices.addToChannel(isMovie = false).title)
