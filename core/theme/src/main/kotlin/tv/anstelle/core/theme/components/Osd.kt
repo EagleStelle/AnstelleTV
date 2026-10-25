@@ -7,7 +7,11 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -43,6 +47,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -111,6 +117,37 @@ val osdKeyScale: Float @Composable get() = maxOf(1f, LocalDensity.current.fontSc
 
 /** One key height for the player's banner and every detail page's watch keys, so the two always match. */
 val osdKeyHeight: Dp @Composable get() = 48.dp * osdKeyScale
+
+/** How far every key's glyph reaches at its widest, on touch and TV; text scale enlarges the key, not its icon. */
+val OSD_KEY_ICON_SIZE = 18.dp
+
+/**
+ * How much of its 24-unit viewport a Material glyph spans at its widest. Every glyph is scaled
+ * as if it spanned 20 units, so one spanning them fills [OSD_KEY_ICON_SIZE] and the rest keep
+ * Material's own balance (it draws the solid transport glyphs small on purpose). The few listed
+ * fall just short of 20 and are scaled to fill it too.
+ */
+private fun glyphSpan(icon: ImageVector) = when (icon) {
+    Icons.Filled.FastForward -> 17.5f
+    Icons.Filled.Check -> 17.6f
+    Icons.Filled.Audiotrack -> 18f
+    else -> 20f
+}
+
+/** A key's glyph on the player's banner and a detail page's watch keys alike, scaled until its widest span fills [OSD_KEY_ICON_SIZE]. */
+@Composable
+fun OsdKeyIcon(icon: ImageVector, tint: Color) {
+    val scale = 24f / glyphSpan(icon)
+    androidx.compose.material3.Icon(
+        icon,
+        contentDescription = null,
+        tint = tint,
+        modifier = Modifier.size(OSD_KEY_ICON_SIZE).graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        },
+    )
+}
 
 /** A short tag in the field voice on a flat fill: a profile's role, the default theme. */
 @Composable

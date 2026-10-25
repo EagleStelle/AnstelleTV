@@ -28,10 +28,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -51,7 +49,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -82,6 +79,7 @@ import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.LocalSubtitleLook
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdBadge
+import tv.anstelle.core.theme.components.OsdKeyIcon
 import tv.anstelle.core.theme.components.SHADE_DEEPEST
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.SegmentRing
@@ -422,22 +420,6 @@ internal val KEY_PADDING = 12.dp
 /** The space between neighboring keys in a row. */
 internal val KEY_GAP = 4.dp
 
-/** How far every key's glyph reaches at its widest, on touch and TV; text scale enlarges the key, not its icon. */
-private val PLAYER_KEY_ICON_SIZE = 18.dp
-
-/**
- * How much of its 24-unit viewport a Material glyph spans at its widest. Every glyph is scaled
- * as if it spanned 20 units, so one spanning them fills [PLAYER_KEY_ICON_SIZE] and the rest keep
- * Material's own balance (it draws the solid transport glyphs small on purpose). The few listed
- * fall just short of 20 and are scaled to fill it too.
- */
-private fun glyphSpan(icon: ImageVector) = when (icon) {
-    Icons.Filled.FastForward -> 17.5f
-    Icons.Filled.Check -> 17.6f
-    Icons.Filled.Audiotrack -> 18f
-    else -> 20f
-}
-
 /** How much of the muted ink a key keeps while it can't act. */
 private const val DISABLED_ALPHA = 0.45f
 
@@ -488,7 +470,7 @@ internal fun OsdKey(
             else -> theme.textMuted.copy(alpha = DISABLED_ALPHA)
         }
         if (iconOnly) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { icon?.let { KeyIcon(it, ink) } }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { icon?.let { OsdKeyIcon(it, ink) } }
         } else {
             Row(
                 Modifier
@@ -497,7 +479,7 @@ internal fun OsdKey(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                icon?.let { KeyIcon(it, ink) }
+                icon?.let { OsdKeyIcon(it, ink) }
                 androidx.compose.material3.Text(
                     (value ?: label).uppercase(),
                     style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
@@ -510,21 +492,6 @@ internal fun OsdKey(
             }
         }
     }
-}
-
-/** A key's glyph, scaled until its widest span fills [PLAYER_KEY_ICON_SIZE]. */
-@Composable
-private fun KeyIcon(icon: ImageVector, tint: Color) {
-    val scale = 24f / glyphSpan(icon)
-    androidx.compose.material3.Icon(
-        icon,
-        contentDescription = null,
-        tint = tint,
-        modifier = Modifier.size(PLAYER_KEY_ICON_SIZE).graphicsLayer {
-            scaleX = scale
-            scaleY = scale
-        },
-    )
 }
 
 /**
