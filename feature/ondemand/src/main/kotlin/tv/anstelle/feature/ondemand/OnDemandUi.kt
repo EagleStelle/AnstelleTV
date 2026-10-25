@@ -69,9 +69,15 @@ import kotlin.math.floor
 private const val DETAIL_ARTWORK_WIDTH = 0.72f
 private const val DETAIL_ARTWORK_ASPECT = 16f / 9f
 
-/** Where the artwork starts fading into the ground, as fractions of its box: across (wide only) and down. */
-private const val DETAIL_FADE_SIDE_FROM = 0.3f
+/** How far wide layouts push the artwork off the screen's left edge, as a fraction of its width. */
+private const val DETAIL_ARTWORK_SHIFT = 0.08f
+
+/** Where the artwork starts fading into the ground, as a fraction of its box's height. */
 private const val DETAIL_FADE_BOTTOM_FROM = 0.5f
+
+/** The wide side fade, as fractions of the box's width: how wide it is, and how far past the readout's text it ends. */
+private const val DETAIL_FADE_SIDE_WIDTH = 0.4f
+private const val DETAIL_FADE_SIDE_PAST = 0.08f
 
 /** The picture sets the readout's budget; compact layouts retain natural-height descriptions. */
 internal val LocalReadoutHeight = staticCompositionLocalOf { Dp.Infinity }
@@ -116,15 +122,18 @@ internal fun Page(
                     val wide = isTv || maxWidth >= 840.dp
                     val pictureWidth = maxWidth * if (wide) DETAIL_ARTWORK_WIDTH else 1f
                     val heroHeight = minOf(pictureWidth / DETAIL_ARTWORK_ASPECT, heroMax)
+                    val pictureShift = pictureWidth * DETAIL_ARTWORK_SHIFT
+                    // Where the readout's text starts across the picture's box, shifted left by pictureShift.
+                    val textFrom = (maxWidth - readoutWidth + side + pictureShift) / pictureWidth
                     Box(Modifier.fillMaxWidth().then(if (wide) Modifier.height(heroHeight) else Modifier)) {
                         Box(Modifier.wrapContentHeight(Alignment.Top, unbounded = true).width(pictureWidth).aspectRatio(DETAIL_ARTWORK_ASPECT)
-                            .then(if (wide) Modifier.absoluteOffset(x = -edge) else Modifier)) {
+                            .then(if (wide) Modifier.absoluteOffset(x = -pictureShift) else Modifier)) {
                             AsyncImage(
                                 model = backdropUrl,
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 alignment = Alignment.TopCenter,
-                                modifier = Modifier.matchParentSize().detailArtworkFade(wide, theme.background),
+                                modifier = Modifier.matchParentSize().detailArtworkFade(wide, theme.background, textFrom),
                             )
                         }
                         Column(
@@ -160,11 +169,12 @@ internal fun Page(
 
 /**
  * The one fade every detail page's artwork takes, fixed to its box so channel, title and episode
- * pages match: the top half and (wide) the left stay clear, then each eases into the ground. On a
- * phone, where the readout lies over the picture, the whole picture first takes the banners' flat
- * wash ([BACKDROP_WASH]) so the text keeps its contrast.
+ * pages match: the top half stays clear, then eases into the ground. Wide, the picture also stays
+ * clear up to a band that ends just past [textFrom], where the readout's text starts, so the text
+ * always sits on the ground at any font scale. On a phone, where the readout lies over the picture,
+ * the whole picture first takes the banners' flat wash ([BACKDROP_WASH]) so the text keeps its contrast.
  */
-private fun Modifier.detailArtworkFade(wide: Boolean, ground: Color): Modifier =
+private fun Modifier.detailArtworkFade(wide: Boolean, ground: Color, textFrom: Float): Modifier =
     drawWithCache {
         val colors = IntArray(65) { index ->
             val progress = index / 64f
@@ -178,7 +188,12 @@ private fun Modifier.detailArtworkFade(wide: Boolean, ground: Color): Modifier =
             shader = LinearGradient(x0, y0, x1, y1, colors, null, Shader.TileMode.CLAMP)
         }
         val bottomFade = fade(0f, size.height * DETAIL_FADE_BOTTOM_FROM, 0f, size.height.coerceAtLeast(1f))
-        val sideFade = if (wide) fade(size.width * DETAIL_FADE_SIDE_FROM, 0f, size.width.coerceAtLeast(1f), 0f) else null
+        val sideFade = if (wide) {
+            val width = size.width.coerceAtLeast(1f)
+            // Never past the box's right edge, so the picture meets the plain ground with no seam.
+            val to = minOf(1f, textFrom + DETAIL_FADE_SIDE_PAST)
+            fade(width * (to - DETAIL_FADE_SIDE_WIDTH), 0f, width * to, 0f)
+        } else null
         onDrawWithContent {
             drawContent()
             if (!wide) drawRect(ground.copy(alpha = ground.alpha * BACKDROP_WASH))
