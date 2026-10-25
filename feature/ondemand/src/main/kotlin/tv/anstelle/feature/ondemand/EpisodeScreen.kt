@@ -105,7 +105,7 @@ class EpisodeViewModel @Inject constructor(
 
 /**
  * An episode's own page, opened from its show's carousel on a channel's or series' page: the
- * shared detail sheet over the episode's still. Logo, episode title, facts, whole synopsis,
+ * shared detail sheet over its backdrop, usually its series'. Logo, episode title, facts, whole synopsis,
  * watch strip and action keys precede the season's carousel opened on this episode,
  * so the next one is a press away. OK on another episode opens its page in this one's place, so
  * Back still returns to the page that opened the first.
@@ -163,7 +163,7 @@ fun EpisodeScreen(
     )
 
     Page(
-        backdropUrl = self?.stillUrl,
+        backdropUrl = item.artwork.backdropUrl,
         hero = {
             ProgrammeSheet(
                 title = item.title,

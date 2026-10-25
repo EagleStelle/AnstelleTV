@@ -184,7 +184,7 @@ fun ChannelScreen(
     )
 
     Page(
-        backdropUrl = if (item.isEpisode) topicEpisode?.stillUrl.takeUnless { restricted } else item.artwork.backdropUrl,
+        backdropUrl = item.artwork.backdropUrl,
         hero = {
             val tense = if (page.onNow) AiringTense.of(page.startUtcMs, page.endUtcMs, clock.value) else AiringTense.LATER
             ProgrammeSheet(
