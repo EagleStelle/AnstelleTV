@@ -1,6 +1,7 @@
 package tv.anstelle.feature.ondemand
 
 import tv.anstelle.core.theme.components.obscured
+import tv.anstelle.core.theme.components.LogoSize
 import tv.anstelle.core.theme.components.OffAirMark
 import tv.anstelle.core.theme.components.RestrictedMark
 import tv.anstelle.core.theme.components.WatchProgress
@@ -581,8 +582,8 @@ private fun RowHeader(row: ChannelRow, modifier: Modifier = Modifier) {
 }
 
 /**
- * A channel's banner slide: its number and name, the show's logo, what airs and when, and two
- * lines of overview; the banner's foot carries how far the airing has got.
+ * A channel's banner slide: its number and name, the show's logo, what airs and when, and its
+ * overview ([BannerDescription]); the banner's foot carries how far the airing has got.
  */
 @Composable
 private fun ChannelSlide(slide: ChannelNow) {
@@ -590,7 +591,7 @@ private fun ChannelSlide(slide: ChannelNow) {
     val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        slide.channel.logoUri?.let { ChannelLogo(it, height = if (isTv) 30.dp else 24.dp, alignment = Alignment.CenterStart) }
+        slide.channel.logoUri?.let { ChannelLogo(it, height = LogoSize.Ident, alignment = Alignment.CenterStart) }
         NumberBlock(
             "${slide.channel.number}",
             style = typography.titleLarge.merge(TextStyle(fontFamily = theme.displayFont, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")),

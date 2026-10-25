@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +36,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
+import tv.anstelle.core.theme.LocalIsTv
 import kotlin.math.hypot
 
 /**
@@ -144,6 +146,9 @@ const val CHANNEL_LOGO_ASPECT = 5f / 3f
 object LogoSize {
     val Standard = 56.dp
     val Compact = 40.dp
+
+    /** Beside a channel's number block and name: On demand's channel banners and channel pages. */
+    val Ident: Dp @Composable @ReadOnlyComposable get() = if (LocalIsTv.current) 30.dp else 24.dp
 }
 
 /**
