@@ -40,7 +40,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -74,6 +73,7 @@ import tv.anstelle.core.theme.components.rememberInitialFocus
 import tv.anstelle.core.theme.components.screenSide
 import tv.anstelle.core.theme.components.screenEdge
 import tv.anstelle.core.theme.components.screenGap
+import tv.anstelle.core.theme.components.screenSize
 
 /** What the ranked list ranks, in the tabs' order (user decision): channels first. */
 internal enum class Ranking(val label: String) {
@@ -119,7 +119,7 @@ fun DashboardScreen(
                 description = "Nothing watched yet. Your watch time and most watched show here once a program plays for 30 seconds.",
                 actions = emptyList(),
             )
-            isTv || LocalConfiguration.current.screenWidthDp >= SPLIT_DP -> Row(Modifier.fillMaxSize()) {
+            isTv || screenSize.width >= SPLIT_WIDTH -> Row(Modifier.fillMaxSize()) {
                 Column(
                     Modifier
                         .weight(RANKS_SHARE)
@@ -542,7 +542,7 @@ private fun TextStyle.figures(): TextStyle = merge(TextStyle(fontFamily = LocalA
 private fun percent(share: Float): String = "${(share * 100).toInt().coerceIn(0, 100)}%"
 
 /** From this width the dashboard splits into its two panes, as on TV. */
-private const val SPLIT_DP = 720
+private val SPLIT_WIDTH = 720.dp
 
 /** The ranks' share of a split; the meter takes the rest, wide enough for its readings in pairs. */
 private const val RANKS_SHARE = 0.52f

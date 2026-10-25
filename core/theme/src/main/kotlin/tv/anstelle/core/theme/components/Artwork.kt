@@ -17,11 +17,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
@@ -29,6 +35,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import tv.anstelle.core.theme.ControlShape
 import tv.anstelle.core.theme.LocalAnstelleTheme
+import kotlin.math.hypot
 
 /**
  * An image from the server, or the title's first letter on the surface step when there is none.
@@ -68,6 +75,40 @@ fun Poster(
  * translucent layer.
  */
 const val BACKDROP_WASH = 0.8f
+
+/** How dark the shades over a picture get where they are deepest: the player banner's foot and a corner. */
+const val SHADE_DEEPEST = 0.88f
+
+/**
+ * The corner shade over a picture: [color] deepest in the element's top-end corner (the
+ * screen's, where the player's channel ident sits) and gone at [CORNER_REACH] times the
+ * element's diagonal, a quarter ellipse a little wider than tall, whatever the element's own
+ * shape, so a short row of typed digits gets the same corner vignette as a tall logo. A
+ * broadcaster's corner bug sits on a vignette like this, never on a plate. [atStart] sets it in
+ * the top-start corner instead, behind a wide detail hero's way back on touch screens.
+ */
+fun Modifier.cornerShade(color: Color, atStart: Boolean = false) = drawBehind {
+    val rx = hypot(size.width, size.height) * CORNER_REACH
+    val ry = rx * 0.8f
+    // The screen's left corner: the end in a right-to-left layout, or the start in a left-to-right one.
+    val left = (layoutDirection == LayoutDirection.Rtl) != atStart
+    val corner = if (left) Offset.Zero else Offset(size.width, 0f)
+    val brush = Brush.radialGradient(
+        0f to color.copy(alpha = SHADE_DEEPEST),
+        0.5f to color.copy(alpha = 0.72f),
+        0.78f to color.copy(alpha = 0.32f),
+        1f to color.copy(alpha = 0f),
+        center = corner,
+        radius = ry,
+    )
+    // A circle of radius ry around the corner, stretched sideways to rx.
+    scale(scaleX = rx / ry, scaleY = 1f, pivot = corner) {
+        drawRect(brush, topLeft = Offset(if (left) 0f else corner.x - ry, 0f), size = Size(ry, ry))
+    }
+}
+
+/** How far the corner shade reaches, in multiples of its element's diagonal. */
+private const val CORNER_REACH = 1.25f
 
 /**
  * A show's or movie's backdrop under the flat wash, cropped to fill the box, with [content]

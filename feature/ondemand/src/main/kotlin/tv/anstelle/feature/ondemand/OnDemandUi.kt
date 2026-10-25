@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -58,12 +59,15 @@ import tv.anstelle.core.theme.LocalIsTv
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import tv.anstelle.core.theme.components.BACKDROP_WASH
 import tv.anstelle.core.theme.components.BackBar
+import tv.anstelle.core.theme.components.cornerShade
 import coil3.compose.AsyncImage
 import tv.anstelle.core.theme.components.osdTabHeight
 import tv.anstelle.core.theme.components.tvEpisodeCardHeight
 import tv.anstelle.core.theme.components.screenEdge
 import tv.anstelle.core.theme.components.screenGap
+import tv.anstelle.core.theme.components.screenShort
 import tv.anstelle.core.theme.components.screenSide
+import tv.anstelle.core.theme.components.screenWide
 import kotlin.math.floor
 
 private const val DETAIL_ARTWORK_WIDTH = 0.72f
@@ -84,7 +88,9 @@ internal val LocalReadoutHeight = staticCompositionLocalOf { Dp.Infinity }
 
 /**
  * An edge-to-edge hero with artwork confined to the left and a readout on the right.
- * The artwork fades into the page ground; phones overlap the readout below its top image. On TV
+ * The artwork fades into the page ground; upright phones overlap the readout below its top
+ * image. On touch a wide hero grows past the picture when large text needs the room, so the
+ * page scrolls rather than the readout. On TV
  * a page with [seasonTabs] fits in one screen: the hero ends where the tabs and a whole row of
  * episodes still fit under it, and the artwork, always one size, runs on under them.
  */
@@ -108,6 +114,8 @@ internal fun Page(
     // Wide layouts give the readout just the width of a full row of keys, so none goes behind More.
     val readoutWidth = watchKeysWidth() + side * 2
     val episodesBelow = if (isTv && seasonTabs != null) screenGap * 2 + osdTabHeight(compact = true) + tvEpisodeCardHeight() + edge else null
+    // A short screen lays the readout beside the picture too, or the picture alone would fill it.
+    val wide = isTv || screenWide || screenShort
     BoxWithConstraints(modifier.fillMaxSize().background(theme.background)) {
         // On TV the hero ends early so the season tabs and a whole row of episodes show unscrolled; the artwork keeps its size, its faded foot running under them.
         val heroMax = episodesBelow?.let { Dp(floor((maxHeight - it).value)) } ?: Dp.Infinity
@@ -119,13 +127,14 @@ internal fun Page(
         ) {
             item(key = "hero") {
                 BoxWithConstraints(Modifier.bleed(side, top).fillMaxWidth()) {
-                    val wide = isTv || maxWidth >= 840.dp
                     val pictureWidth = maxWidth * if (wide) DETAIL_ARTWORK_WIDTH else 1f
                     val heroHeight = minOf(pictureWidth / DETAIL_ARTWORK_ASPECT, heroMax)
                     val pictureShift = pictureWidth * DETAIL_ARTWORK_SHIFT
                     // Where the readout's text starts across the picture's box, shifted left by pictureShift.
                     val textFrom = (maxWidth - readoutWidth + side + pictureShift) / pictureWidth
-                    Box(Modifier.fillMaxWidth().then(if (wide) Modifier.height(heroHeight) else Modifier)) {
+                    // TV holds the hero to its height and scrolls the readout; touch lets the hero grow instead.
+                    val fixed = wide && isTv
+                    Box(Modifier.fillMaxWidth().then(if (fixed) Modifier.height(heroHeight) else if (wide) Modifier.heightIn(min = heroHeight) else Modifier)) {
                         Box(Modifier.wrapContentHeight(Alignment.Top, unbounded = true).width(pictureWidth).aspectRatio(DETAIL_ARTWORK_ASPECT)
                             .then(if (wide) Modifier.absoluteOffset(x = -pictureShift) else Modifier)) {
                             AsyncImage(
@@ -139,10 +148,10 @@ internal fun Page(
                         Column(
                             Modifier.align(if (wide) Alignment.BottomEnd else Alignment.TopStart)
                                 .then(if (wide) Modifier.width(readoutWidth) else Modifier.fillMaxWidth())
-                                .then(if (wide) Modifier.heightIn(max = heroHeight) else Modifier)
+                                .then(if (fixed) Modifier.heightIn(max = heroHeight) else Modifier)
                                 // No bottom padding: the list's band gap alone parts the keys from the season tabs.
                                 .padding(start = side, end = side, top = if (wide) edge else BAR_HEIGHT + 48.dp)
-                                .then(if (wide) Modifier.verticalScroll(rememberScrollState()) else Modifier),
+                                .then(if (fixed) Modifier.verticalScroll(rememberScrollState()) else Modifier),
                             verticalArrangement = Arrangement.spacedBy(screenGap),
                         ) {
                             CompositionLocalProvider(LocalReadoutHeight provides if (wide) heroHeight - edge else Dp.Infinity) {
@@ -159,6 +168,8 @@ internal fun Page(
             content()
         }
         if (!isTv) {
+            // A wide hero leaves its picture clear, so the way back sits on a corner shade of the ground.
+            if (wide) Box(Modifier.size(BAR_HEIGHT).cornerShade(theme.background, atStart = true))
             BackBar(
                 onBack = { back?.onBackPressed() },
                 modifier = Modifier.background(Color.Transparent),

@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -28,12 +29,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -46,12 +52,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -76,8 +87,11 @@ import tv.anstelle.core.theme.scanlines
 import tv.anstelle.core.theme.components.AnstelleMark
 import tv.anstelle.core.theme.components.PageFocusScope
 import tv.anstelle.core.theme.components.LocalRailFocus
+import tv.anstelle.core.theme.components.LocalRailWidth
 import tv.anstelle.core.theme.components.RailFocus
 import tv.anstelle.core.theme.components.enterContentFromRail
+import tv.anstelle.core.theme.components.screenNarrow
+import tv.anstelle.core.theme.components.screenSize
 import tv.anstelle.core.theme.components.Wordmark
 import tv.anstelle.feature.dashboard.DashboardScreen
 import tv.anstelle.feature.guide.GuideScreen
@@ -122,7 +136,8 @@ fun AnstelleApp(isTv: Boolean, onLightTheme: (Boolean) -> Unit) {
     val dashboard by startup.dashboard.collectAsStateWithLifecycle()
     val theme by startup.theme.collectAsStateWithLifecycle()
     val subtitleLook by startup.subtitleLook.collectAsStateWithLifecycle()
-    LaunchedEffect(theme.spec.isLight) { onLightTheme(theme.spec.isLight) }
+    // A rotation resets the bars to the window theme's icons, so they are set again after every configuration change.
+    LaunchedEffect(theme.spec.isLight, LocalConfiguration.current) { onLightTheme(theme.spec.isLight) }
     AnstelleTheme(isTv = isTv, theme = theme, subtitleLook = subtitleLook) {
         val effects = theme.spec.effects
         // Test tags double as resource ids, so macrobenchmarks can find the guide grid.
@@ -499,13 +514,14 @@ private fun PhoneShell(
     content: @Composable (Modifier) -> Unit,
 ) {
     val theme = LocalAnstelleTheme.current
-    if (LocalConfiguration.current.screenWidthDp >= RAIL_MIN_WIDTH_DP) {
+    if (!screenNarrow) {
         RailShell(destinations, selected, onNavigate, content)
         return
     }
     androidx.compose.material3.Scaffold(
         containerColor = theme.background,
         bottomBar = {
+            val labelSize = navLabelSize(destinations, screenSize.width / destinations.size.coerceAtLeast(1))
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -515,7 +531,7 @@ private fun PhoneShell(
                     .selectableGroup(),
             ) {
                 for (destination in destinations) {
-                    NavTab(destination, destination == selected, { onNavigate(destination) }, Modifier.weight(1f).fillMaxHeight())
+                    NavTab(destination, destination == selected, { onNavigate(destination) }, labelSize, Modifier.weight(1f).fillMaxHeight())
                 }
             }
         },
@@ -525,65 +541,98 @@ private fun PhoneShell(
 }
 
 /**
- * The rail beside the screen, on tablets and TV alike: the bug, then the tabs. On TV, coming
- * in from the screen lands focus on the open destination, wherever the D-pad entered.
+ * The rail beside the screen, on tablets and TV alike: the bug, then the tabs. A window too low
+ * for every tab under the bug (a phone held sideways) drops the bug and shares its height among
+ * the tabs, so no destination ever falls off the end. On TV, coming in from the screen lands
+ * focus on the open destination, wherever the D-pad entered.
  */
 @Composable
-private fun NavRail(destinations: List<TopLevelDestination>, selected: TopLevelDestination?, onNavigate: (TopLevelDestination) -> Unit, railFocus: RailFocus, modifier: Modifier = Modifier) {
+private fun NavRail(destinations: List<TopLevelDestination>, selected: TopLevelDestination?, onNavigate: (TopLevelDestination) -> Unit, railFocus: RailFocus, width: Dp, modifier: Modifier = Modifier) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val requesters = remember { TopLevelDestination.entries.associateWith { FocusRequester() } }
     val railDestination = selected?.takeIf { it in destinations } ?: destinations.firstOrNull()
+    val markTop = if (isTv) 24.dp else 16.dp
+    val markSize = if (isTv) 32.dp else 36.dp
+    val gap = if (isTv) 4.dp else 0.dp
+    val inset = if (isTv) 6.dp else 0.dp
+    val itemHeight = if (isTv) TV_RAIL_ITEM_HEIGHT else RAIL_ITEM_HEIGHT
+    val labelSize = navLabelSize(destinations, width - inset * 2)
     // Drawn above the screen beside it, whose artwork may bleed past its start edge.
     Box(Modifier.zIndex(1f).fillMaxHeight().background(theme.surface)) {
-        Column(
-            modifier
-                .fillMaxHeight()
-                .width(if (isTv) TV_RAIL_WIDTH else RAIL_WIDTH)
-                .then(
-                    if (isTv) {
+        BoxWithConstraints(modifier.fillMaxHeight().width(width)) {
+            val count = destinations.size.coerceAtLeast(1)
+            val tabs = itemHeight * count + gap * (count - 1)
+            val withMark = markTop + markSize + MARK_BOTTOM + gap + tabs <= maxHeight
+            val tabHeight = if (withMark) itemHeight else ((maxHeight - gap * (count - 1)) / count).coerceIn(RAIL_ITEM_MIN_HEIGHT, itemHeight)
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (isTv) {
+                            Modifier
+                                .focusProperties { onEnter = { selected?.let { requesters.getValue(it).requestFocus() } } }
+                                .focusGroup()
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .selectableGroup()
+                    // Only a window lower than every tab at its touch minimum ever scrolls.
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = inset),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(gap),
+            ) {
+                if (withMark) AnstelleMark(Modifier.padding(top = markTop, bottom = MARK_BOTTOM).size(markSize))
+                for (destination in destinations) {
+                    NavTab(
+                        destination,
+                        destination == selected,
+                        { onNavigate(destination) },
+                        labelSize,
                         Modifier
-                            .focusProperties { onEnter = { selected?.let { requesters.getValue(it).requestFocus() } } }
-                            .focusGroup()
-                    } else {
-                        Modifier
-                    },
-                )
-                .selectableGroup()
-                .padding(horizontal = if (isTv) 6.dp else 0.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(if (isTv) 4.dp else 0.dp),
-        ) {
-            AnstelleMark(Modifier.padding(top = if (isTv) 24.dp else 16.dp, bottom = 20.dp).size(if (isTv) 32.dp else 36.dp))
-            for (destination in destinations) {
-                NavTab(
-                    destination,
-                    destination == selected,
-                    { onNavigate(destination) },
-                    Modifier
-                        .fillMaxWidth()
-                        .height(if (isTv) TV_RAIL_ITEM_HEIGHT else RAIL_ITEM_HEIGHT)
-                        .then(
-                            if (isTv) Modifier
-                                .focusRequester(requesters.getValue(destination))
-                                .then(if (destination == railDestination) Modifier.focusRequester(railFocus.rail) else Modifier)
-                                .enterContentFromRail(railFocus)
-                            else Modifier,
-                        ),
-                )
+                            .fillMaxWidth()
+                            .height(tabHeight)
+                            .then(
+                                if (isTv) Modifier
+                                    .focusRequester(requesters.getValue(destination))
+                                    .then(if (destination == railDestination) Modifier.focusRequester(railFocus.rail) else Modifier)
+                                    .enterContentFromRail(railFocus)
+                                else Modifier,
+                            ),
+                    )
+                }
             }
         }
     }
 }
 
 /**
- * One tab, the same on phone, tablet and TV: an icon over its label. The open tab has the
- * filled icon and a bright label; the rest are outlined and quiet. Touch gets no ripple or
- * hover, only a quick shrink of the icon on press. On TV the D-pad's focus fills the tab with
- * the accent, the focus every other TV control uses.
+ * The tabs' one label size: the theme's size grown with system text only as far as the longest
+ * label still fits [tabWidth], and never below its size at normal system text. Every tab shares
+ * it, so no label cuts a word or stands larger than its neighbours.
  */
 @Composable
-private fun NavTab(destination: TopLevelDestination, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+private fun navLabelSize(destinations: List<TopLevelDestination>, tabWidth: Dp): TextUnit {
+    val label = LocalAnstelleTheme.current.sp(TAB_LABEL_SP)
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    // The open tab's SemiBold is the widest a label gets.
+    val style = androidx.compose.material3.MaterialTheme.typography.bodySmall.copy(fontSize = label, fontWeight = FontWeight.SemiBold)
+    val widest = destinations.maxOfOrNull { measurer.measure(it.label, style, softWrap = false, maxLines = 1).size.width } ?: return label
+    val fit = (with(density) { tabWidth.toPx() } / widest).coerceAtMost(1f)
+    return (label.value * fit).coerceAtLeast(label.value / density.fontScale.coerceAtLeast(1f)).sp
+}
+
+/**
+ * One tab, the same on phone, tablet and TV: an icon over its label, at the [labelSize] every
+ * tab shares. The open tab has the filled icon and a bright label; the rest are outlined and
+ * quiet. Touch gets no ripple or hover, only a quick shrink of the icon on press. On TV the
+ * D-pad's focus fills the tab with the accent, the focus every other TV control uses.
+ */
+@Composable
+private fun NavTab(destination: TopLevelDestination, selected: Boolean, onClick: () -> Unit, labelSize: TextUnit, modifier: Modifier) {
     val theme = LocalAnstelleTheme.current
     val isTv = LocalIsTv.current
     val interaction = remember { MutableInteractionSource() }
@@ -630,12 +679,13 @@ private fun NavTab(destination: TopLevelDestination, selected: Boolean, onClick:
         androidx.compose.material3.Text(
             destination.label,
             style = androidx.compose.material3.MaterialTheme.typography.bodySmall.copy(
-                fontSize = LocalAnstelleTheme.current.sp(11f),
-                lineHeight = LocalAnstelleTheme.current.sp(14f),
+                fontSize = labelSize,
+                lineHeight = theme.sp(14f),
                 fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Medium,
             ),
             color = tint,
             maxLines = 1,
+            softWrap = false,
             modifier = Modifier.padding(top = 4.dp),
         )
     }
@@ -650,11 +700,15 @@ private fun RailShell(
     content: @Composable (Modifier) -> Unit,
 ) {
     val railFocus = remember { RailFocus() }
-    val insets = if (LocalIsTv.current) WindowInsets(0) else WindowInsets.safeDrawing
+    val isTv = LocalIsTv.current
+    val railWidth = if (isTv) TV_RAIL_WIDTH else RAIL_WIDTH
+    val insets = if (isTv) WindowInsets(0) else WindowInsets.safeDrawing
+    // The keyboard covers the rail rather than squeezing its tabs.
+    val railInsets = if (isTv) WindowInsets(0) else WindowInsets.systemBars.union(WindowInsets.displayCutout)
     Row(Modifier.fillMaxSize().background(LocalAnstelleTheme.current.background)) {
         NavRail(
-            destinations, selected, onNavigate, railFocus,
-            Modifier.windowInsetsPadding(insets.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)),
+            destinations, selected, onNavigate, railFocus, railWidth,
+            Modifier.windowInsetsPadding(railInsets.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)),
         )
         // The rail owns the start edge; the screen keeps clear of the other system bars.
         Box(
@@ -663,17 +717,21 @@ private fun RailShell(
                 .fillMaxHeight()
                 .windowInsetsPadding(insets.only(WindowInsetsSides.Vertical + WindowInsetsSides.End)),
         ) {
-            CompositionLocalProvider(LocalRailFocus provides railFocus) {
+            CompositionLocalProvider(LocalRailFocus provides railFocus, LocalRailWidth provides railWidth) {
                 content(Modifier.fillMaxSize())
             }
         }
     }
 }
 
-private const val RAIL_MIN_WIDTH_DP = 600
 private val RAIL_WIDTH = 88.dp
 private val RAIL_ITEM_HEIGHT = 72.dp
+
+/** A squeezed rail tab never drops under the touch minimum. */
+private val RAIL_ITEM_MIN_HEIGHT = 48.dp
+private val MARK_BOTTOM = 20.dp
 private val TV_RAIL_WIDTH = 80.dp
 private val TV_RAIL_ITEM_HEIGHT = 60.dp
 private val BAR_HEIGHT = 64.dp
+private const val TAB_LABEL_SP = 11f
 private const val TAB_FADE_MS = 150

@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -54,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.model.ProgressStyle
@@ -75,6 +78,33 @@ val screenEdge: Dp @Composable get() = if (LocalIsTv.current) 12.dp else 8.dp
 
 /** The guide's gap between its bands (preview, tabs, grid); On demand's between its rows. */
 val screenGap: Dp @Composable get() = if (LocalIsTv.current) 8.dp else 6.dp
+
+/** The width the app's navigation rail takes from the window; the rail shell provides it. */
+val LocalRailWidth = compositionLocalOf { 0.dp }
+
+/**
+ * The screen's own size: the window less the navigation rail beside it. Every screen's
+ * breakpoints read this one size, so a window lays out alike on every screen. The keyboard
+ * never changes it.
+ */
+val screenSize: DpSize
+    @Composable get() {
+        val window = LocalWindowInfo.current.containerSize
+        return with(LocalDensity.current) { DpSize(window.width.toDp() - LocalRailWidth.current, window.height.toDp()) }
+    }
+
+/** Narrower than Material's medium width: a phone held upright. */
+val screenNarrow: Boolean @Composable get() = screenSize.width < MEDIUM_WIDTH
+
+/** At least Material's expanded width: a tablet, or a large phone held sideways. */
+val screenWide: Boolean @Composable get() = screenSize.width >= EXPANDED_WIDTH
+
+/** Lower than Material's medium height: a phone held sideways, where each screen keeps its lead within one view. */
+val screenShort: Boolean @Composable get() = screenSize.height < MEDIUM_HEIGHT
+
+private val MEDIUM_WIDTH = 600.dp
+private val EXPANDED_WIDTH = 840.dp
+private val MEDIUM_HEIGHT = 480.dp
 
 /** How much keys grow: with the system font and the theme's type scale, never below their own size. */
 val osdKeyScale: Float @Composable get() = maxOf(1f, LocalDensity.current.fontScale * LocalAnstelleTheme.current.spec.typography.scale)

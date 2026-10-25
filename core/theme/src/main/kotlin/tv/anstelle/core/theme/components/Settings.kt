@@ -85,9 +85,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -119,13 +117,9 @@ import tv.anstelle.core.theme.PanelShape
  * ([SettingsPage]).
  */
 
-/** Settings use the guided panel on TV and on touch screens at least this wide. */
-private const val GUIDED_MIN_WIDTH_DP = 840
-
-/** True where settings lay out as the guided panel (TV, wide tablets); false on phones. */
+/** True where settings lay out as the guided panel (TV, wide touch screens); false on phones. */
 val settingsGuided: Boolean
-    @Composable get() = LocalIsTv.current ||
-        with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } >= GUIDED_MIN_WIDTH_DP.dp
+    @Composable get() = LocalIsTv.current || screenWide
 
 /** Side padding for a field or anything else laid straight into a settings list, so it lines up with the rows' edges. */
 val settingsEdge: Dp

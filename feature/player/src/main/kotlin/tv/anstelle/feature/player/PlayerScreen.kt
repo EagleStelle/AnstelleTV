@@ -52,8 +52,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
@@ -85,6 +83,8 @@ import tv.anstelle.core.theme.components.ChannelLogo
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.WatchIcons
+import tv.anstelle.core.theme.components.cornerShade
+import tv.anstelle.core.theme.components.screenSize
 
 import java.text.DateFormat
 import java.util.Date
@@ -437,7 +437,7 @@ private fun InfoBanner(
     }
     val typography = androidx.compose.material3.MaterialTheme.typography
     // A small phone needs all of its width for the program's column.
-    val withNext = isTv || with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } >= NEXT_MIN_WIDTH
+    val withNext = isTv || screenSize.width >= NEXT_MIN_WIDTH
     Column(
         Modifier
             .fillMaxWidth()

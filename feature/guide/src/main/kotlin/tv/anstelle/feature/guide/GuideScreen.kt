@@ -54,7 +54,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -101,6 +100,8 @@ import tv.anstelle.core.theme.components.OsdTab
 import tv.anstelle.core.theme.components.StatusLine
 import tv.anstelle.core.theme.components.screenEdge
 import tv.anstelle.core.theme.components.screenGap
+import tv.anstelle.core.theme.components.screenNarrow
+import tv.anstelle.core.theme.components.screenShort
 import tv.anstelle.core.theme.components.screenSide
 import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.PlaceholderAction
@@ -323,7 +324,7 @@ fun GuideScreen(
     }
 
     // A phone held upright stacks the preview over the details, both edge to edge.
-    val stacked = !isTv && with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } < STACK_BELOW_DP.dp
+    val stacked = !isTv && screenNarrow
     val side = screenSide
     Box(modifier.fillMaxSize().background(theme.background)) {
         Column(
@@ -598,9 +599,8 @@ private fun PlayerView.keepSubtitlesClear(stripPx: Int) {
 /**
  * The selected program while it is on now, otherwise what the preview plays, over its show's
  * backdrop, its channel's ident in the top-end corner. The show's logo stands in for its title
- * when the server has one. Five lines are
- * kept for the overview whether or not it fills them, so the grid never jumps as the
- * selection moves. A program the profile may not watch shows no artwork or
+ * when the server has one. The overview keeps its lines whether or not it fills them, so the
+ * grid never jumps as the selection moves. A program the profile may not watch shows no artwork or
  * overview: the restriction takes the overview's place. Off air, the off-air mark takes the
  * title's.
  */
@@ -715,7 +715,11 @@ private fun Details(
                 )
                 more?.badges?.forEach { Badge(it.uppercase()) }
             }
-            val overviewLines = if (isTv) TV_OVERVIEW_LINES else OVERVIEW_LINES
+            val overviewLines = when {
+                isTv -> TV_OVERVIEW_LINES
+                screenShort -> SHORT_OVERVIEW_LINES
+                else -> OVERVIEW_LINES
+            }
             if (restriction != null) {
                 // The overview's lines stay reserved, so the grid holds still.
                 Box(Modifier.padding(top = 3.dp).height(with(LocalDensity.current) { (theme.sp(16f) * overviewLines).toDp() })) {
@@ -873,10 +877,9 @@ private const val CLOCK_MS = 30_000L
 
 /**
  * Lines kept for the selected program's overview. TV keeps fewer, paying for a logo large
- * enough to read from the couch without taking channels from the grid.
+ * enough to read from the couch without taking channels from the grid; a short screen fewer
+ * still, so the grid keeps rows under the band.
  */
 private const val OVERVIEW_LINES = 4
 private const val TV_OVERVIEW_LINES = 3
-
-/** Narrower than this (a phone held upright), the preview sits over the details instead of beside them. */
-private const val STACK_BELOW_DP = 600
+private const val SHORT_OVERVIEW_LINES = 2

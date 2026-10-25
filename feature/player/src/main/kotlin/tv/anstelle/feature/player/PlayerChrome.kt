@@ -61,7 +61,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -73,7 +72,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlin.math.abs
-import kotlin.math.hypot
 import tv.anstelle.core.data.playback.StreamFacts
 import tv.anstelle.core.data.playback.TrackOption
 import tv.anstelle.core.model.MediaProgress
@@ -84,6 +82,7 @@ import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.LocalSubtitleLook
 import tv.anstelle.core.theme.components.FocusSurface
 import tv.anstelle.core.theme.components.OsdBadge
+import tv.anstelle.core.theme.components.SHADE_DEEPEST
 import tv.anstelle.core.theme.components.SegmentLadder
 import tv.anstelle.core.theme.components.SegmentRing
 import tv.anstelle.core.theme.components.osdKeyHeight
@@ -220,8 +219,8 @@ private val SWIPE_REACH = 96.dp
 /**
  * On phones and tablets, a player turns the screen sideways and hides the system bars while
  * it is open (a swipe from the edge shows them for a moment). Leaving for the rest of the app
- * shows the bars and turns it back upright; going from one player straight to the other
- * stays sideways. A TV is already landscape and has no bars.
+ * shows the bars and hands the screen back to the device's rotation; going from one player
+ * straight to the other stays sideways. A TV is already landscape and has no bars.
  */
 @Composable
 internal fun LandscapeFullScreen() {
@@ -260,7 +259,7 @@ private object FullScreen {
         upright = Runnable {
             upright = null
             WindowCompat.getInsetsController(activity.window, activity.window.decorView).show(WindowInsetsCompat.Type.systemBars())
-            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }.also(main::post)
     }
 }
@@ -301,34 +300,6 @@ internal fun Modifier.edgeShade(color: Color, fade: Dp) = drawBehind {
         topLeft = Offset(0f, -above),
         size = Size(size.width, total),
     )
-}
-
-/**
- * The corner shade behind the channel ident: [color] deepest in the element's top-end corner
- * (the screen's, where the ident sits) and gone at [CORNER_REACH] times the element's
- * diagonal, a quarter ellipse a little wider than tall, whatever the ident's own shape, so a
- * short row of typed digits gets the same corner vignette as a tall logo. A broadcaster's
- * corner bug sits on a vignette like this, never on a plate. [atStart] sets it in the top-start
- * corner instead, behind the on-demand player's way back to its page.
- */
-internal fun Modifier.cornerShade(color: Color, atStart: Boolean = false) = drawBehind {
-    val rx = hypot(size.width, size.height) * CORNER_REACH
-    val ry = rx * 0.8f
-    // The screen's left corner: the end in a right-to-left layout, or the start in a left-to-right one.
-    val left = (layoutDirection == LayoutDirection.Rtl) != atStart
-    val corner = if (left) Offset.Zero else Offset(size.width, 0f)
-    val brush = Brush.radialGradient(
-        0f to color.copy(alpha = SHADE_DEEPEST),
-        0.5f to color.copy(alpha = 0.72f),
-        0.78f to color.copy(alpha = 0.32f),
-        1f to color.copy(alpha = 0f),
-        center = corner,
-        radius = ry,
-    )
-    // A circle of radius ry around the corner, stretched sideways to rx.
-    scale(scaleX = rx / ry, scaleY = 1f, pivot = corner) {
-        drawRect(brush, topLeft = Offset(if (left) 0f else corner.x - ry, 0f), size = Size(ry, ry))
-    }
 }
 
 /**
@@ -377,12 +348,6 @@ internal fun PlayerView.liftSubtitles(liftPx: Int) {
 
 /** The subtitles move with the banner's own snap. */
 private const val LIFT_MS = 140L
-
-/** How dark the shades get where they are deepest: the banner's foot and the ident's corner. */
-private const val SHADE_DEEPEST = 0.88f
-
-/** How far the corner shade reaches, in multiples of the ident's diagonal. */
-private const val CORNER_REACH = 1.25f
 
 /**
  * The stream's technical line, as a set-top box prints it under its banner, read from the top

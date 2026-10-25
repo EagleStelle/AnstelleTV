@@ -66,6 +66,7 @@ import tv.anstelle.core.theme.components.TitleLogo
 import tv.anstelle.core.theme.components.WatchStrip
 import tv.anstelle.core.theme.components.browseHeading
 import tv.anstelle.core.theme.components.screenGap
+import tv.anstelle.core.theme.components.screenShort
 import tv.anstelle.core.theme.components.screenSide
 import kotlin.math.abs
 
@@ -77,6 +78,9 @@ private const val ROTATE_MS = 8_000L
 
 /** Shared mobile height leaves room for channel details and the progress/pager footer. */
 private val MOBILE_BANNER_HEIGHT = 320.dp
+
+/** A short screen's banner keeps that room but leaves the first row's heading in view. */
+private val SHORT_BANNER_HEIGHT = 240.dp
 
 /** Keep mobile pagination from squeezing out the progress ladder and remaining time. */
 private val MOBILE_PAGER_MAX_WIDTH = 128.dp
@@ -98,7 +102,7 @@ internal fun RotatingBanner(
     content: @Composable ColumnScope.(Int) -> Unit,
 ) {
     val isTv = LocalIsTv.current
-    val mobileHeight = MOBILE_BANNER_HEIGHT * LocalDensity.current.fontScale.coerceAtLeast(1f)
+    val mobileHeight = (if (screenShort) SHORT_BANNER_HEIGHT else MOBILE_BANNER_HEIGHT) * LocalDensity.current.fontScale.coerceAtLeast(1f)
     val rail = LocalRailFocus.current
     var index by rememberSaveable { mutableIntStateOf(0) }
     var focused by remember { mutableStateOf(false) }
