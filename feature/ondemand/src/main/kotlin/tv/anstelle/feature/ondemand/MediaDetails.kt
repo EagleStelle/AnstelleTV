@@ -62,13 +62,19 @@ internal fun watchedAction(watched: Boolean, saving: Boolean, known: Boolean, on
     saving = saving,
     pinned = true,
     watched = watched,
+    detail = when {
+        saving -> "Saving to Jellyfin."
+        watched -> "Marks it unwatched in Jellyfin."
+        else -> "Marks it watched in Jellyfin."
+    },
     onClick = onClick,
 )
 
-/** A movie or episode resumes at its saved point, with a separate key to start again. */
+/** A movie or episode resumes at its saved point, with a separate key to start again; each says where it starts in the guide's words. */
 internal fun playActions(itemId: Long, resumeMs: Long, onPlay: (Long, Long) -> Unit): List<SheetAction> = listOfNotNull(
-    SheetAction(if (resumeMs > 0) "Resume" else "Play", WatchIcons.play(resumeMs, false)) { onPlay(itemId, resumeMs) },
-    SheetAction("From the start", WatchIcons.StartOver) { onPlay(itemId, 0) }.takeIf { resumeMs > 0 },
+    if (resumeMs > 0) SheetAction("Resume", WatchIcons.play(resumeMs, false), detail = WatchChoices.resume(resumeMs).detail) { onPlay(itemId, resumeMs) }
+    else SheetAction("Play", WatchIcons.play(0, false), detail = WatchChoices.playFromStart.detail) { onPlay(itemId, 0) },
+    SheetAction("From the start", WatchIcons.StartOver, detail = WatchChoices.playFromStart.detail) { onPlay(itemId, 0) }.takeIf { resumeMs > 0 },
 )
 
 internal fun addToChannelAction(itemId: Long, onAddToChannel: ((Long) -> Unit)?): SheetAction? =

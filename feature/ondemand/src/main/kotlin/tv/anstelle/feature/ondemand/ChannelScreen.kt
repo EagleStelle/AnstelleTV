@@ -1,7 +1,9 @@
 package tv.anstelle.feature.ondemand
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,9 +44,9 @@ import tv.anstelle.core.data.playback.PlaybackReporter
 import tv.anstelle.core.model.Channel
 import tv.anstelle.core.model.MediaProgress
 import tv.anstelle.core.theme.LocalAnstelleTheme
-import tv.anstelle.core.theme.LocalIsTv
 import tv.anstelle.core.theme.components.ChannelLogo
 import tv.anstelle.core.theme.components.EpisodeActionsDialog
+import tv.anstelle.core.theme.components.LogoSize
 import tv.anstelle.core.theme.components.goToSeriesAction
 import tv.anstelle.core.theme.components.icon
 import tv.anstelle.core.theme.components.onDemandNavigation
@@ -54,10 +56,9 @@ import javax.inject.Inject
 
 @Immutable
 data class ChannelUiState(
+    /** Read once: the program stays the page's topic even after it ends. */
     val page: ChannelPage? = null,
     val loaded: Boolean = false,
-    /** When the page was read: the program stays the page's topic even after it ends. */
-    val openedAtMs: Long = 0,
     /** Jellyfin's resume points and played marks for the program and its show's episodes. */
     val watch: WatchMarks = WatchMarks(),
 )
@@ -86,9 +87,8 @@ class ChannelViewModel @Inject constructor(
             val profile = profiles.activeProfile()
             profileId = profile.id
             val access = profiles.access(profile.id)
-            val now = time.nowUtcMs()
-            val at = atUtcMs.takeIf { it > 0 } ?: now
-            _state.value = ChannelUiState(repository.channelPage(channelId, at, access), loaded = true, openedAtMs = now)
+            val at = atUtcMs.takeIf { it > 0 } ?: time.nowUtcMs()
+            _state.value = ChannelUiState(repository.channelPage(channelId, at, access), loaded = true)
             refreshWatch()
         }
         // Coming back from the player can beat its last report to Jellyfin: read again once that lands.
@@ -112,11 +112,12 @@ class ChannelViewModel @Inject constructor(
 
 /**
  * A channel in On demand, as the listing card of the program it airs now (or next, while it is
- * off air): backdrop, channel ident, logo, airing and media facts, whole synopsis, airing ladder
- * and action keys. A show adds its
- * episodes as a carousel, opened at the one on the channel, ringed as the page's current one. Only
- * the sheet says when the channel airs it; the carousel says what was watched on demand. OK on an episode opens its own page;
- * holding it (or Menu) offers the quick ways to play it.
+ * off air): backdrop, channel ident, logo, airing and media facts, synopsis, airing ladder and
+ * action keys, which follow the clock, so a program that ends while the page is open turns to
+ * Aired and its on-demand keys. A show adds its episodes as a carousel, opened at the one on the
+ * channel, ringed as the page's current one. Only the sheet says when the channel airs it; the
+ * carousel says what was watched on demand. OK on an episode opens its own page; holding it (or
+ * Menu) offers the quick ways to play it.
  */
 @Composable
 fun ChannelScreen(
@@ -143,7 +144,7 @@ fun ChannelScreen(
         return
     }
     val clock = rememberClock()
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val listState = rememberLazyListState()
     // The episode last opened or held, so Back and a closed dialog land on it again.
     val returnFocus = remember { FocusRequester() }
     var lastTouched by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -154,9 +155,9 @@ fun ChannelScreen(
     val restricted = page.restriction != null
     val topicEpisode = page.episodes.firstOrNull { it.id == item.id }
     val seasons = remember(page) { page.episodes.groupBy { it.seasonLabel } }
-    val navigation = rememberEpisodeNavigation(listState, seasons.size, firstFocus, hasDescription = item.overview != null)
+    val navigation = rememberEpisodeNavigation(listState, seasons.size, firstFocus)
     var season by rememberSaveable { mutableStateOf(topicEpisode?.seasonLabel ?: seasons.keys.firstOrNull()) }
-    val choices = topicChoices(page, state.openedAtMs)
+    val choices = topicChoices(page, clock.value)
 
     fun act(choice: WatchChoice, itemId: Long) {
         when (choice.kind) {
@@ -193,7 +194,7 @@ fun ChannelScreen(
                 detail = item.detail.takeIf { item.isEpisode },
                 ident = { ChannelIdent(page.channel) },
                 readout = {
-                    androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         StatusLine(
                             onAir = when (tense) { AiringTense.ON_NOW -> true; AiringTense.LATER -> false; AiringTense.AIRED -> null },
                             label = when (tense) { AiringTense.ON_NOW -> "On now"; AiringTense.LATER -> if (page.onNow) "Later" else "Up next"; AiringTense.AIRED -> "Aired" },
@@ -268,10 +269,9 @@ fun ChannelScreen(
 @Composable
 private fun ChannelIdent(channel: Channel) {
     val theme = LocalAnstelleTheme.current
-    val isTv = LocalIsTv.current
     val typography = androidx.compose.material3.MaterialTheme.typography
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        channel.logoUri?.let { ChannelLogo(it, height = if (isTv) 30.dp else 24.dp, alignment = Alignment.CenterStart) }
+        channel.logoUri?.let { ChannelLogo(it, height = LogoSize.Ident, alignment = Alignment.CenterStart) }
         NumberBlock(
             "${channel.number}",
             style = typography.titleMedium.merge(TextStyle(fontFamily = theme.displayFont, fontFeatureSettings = "tnum")),
@@ -287,9 +287,10 @@ private fun ChannelIdent(channel: Channel) {
 }
 
 /**
- * The ways to watch the page's program, in the guide's own words: live on the channel, the
- * channel from the program's start, on demand from the start or from where the channel is.
- * A program the profile may not watch only offers the channel, which stays dark.
+ * The ways to watch the page's program at [nowMs], in the guide's own words: live on the channel,
+ * the channel from the program's start, on demand from the start or from where the channel is.
+ * Once the program has aired, on demand from its start is what is left. A program the profile
+ * may not watch only offers the channel, which stays dark.
  */
 private fun topicChoices(page: ChannelPage, nowMs: Long): List<WatchChoice> {
     val item = page.item
@@ -299,6 +300,6 @@ private fun topicChoices(page: ChannelPage, nowMs: Long): List<WatchChoice> {
         isEpisode = item.isEpisode,
         restrictionTitle = page.restriction?.title,
     )
-    // Off air now, or the program has ended since the page opened: the channel is elsewhere.
+    // Off air now: the channel can still be tuned, dark until the program starts.
     return listOfNotNull(WatchChoices.liveOffAir(page.startUtcMs).takeIf { !page.onNow && page.restriction == null }) + watch
 }

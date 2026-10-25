@@ -200,7 +200,7 @@ private fun Pager(count: Int, shown: Int, focused: Boolean) {
 
 /**
  * A movie's or series' banner slide: its logo (or title), its facts, what was watched of it,
- * and two lines of overview.
+ * and its overview ([BannerDescription]).
  */
 @Composable
 internal fun ColumnScope.TitleSlide(title: Title, watch: CatalogWatch) {

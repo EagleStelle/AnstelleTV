@@ -46,6 +46,7 @@ import androidx.compose.ui.test.assertTopPositionInRootIsEqualTo
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -159,9 +160,9 @@ class TvNavigationTest {
         compose.setContent { Detail() }
         press(Key.DirectionRight)
         press(Key.DirectionUp)
-        compose.onNodeWithText("Synopsis. ".repeat(12)).assertIsFocused()
+        compose.onNodeWithText(LONG_SYNOPSIS).assertIsFocused()
         press(Key.DirectionDown)
-        compose.onNodeWithText("SECOND").assertIsFocused()
+        compose.onNodeWithContentDescription("Second").assertIsFocused()
         press(Key.DirectionDown)
         compose.onNodeWithText("Season 1", substring = true).assertIsFocused()
         press(Key.DirectionRight, 2)
@@ -175,7 +176,7 @@ class TvNavigationTest {
         press(Key.DirectionDown)
         compose.onNodeWithText("Episode 5").assertIsFocused()
         press(Key.DirectionUp, 2)
-        compose.onNodeWithText("SECOND").assertIsFocused()
+        compose.onNodeWithContentDescription("Second").assertIsFocused()
     }
 
     @Test fun singleSeasonHasTheSameInteractiveTabPath() {
@@ -189,7 +190,14 @@ class TvNavigationTest {
         press(Key.DirectionUp)
         compose.onNodeWithText("PLAY").assertIsFocused()
         press(Key.DirectionUp)
-        compose.onNodeWithText("Synopsis. ".repeat(12)).assertIsFocused()
+        compose.onNodeWithText(LONG_SYNOPSIS).assertIsFocused()
+    }
+
+    @Test fun descriptionThatFitsTakesNoFocus() {
+        compose.setContent { Detail(overview = "Short synopsis.") }
+        compose.onNodeWithText("PLAY").assertIsFocused()
+        press(Key.DirectionUp)
+        compose.onNodeWithText("PLAY").assertIsFocused()
     }
 
     @Test fun descriptionLengthKeepsTheReadoutHeightAndActionsStable() {
@@ -215,6 +223,9 @@ class TvNavigationTest {
         press(Key.DirectionCenter)
         compose.onNodeWithText("Description").assertIsDisplayed()
         compose.onAllNodesWithText(overview).assertCountEquals(2)
+        // Down pages through the text; focus stays where the remote can see it. The dialog is a second root, so the key goes to its own.
+        compose.onNodeWithText("Close").performKeyInput { pressKey(Key.DirectionDown) }
+        compose.waitForIdle()
         compose.onNodeWithText("Close").assertIsFocused().performClick()
         compose.onNodeWithText(overview).assertIsFocused()
     }
@@ -234,12 +245,13 @@ class TvNavigationTest {
         compose.onNodeWithText(overview).assertHeightIsEqualTo(collapsed)
     }
 
-    @Test fun fiveCompactActionsFitWithoutMore() {
+    @Test fun leadAndFourIconKeysFitWithoutMore() {
         compose.setContent { ActionKeys(count = 5) }
-        compose.onNodeWithText("ACTION 5").assertIsDisplayed()
-        compose.onNodeWithText("MORE").assertDoesNotExist()
+        compose.onNodeWithText("ACTION 1").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Action 5").assertIsDisplayed()
+        compose.onNodeWithContentDescription("More options").assertDoesNotExist()
         press(Key.DirectionRight, 4)
-        compose.onNodeWithText("ACTION 5").assertIsFocused()
+        compose.onNodeWithContentDescription("Action 5").assertIsFocused()
     }
 
     @Test fun overflowKeepsEveryActionReachable() {
@@ -247,8 +259,8 @@ class TvNavigationTest {
         compose.setContent {
             LazyColumn { item { ActionKeys(count = 10, onSelect = { selected = it }) } }
         }
-        compose.onNodeWithText("ACTION 5").assertDoesNotExist()
-        compose.onNodeWithText("MORE").performClick()
+        compose.onNodeWithContentDescription("Action 5").assertDoesNotExist()
+        compose.onNodeWithContentDescription("More options").performClick()
         compose.onNodeWithText("Action 6").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(6, selected) }
     }
@@ -275,7 +287,7 @@ class TvNavigationTest {
         press(Key.DirectionRight)
         press(Key.DirectionCenter)
         compose.runOnIdle { shown.value = true }
-        compose.onNodeWithText("SECOND").assertIsFocused()
+        compose.onNodeWithContentDescription("Second").assertIsFocused()
     }
 
     @Test fun episodeDialogBackRestoresTheHeldCard() {
@@ -406,7 +418,7 @@ class TvNavigationTest {
     @Composable
     private fun Detail(
         seasonCount: Int = 2,
-        overview: String = "Synopsis. ".repeat(12),
+        overview: String = LONG_SYNOPSIS,
         onPlay: (Long, Long) -> Unit = { _, _ -> },
         onOpen: () -> Unit = {},
     ) {
@@ -427,7 +439,7 @@ class TvNavigationTest {
             }
             val seasons = episodes.groupBy { it.seasonLabel }
             var season by rememberSaveable { mutableStateOf("Season 1") }
-            val navigation = rememberEpisodeNavigation(list, seasonCount, first, hasDescription = true)
+            val navigation = rememberEpisodeNavigation(list, seasonCount, first)
             Page(null, hero = {
                 ProgrammeSheet(
                     title = "Show",
@@ -504,3 +516,6 @@ class TvNavigationTest {
         SideEffect { input.requestInputMode(InputMode.Keyboard) }
     }
 }
+
+/** Long enough to be cut short in the readout, so the synopsis opens and takes focus. */
+private val LONG_SYNOPSIS = "Synopsis. ".repeat(60)

@@ -1,4 +1,4 @@
-# AnstelleTV
+# <img src="webui/static/favicon.svg" alt="" width="32"> AnstelleTV
 
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Android%20TV%20%7C%20Fire%20TV-3DDC84?logo=android&logoColor=white)
@@ -10,9 +10,13 @@
 
 Your Jellyfin library, on the air around the clock.
 
-AnstelleTV turns a Jellyfin library into 24/7 retro cable TV. It builds channels from the metadata the library already has and gives each one a wall-clock schedule, so you turn it on, surf, and land on whatever is airing. When you do want to choose, On Demand is organized by channel.
+AnstelleTV turns a Jellyfin library into 24/7 retro cable TV. *Anstelle* is German for "instead of", literally "in the place of", and the app takes the place of a cable subscription. It builds channels from the metadata the library already has and gives each one a wall-clock schedule, so you turn it on, surf, and land on whatever is airing. When you do want to choose, On Demand is organized by channel.
 
 One APK runs on Android TV, Google TV and Fire TV with a remote, and on phones and tablets with touch. There is no second server to run. Tools such as Tunarr and ErsatzTV need their own server plus an IPTV client; AnstelleTV keeps channels, schedules and settings in an on-device database and serves its own admin web UI on the local network.
+
+QuasiTV and NostalgiaTV also run on the TV itself, but both sell an upgrade: QuasiTV for more than ten custom channels, NostalgiaTV for channel editing and themes. AnstelleTV is free and open source under the GPL, with no ads, subscriptions or paid features.
+
+![The Live TV guide, with the focused channel playing above a grid of what airs next](docs/screenshots/guide.webp)
 
 ## Features
 
@@ -28,6 +32,19 @@ One APK runs on Android TV, Google TV and Fire TV with a remote, and on phones a
 - 16 built-in themes and a theme designer
 - An admin web UI on the LAN, paired with a PIN shown on the TV
 - Backups to a file, or copied straight from another AnstelleTV on the network
+
+## Screenshots
+
+<p>
+  <img src="docs/screenshots/player.webp" width="49%" alt="The player's banner over a movie, with what airs now and next">
+  <img src="docs/screenshots/on-demand.webp" width="49%" alt="On Demand, opening on what each channel is airing">
+</p>
+<p>
+  <img src="docs/screenshots/settings.webp" width="49%" alt="Settings, with the synced server's movie, series and episode counts">
+  <img src="docs/screenshots/themes.webp" width="49%" alt="The theme picker previewing the Cobalt theme">
+</p>
+
+Taken on a Google TV emulator signed in to Jellyfin's public demo server.
 
 ## Quick start
 

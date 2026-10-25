@@ -158,8 +158,8 @@ fun FocusTile(
             modifier.onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
-                    Key.DirectionLeft -> onPrevious!!().let { true }
-                    Key.DirectionRight -> onNext!!().let { true }
+                    Key.DirectionLeft -> onPrevious().let { true }
+                    Key.DirectionRight -> onNext().let { true }
                     else -> false
                 }
             }

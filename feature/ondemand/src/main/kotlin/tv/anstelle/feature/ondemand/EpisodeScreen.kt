@@ -25,15 +25,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ondemand.EpisodeEntry
 import tv.anstelle.core.data.ondemand.EpisodePage
 import tv.anstelle.core.data.ondemand.OnDemandRepository
-import tv.anstelle.core.data.ondemand.WatchChoices
-import tv.anstelle.core.model.WatchKind
 import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.data.playback.PlaybackReporter
-import tv.anstelle.core.theme.components.EpisodeActionsDialog
 import tv.anstelle.core.theme.components.goToSeriesAction
 import tv.anstelle.core.theme.components.requestWhenReady
 import javax.inject.Inject
@@ -50,7 +48,7 @@ data class EpisodeUiState(
 class EpisodeViewModel @Inject constructor(
     savedState: SavedStateHandle,
     private val profiles: ProfileRepository,
-    private val time: tv.anstelle.core.common.TimeSource,
+    private val time: TimeSource,
     private val repository: OnDemandRepository,
     reporter: PlaybackReporter,
 ) : ViewModel() {
@@ -133,13 +131,7 @@ fun EpisodeScreen(
         return
     }
     val scope = rememberCoroutineScope()
-    // An episode airing on a channel right now opens that channel's page, not its own.
-    val openEpisode: (Long) -> Unit = { id ->
-        scope.launch {
-            val channel = viewModel.airingChannel(id)
-            if (channel != null) onOpenChannel(channel) else onOpenEpisode(id)
-        }
-    }
+    val openEpisode = rememberEpisodeOpener(viewModel::airingChannel, onOpenChannel, onOpenEpisode)
     val watch = state.watch
     val edit by viewModel.watchEditor.state.collectAsStateWithLifecycle()
     val item = page.item
@@ -152,7 +144,7 @@ fun EpisodeScreen(
 
     val self = page.episodes.firstOrNull { it.id == item.id }
     val seasons = remember(page) { page.episodes.groupBy { it.seasonLabel } }
-    val navigation = rememberEpisodeNavigation(listState, seasons.size, firstFocus, hasDescription = item.overview != null)
+    val navigation = rememberEpisodeNavigation(listState, seasons.size, firstFocus)
     var season by rememberSaveable(item.id) { mutableStateOf(self?.seasonLabel ?: seasons.keys.firstOrNull()) }
     val resume = watch.resumeMs(item.id, item.durationMs)
     val watched = watch.watched(item.id, item.durationMs)
@@ -214,19 +206,6 @@ fun EpisodeScreen(
     }
 
     holding?.let { episode ->
-        EpisodeActionsDialog(
-            show = item.title,
-            label = episode.label,
-            facts = episode.facts,
-            choices = WatchChoices.episodeActions(watch.resumeMs(episode.id, episode.durationMs), canAddToChannel = onAddToChannel != null),
-            returnFocus = returnFocus,
-            onDismiss = { holding = null },
-            onAction = { choice ->
-                when (choice.kind) {
-                    WatchKind.ADD_TO_CHANNEL -> onAddToChannel?.invoke(episode.id)
-                    else -> onPlay(episode.id, choice.positionMs)
-                }
-            },
-        )
+        HeldEpisodeDialog(item.title, episode, watch, returnFocus, onPlay, onAddToChannel) { holding = null }
     }
 }

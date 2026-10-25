@@ -77,7 +77,7 @@ AnstelleTV/
 ├── tools/
 │   ├── themes/generate_themes.py  Builds the 16 theme JSON files and checks contrast
 │   └── brand/generate_brand.py    Builds the launcher icon and TV banner (needs Pillow)
-├── docs/             This documentation, performance reports, mockups
+├── docs/             This documentation, performance reports, mockups, README screenshots
 ├── gradle/           libs.versions.toml, wrapper, gradle-daemon-jvm.properties (JDK 17)
 ├── compose_stability.conf
 ├── product.md        Product decisions and per-feature notes (source of truth)

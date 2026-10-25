@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.ProfileRepository
 import tv.anstelle.core.data.ondemand.CatalogRepository
 import tv.anstelle.core.data.ondemand.EpisodeEntry
@@ -30,11 +31,9 @@ import tv.anstelle.core.data.ondemand.NextEpisode
 import tv.anstelle.core.data.ondemand.OnDemandRepository
 import tv.anstelle.core.data.ondemand.TitlePage
 import tv.anstelle.core.data.ondemand.WatchChoices
-import tv.anstelle.core.model.WatchKind
 import tv.anstelle.core.data.ondemand.WatchMarks
 import tv.anstelle.core.data.playback.PlaybackReporter
 import tv.anstelle.core.model.MediaProgress
-import tv.anstelle.core.theme.components.EpisodeActionsDialog
 import tv.anstelle.core.theme.components.WatchIcons
 import tv.anstelle.core.theme.components.splitEpisodeLabel
 import javax.inject.Inject
@@ -51,7 +50,7 @@ data class TitleUiState(
 class TitleViewModel @Inject constructor(
     savedState: SavedStateHandle,
     private val profiles: ProfileRepository,
-    private val time: tv.anstelle.core.common.TimeSource,
+    private val time: TimeSource,
     catalog: CatalogRepository,
     private val repository: OnDemandRepository,
     reporter: PlaybackReporter,
@@ -133,14 +132,7 @@ fun TitleScreen(
         if (state.loaded) LaunchedEffect(Unit) { onGone() }
         return
     }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    // An episode airing on a channel right now opens that channel's page, not its own.
-    val openEpisode: (Long) -> Unit = { id ->
-        scope.launch {
-            val channel = viewModel.airingChannel(id)
-            if (channel != null) onOpenChannel(channel) else onOpenEpisode(id)
-        }
-    }
+    val openEpisode = rememberEpisodeOpener(viewModel::airingChannel, onOpenChannel, onOpenEpisode)
     val watch = state.watch
     val edit by viewModel.watchEditor.state.collectAsStateWithLifecycle()
     val watched = if (page.kind.episodic) page.episodes.isNotEmpty() && page.episodes.all { watch.watched(it.id, it.durationMs) } else watch.watched(page.id, page.durationMs)
@@ -154,7 +146,7 @@ fun TitleScreen(
 
     val next = remember(page, watch) { NextEpisode.of(page.episodes, watch) }
     val seasons = remember(page) { page.episodes.groupBy { it.seasonLabel } }
-    val navigation = rememberEpisodeNavigation(listState, seasons.size, firstFocus, hasDescription = page.overview != null)
+    val navigation = rememberEpisodeNavigation(listState, seasons.size, firstFocus)
     var season by rememberSaveable { mutableStateOf<String?>(null) }
     val openSeason = season ?: next?.seasonLabel ?: seasons.keys.firstOrNull()
     val actions = titleActions(page, next, watch) { itemId, positionMs ->
@@ -209,20 +201,7 @@ fun TitleScreen(
     }
 
     holding?.let { episode ->
-        EpisodeActionsDialog(
-            show = page.title,
-            label = episode.label,
-            facts = episode.facts,
-            choices = WatchChoices.episodeActions(watch.resumeMs(episode.id, episode.durationMs), canAddToChannel = onAddToChannel != null),
-            returnFocus = returnFocus,
-            onDismiss = { holding = null },
-            onAction = { choice ->
-                when (choice.kind) {
-                    WatchKind.ADD_TO_CHANNEL -> onAddToChannel?.invoke(episode.id)
-                    else -> onPlay(episode.id, choice.positionMs)
-                }
-            },
-        )
+        HeldEpisodeDialog(page.title, episode, watch, returnFocus, onPlay, onAddToChannel) { holding = null }
     }
 }
 
@@ -239,9 +218,12 @@ private fun titleActions(page: TitlePage, next: EpisodeEntry?, watch: WatchMarks
     val resume = watch.resumeMs(next.id, next.durationMs)
     val number = splitEpisodeLabel(next.label).first
     val first = page.episodes.firstOrNull { it.season != 0 } ?: page.episodes.first()
+    val going = if (resume > 0) WatchChoices.resume(resume).detail else WatchChoices.playFromStart.detail
+    val fromFirst = splitEpisodeLabel(first.label).first?.let { WatchChoices.playSeriesFromStart(it).detail } ?: WatchChoices.playFromStart.detail
     return listOfNotNull(
-        SheetAction(listOfNotNull(if (resume > 0) "Resume" else "Play", number).joinToString(" "), WatchIcons.play(resume, false)) { onPlay(next.id, resume) },
+        SheetAction(listOfNotNull(if (resume > 0) "Resume" else "Play", number).joinToString(" "), WatchIcons.play(resume, false), detail = going) { onPlay(next.id, resume) },
         // The show from its first episode, once going on with it would start somewhere else.
-        SheetAction("From the start", WatchIcons.StartOver) { onPlay(first.id, 0) }.takeIf { next.id != first.id || resume > 0 },
+        SheetAction("From the start", WatchIcons.StartOver, detail = fromFirst) { onPlay(first.id, 0) }
+            .takeIf { next.id != first.id || resume > 0 },
     )
 }
