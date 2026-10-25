@@ -56,6 +56,8 @@ fun FocusSurface(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
+    /** What holding it does, in screen readers' words. */
+    onLongClickLabel: String? = null,
     enabled: Boolean = true,
     color: Color = LocalAnstelleTheme.current.surface,
     contentColor: Color = LocalAnstelleTheme.current.text,
@@ -91,6 +93,7 @@ fun FocusSurface(
                 interactionSource = interaction,
                 indication = if (isTv) null else ripple(color = contentColor),
                 enabled = enabled,
+                onLongClickLabel = onLongClickLabel,
                 onLongClick = onLongClick,
                 onClick = onClick,
             ),

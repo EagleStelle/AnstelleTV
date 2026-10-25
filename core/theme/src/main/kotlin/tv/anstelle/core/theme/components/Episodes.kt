@@ -82,6 +82,7 @@ fun EpisodeCard(
     FocusSurface(
         onClick = onClick,
         onLongClick = onHold,
+        onLongClickLabel = "Show options",
         color = Color.Transparent,
         modifier = modifier
             .width(if (LocalIsTv.current) TV_EPISODE_CARD_WIDTH else touchWidth)
