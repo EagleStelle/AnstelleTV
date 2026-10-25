@@ -33,7 +33,7 @@ object WatchChoices {
     private const val WATCH_ON_DEMAND = "Watch on Demand"
 
     fun live(channelNumber: Int, channelName: String, endUtcMs: Long, nowUtcMs: Long) =
-        WatchChoice(WatchKind.LIVE, "Watch live", "$channelNumber $channelName · ${span(endUtcMs - nowUtcMs, roundUp = true)} left")
+        WatchChoice(WatchKind.LIVE, "Watch live", "On $channelNumber $channelName, ${span(endUtcMs - nowUtcMs, roundUp = true)} left.")
 
     fun liveOffAir(untilUtcMs: Long) = WatchChoice(WatchKind.LIVE, "Watch live", "Off air until ${clockTime(untilUtcMs)}.")
 

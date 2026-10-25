@@ -110,7 +110,7 @@ class WatchChoicesTest {
     fun `live and resume choices carry their position and the channel`() {
         val live = WatchChoices.live(3004, "Night Shivers", endUtcMs = 18 * 60_000, nowUtcMs = 0)
         assertEquals(WatchKind.LIVE, live.kind)
-        assertEquals("3004 Night Shivers · 18 min left", live.detail)
+        assertEquals("On 3004 Night Shivers, 18 min left.", live.detail)
         assertEquals("Resume from 31 min in", WatchChoices.resume(31 * 60_000L + 10_000).title)
         assertEquals("Add movie to a channel", WatchChoices.addToChannel(isMovie = true).title)
         assertEquals("Add show to a channel", WatchChoices.addToChannel(isMovie = false).title)
