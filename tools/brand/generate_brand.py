@@ -1,4 +1,4 @@
-"""Generates the AnstelleTV launcher icon and TV banner.
+"""Generates the AnstelleTV launcher icon, TV banner and Play Store graphics.
 
 Mark: the channel bug. An ink "A" on a rose tile, its crossbar running on past the right
 leg like the guide's now line running out of frame. The same geometry draws the in-app mark
@@ -13,6 +13,9 @@ Outputs (all under app/src/main/res):
     values/ic_launcher_background.xml, mipmap-anydpi-v26/ic_launcher(_round).xml,
     mipmap-anydpi/ic_launcher(_round).xml (pre-Android 8 / Fire OS 6),
     drawable-xhdpi/tv_banner.png (a PNG: vectors over 200 dp are slow to draw).
+
+Play Store graphics (under fastlane/metadata/android/en-US/images):
+    icon.png (512 x 512), featureGraphic.png (1024 x 500), tvBanner.png (1280 x 720).
 """
 import os
 
@@ -20,6 +23,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 RES = os.path.join(ROOT, "app", "src", "main", "res")
+STORE = os.path.join(ROOT, "fastlane", "metadata", "android", "en-US", "images")
 FONT = os.path.join(ROOT, "core", "theme", "src", "main", "res", "font", "barlow_condensed_bold.ttf")
 
 INK = "#130C0F"
@@ -106,17 +110,21 @@ def write_icons():
 
 # ------------------------------------------------------------------ TV banner
 
-def write_banner(density_scale=2, folder="drawable-xhdpi"):
-    """320x180 dp banner, drawn supersampled then downscaled: the bug, then the wordmark."""
-    supersample = 4
-    k = density_scale * supersample
-    width, height = 320 * k, 180 * k
-    img = Image.new("RGBA", (width, height), rgba(INK))
+def lockup(width, height, scale, left=None):
+    """An ink width x height dp canvas at `scale` px per dp with the bug, then the wordmark,
+    vertically centred and starting `left` dp in (centred when None). Drawn supersampled
+    then downscaled."""
+    k = scale * 4
+    img = Image.new("RGBA", (width * k, height * k), rgba(INK))
     draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype(FONT, 44 * k)
+    tile, gap = 96, 16
+    if left is None:
+        left = (width - tile - gap - draw.textlength("AnstelleTV", font=font) / k) / 2
+    mid = height / 2
 
-    # The bug: a 96 dp tile centred on (72, 90) dp, mark units scaled into it.
-    tile = 96
-    left, top = 72 - tile / 2, 90 - tile / 2
+    # The bug: a 96 dp tile, mark units scaled into it.
+    top = mid - tile / 2
     s = tile / 108
 
     def point(x, y):
@@ -128,20 +136,47 @@ def write_banner(density_scale=2, folder="drawable-xhdpi"):
     draw.rectangle([point(x0, y0), point(x1, y1)], fill=rgba(INK))
 
     # Wordmark: "Anstelle" in bone, "TV" in rose, cap height on the tile's middle.
-    font = ImageFont.truetype(FONT, 44 * k)
-    text_x = 136 * k
+    text_x = (left + tile + gap) * k
     _, cap_top, _, cap_bottom = font.getbbox("A")
-    text_y = 90 * k - (cap_top + cap_bottom) / 2
+    text_y = mid * k - (cap_top + cap_bottom) / 2
     draw.text((text_x, text_y), "Anstelle", font=font, fill=rgba(BONE))
     draw.text((text_x + draw.textlength("Anstelle", font=font), text_y), "TV", font=font, fill=rgba(ROSE))
 
-    out = img.resize((320 * density_scale, 180 * density_scale), Image.LANCZOS).convert("RGB")
-    path = os.path.join(RES, folder, "tv_banner.png")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    out.save(path, optimize=True)
-    print("wrote", f"{folder}/tv_banner.png", out.size)
+    return img.resize((width * scale, height * scale), Image.LANCZOS).convert("RGB")
+
+
+def save_png(img, folder, name):
+    os.makedirs(folder, exist_ok=True)
+    img.save(os.path.join(folder, name), optimize=True)
+    print("wrote", os.path.relpath(os.path.join(folder, name), ROOT), img.size)
+
+
+def write_banner(density_scale=2, folder="drawable-xhdpi"):
+    """320x180 dp banner: the bug centred on (72, 90) dp, then the wordmark."""
+    save_png(lockup(320, 180, density_scale, left=24), os.path.join(RES, folder), "tv_banner.png")
+
+
+# ------------------------------------------------------------ Play Store graphics
+
+def write_store_graphics():
+    """The listing's icon, feature graphic and TV banner."""
+    n = 512 * 4
+    icon = Image.new("RGBA", (n, n), rgba(ROSE))
+    draw = ImageDraw.Draw(icon)
+
+    def point(x, y):
+        # As on the launcher: the middle 72 dp of the 108 dp canvas, the mark at 0.85 (in_safe_zone).
+        return tuple((54 + (v - 54) * 0.85 - 18) * n / 72 for v in (x, y))
+
+    draw.polygon([point(x, y) for x, y in A_OUTLINE], fill=rgba(INK))
+    x0, y0, x1, y1 = BAR
+    draw.rectangle([point(x0, y0), point(x1, y1)], fill=rgba(INK))
+    save_png(icon.resize((512, 512), Image.LANCZOS), STORE, "icon.png")
+    save_png(lockup(512, 250, 2), STORE, "featureGraphic.png")
+    save_png(lockup(320, 180, 4, left=24), STORE, "tvBanner.png")
 
 
 if __name__ == "__main__":
     write_icons()
     write_banner()
+    write_store_graphics()

@@ -58,7 +58,8 @@ The sections below record what is built and how. Product-level constraints:
 
 - The owner's Jellyfin library is the only real content. It is private: its address, titles and contents never appear in the repo, screenshots meant for others, or store copy.
 - Verification numbers come from emulators (see *Verification log* below). Real-device numbers still wait for the Fire TV Stick: Phase 12 was measured on the TV AVD.
-- There are no outside users, testimonials, reviews or store listing yet. Don't invent any.
+- There are no outside users, testimonials or reviews yet. Don't invent any.
+- The Play Store listing lives in `fastlane/metadata/android/en-US`. Its screenshots come from the `atv` and `phone` AVDs signed in to Jellyfin's public demo server (`demo.jellyfin.org/stable`, user `demo`, no password) with a custom group "Classics" starting at 10: Adventure (genres Adventure, War, Western), Crime (Crime, Thriller), Drama (Drama, History), Family (Family, Animation), Horror, Movies (type is movie) and Sci-Fi (Sci-Fi, Sci-Fi & Fantasy). Tablet shots use the `phone` AVD at `wm size 1600x2560`, `wm density 320`, turned sideways. The icon, feature graphic and TV banner come from `tools/brand/generate_brand.py`.
 
 ## Product Principles
 

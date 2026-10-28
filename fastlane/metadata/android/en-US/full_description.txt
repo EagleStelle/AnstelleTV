@@ -1,0 +1,19 @@
+AnstelleTV turns a Jellyfin library into 24/7 retro cable TV. Anstelle is German for "instead of", literally "in the place of", and the app takes the place of a cable subscription. It builds channels from the metadata the library already has and gives each one a wall-clock schedule, so you turn it on, surf, and land on whatever is airing. When you do want to choose, On Demand is organized by channel.
+
+One app runs on Android TV, Google TV and Fire TV with a remote, and on phones and tablets with touch. There is no second server to run and no IPTV client to set up: AnstelleTV keeps channels, schedules and settings in an on-device database and serves its own admin web UI on the local network.
+
+AnstelleTV is free and open source under the GPL, with no ads, subscriptions or paid features. Custom channels, channel editing and themes are all part of it.
+
+Channels come from your library's genres, tags, decades and studios and are ready as soon as you sign in. Programs air back to back with no filler, commercials or station breaks, and the 7-day guide shows a live preview of the channel you're on. Surf with the channel keys, number entry or a swipe, and the channels on either side stay ready to play. Seeking or restarting a program moves the channel's schedule, so the guide always matches the screen.
+
+On Demand lets you browse by channel, movies or series, or search the library. Resume points sync with Jellyfin, and you can skip the intros and credits that Jellyfin's media segments mark.
+
+When the device can decode a file, the app plays it directly; when it can't, Jellyfin sends a stream instead. AC3, E-AC3, DTS and TrueHD audio is decoded on the device, and ASS/SSA subtitles keep their full styling.
+
+Each profile is a Jellyfin user with an owner, admin or member role. Profiles can have PINs and parental rating limits, and restricted programs still air but are blacked out. A dashboard shows what each profile watched and when.
+
+Build your own channels from rules such as genre, decade, studio and rating, and pick one of 16 built-in themes or design your own. From a browser on your network, paired with a PIN shown on the TV, you can manage channels, servers, themes and backups. Back up to a file, or copy everything straight from another AnstelleTV on the network.
+
+The app has no tracking, and the source code is at github.com/EagleStelle/AnstelleTV.
+
+You need a Jellyfin server that you run or have an account on. AnstelleTV includes no content of its own and plays only media from that server. It is an independent app, not affiliated with or endorsed by the Jellyfin project.

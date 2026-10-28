@@ -16,7 +16,7 @@ One APK runs on Android TV, Google TV and Fire TV with a remote, and on phones a
 
 QuasiTV and NostalgiaTV also run on the TV itself, but both sell an upgrade: QuasiTV for more than ten custom channels, NostalgiaTV for channel editing and themes. AnstelleTV is free and open source under the GPL, with no ads, subscriptions or paid features.
 
-![The Live TV guide, with the focused channel playing above a grid of what airs next](docs/screenshots/guide.webp)
+![The Live TV guide, with the focused channel playing above a grid of what airs next](fastlane/metadata/android/en-US/images/tvScreenshots/1_guide.jpg)
 
 ## Features
 
@@ -36,12 +36,12 @@ QuasiTV and NostalgiaTV also run on the TV itself, but both sell an upgrade: Qua
 ## Screenshots
 
 <p>
-  <img src="docs/screenshots/player.webp" width="49%" alt="The player's banner over a movie, with what airs now and next">
-  <img src="docs/screenshots/on-demand.webp" width="49%" alt="On Demand, opening on what each channel is airing">
+  <img src="fastlane/metadata/android/en-US/images/tvScreenshots/2_player.jpg" width="49%" alt="The player's banner over a movie, with what airs now and next">
+  <img src="fastlane/metadata/android/en-US/images/tvScreenshots/3_ondemand.jpg" width="49%" alt="On Demand, opening on what each channel is airing">
 </p>
 <p>
-  <img src="docs/screenshots/settings.webp" width="49%" alt="Settings, with the synced server's movie, series and episode counts">
-  <img src="docs/screenshots/themes.webp" width="49%" alt="The theme picker previewing the Cobalt theme">
+  <img src="fastlane/metadata/android/en-US/images/tvScreenshots/4_lineup.jpg" width="49%" alt="A channel's lineup, built from a rule that matches three genres">
+  <img src="fastlane/metadata/android/en-US/images/tvScreenshots/5_themes.jpg" width="49%" alt="The theme picker previewing the Cobalt theme">
 </p>
 
 Taken on a Google TV emulator signed in to Jellyfin's public demo server.
@@ -121,6 +121,7 @@ AnstelleTV/
 ├── baselineprofile/  Baseline profile generator
 ├── benchmark/        Macrobenchmarks
 ├── tools/            Theme and brand generators (Python)
+├── fastlane/         Play Store listing text, graphics and screenshots
 └── docs/             This documentation and performance reports
 ```
 

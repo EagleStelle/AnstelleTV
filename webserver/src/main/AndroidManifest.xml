@@ -16,7 +16,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Local network web server that lets the user manage channels and watch from a browser on the same LAN." />
+                android:value="Local network web server, on only while the user turns on Web control, that lets the owner manage servers, channels, themes and backups from a browser on the same LAN." />
         </service>
     </application>
 </manifest>

@@ -17,8 +17,12 @@ val keystoreProperties = Properties().apply {
     if (file.exists()) file.inputStream().use(::load)
 }
 
-/** True when a release build is asked for; debug builds stay one APK. */
-val releaseBuild = gradle.startParameter.taskNames.any { "release" in it.lowercase() }
+/**
+ * True when release APKs are asked for. Debug builds stay one APK, and app bundles can't be built
+ * with ABI splits on (the store splits a bundle per device anyway).
+ */
+val splitApks = gradle.startParameter.taskNames.map(String::lowercase)
+    .let { tasks -> tasks.any { "release" in it } && tasks.none { "bundle" in it } }
 
 android {
     namespace = "tv.anstelle.app"
@@ -35,7 +39,7 @@ android {
         abi {
             // Release builds come as one APK per ABI, so a device stores only the native code it
             // runs (FFmpeg, libass and the C++ runtime, 4.3 to 5.8 MB each); a universal one too.
-            isEnable = releaseBuild
+            isEnable = splitApks
             reset()
             // No 32-bit x86 device ships; the emulators are x86_64.
             include("arm64-v8a", "armeabi-v7a", "x86_64")
