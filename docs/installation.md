@@ -109,7 +109,7 @@ Release builds use R8 full mode with resource shrinking and need pnpm (they fail
 
 GitHub Actions builds and publishes releases. Pushing a tag `v<versionName>` (for example `v1.0.0`) runs the CI checks, builds the release APKs with the release key and publishes a GitHub release with GitHub's generated notes, which end with the *Full Changelog* link. The release holds the four APKs, named `AnstelleTV-v1.0.0-<abi>.apk`, the R8 mapping file and `SHA256SUMS.txt`.
 
-1. Raise `versionName` in `app/build.gradle.kts`. `versionCode` follows from it (1.2.3 becomes 10203).
+1. Raise `versionName` in `app/build.gradle.kts` and reset `buildNumber` to 0. `versionCode` follows from both (1.2.3 build 4 becomes 1020304). To upload the same `versionName` to Google Play again, raise only `buildNumber`, since Play never accepts a version code twice.
 2. Commit, then tag and push:
 
    ```sh
