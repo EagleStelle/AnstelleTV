@@ -17,6 +17,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
@@ -89,6 +90,9 @@ class WebServerService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        // lifecycleScope only cancels after a posted event, so the status collector would otherwise
+        // re-post the notification the system just removed, and leave it behind for good.
+        lifecycleScope.coroutineContext.cancelChildren()
         networkCallback?.let { runCatching { getSystemService<ConnectivityManager>()?.unregisterNetworkCallback(it) } }
         advertisement?.close()
         server.stop()
@@ -155,6 +159,8 @@ class WebServerService : LifecycleService() {
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            // The user just turned it on and needs the address or PIN now, not after Android's 10 s delay.
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
                 android.app.PendingIntent.getActivity(
                     this, 0, launch,
