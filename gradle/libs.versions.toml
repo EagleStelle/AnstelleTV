@@ -5,9 +5,9 @@ compileSdk = "37"
 targetSdk = "37"
 
 # Build
-agp = "9.4.1"
+agp = "9.5.1"
 kotlin = "2.4.21"
-ksp = "2.3.12"
+ksp = "2.3.13"
 desugar = "2.1.5"
 
 # AndroidX
@@ -38,9 +38,9 @@ libassAndroid = "0.5.1"
 
 # Libraries
 hilt = "2.60.1"
-jellyfinSdk = "1.9.2"
-ktor = "3.6.0"
-okhttp = "5.5.0"
+jellyfinSdk = "1.9.4"
+ktor = "3.6.1"
+okhttp = "5.5.1"
 coil = "3.6.3"
 kotlinxSerialization = "1.12.0"
 kotlinxCoroutines = "1.11.0"
