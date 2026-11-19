@@ -3,7 +3,6 @@ package tv.anstelle.core.database
 import androidx.room.TypeConverter
 import tv.anstelle.core.model.ChannelKind
 import tv.anstelle.core.model.HdrType
-import tv.anstelle.core.model.LiveSourceType
 import tv.anstelle.core.model.MediaTracks
 import tv.anstelle.core.model.MediaType
 import tv.anstelle.core.model.PlaybackOrder
@@ -37,9 +36,6 @@ internal class Converters {
 
     @TypeConverter fun fromSeasonMode(value: SeasonMode): Int = value.code
     @TypeConverter fun toSeasonMode(code: Int): SeasonMode = codeOf(code)
-
-    @TypeConverter fun fromLiveSourceType(value: LiveSourceType): Int = value.code
-    @TypeConverter fun toLiveSourceType(code: Int): LiveSourceType = codeOf(code)
 
     @TypeConverter fun fromHdrType(value: HdrType): Int = value.code
     @TypeConverter fun toHdrType(code: Int): HdrType = codeOf(code)

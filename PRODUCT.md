@@ -114,7 +114,7 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.21, KSP 2.3.12, Compose BOM 2026.09.00, 
 
 ```sh
 ./gradlew assembleDebug                  # also builds the web UI via pnpm (skipped with a warning if pnpm is missing)
-./gradlew testDebugUnitTest :core:model:test :core:common:test :core:scheduler:test :core:livetv:test
+./gradlew testDebugUnitTest :core:model:test :core:common:test :core:scheduler:test
 ./gradlew lintDebug
 ./gradlew assembleRelease                # R8 full mode; needs pnpm; one APK per ABI plus a universal one; signed with the debug key unless keystore.properties exists
 ./gradlew :app:generateBaselineProfile   # on a connected device signed in to a server with channels
@@ -135,7 +135,6 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.21, KSP 2.3.12, Compose BOM 2026.09.00, 
 | `core/model` | Pure Kotlin models; enums with stable `code` values for storage |
 | `core/common` | `TimeSource`, dispatcher qualifiers, `AppLog` (forwards to logcat), `AppInfo` |
 | `core/scheduler` | Pure JVM schedule engine: `ScheduleEngine`, `CandidatePool`, `EngineState`, `nowPlaying` |
-| `core/livetv` | M3U / XMLTV / HDHomeRun (Phase 7) |
 | `core/database` | Room DB with all tables; exported schemas in `core/database/schemas` |
 | `core/jellyfin` | The shared `OkHttpClient` and `Jellyfin` SDK instance, server discovery, sign-in, Keystore token store, library source and the DTO → Room mappers |
 | `core/player` | `PlayerPool` (an active ExoPlayer and up to two standbys), `PlayerFactory` (OkHttp data source with the server's auth header, FFmpeg audio fallback), `CapabilityProbe`, `StreamPlanner` (direct play or HLS), `JellyfinStreams` (local stream URLs, side-loaded subtitles), `LanguageTrackSelector`, `PlayerSubtitles` and `SubtitleOverlays` (libass), `SubtitleStyle` (the plain-subtitle look), `FontCache`, `TuneTrace` |
@@ -181,7 +180,7 @@ AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.21, KSP 2.3.12, Compose BOM 2026.09.00, 
 - **Foreground service:** the web server runs as a `specialUse` foreground service. Its notification shows at once (`FOREGROUND_SERVICE_IMMEDIATE`), since the user just turned Web control on and needs the address or PIN. `onDestroy` cancels the service's collectors first: `lifecycleScope` only cancels after a posted event, and a collector running after the system removed the notification would re-post it for good.
 - **FFmpeg decoder:** `org.jellyfin.media3:media3-ffmpeg-decoder` latest is `1.9.0+1`, built for Media3 1.9. It works with Media3 1.11.1: `FfmpegDecoderTest` decodes AC3, E-AC3, DTS and TrueHD on a device. If a later Media3 breaks that test, pin Media3 to the extension's version.
 - **Database migrations:** debug builds fall back to destructive migration while the schema moves between phases. Pre-release schema versions (listed in `AnstelleDatabase.PRE_RELEASE_VERSIONS`) are also dropped in release builds. Real migrations start with the first public release.
-- **Cleartext HTTP** is allowed app-wide, because LAN Jellyfin, HDHomeRun and M3U sources use plain HTTP on arbitrary IPs.
+- **Cleartext HTTP** is allowed app-wide, because LAN Jellyfin servers use plain HTTP on arbitrary IPs.
 - **Gradle warning:** builds print `Configuration.setVisible` deprecation warnings that come from third-party Gradle plugins. They are harmless until Gradle 11.
 
 ### Jellyfin (learned in Phase 2)

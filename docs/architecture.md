@@ -139,10 +139,9 @@ Room schema, grouped by area (entities in `core/database/.../entity`):
 | Schedules | `schedule_slot`, `schedule_state` |
 | Profiles | `profile`, `profile_account`, `profile_hidden_item` |
 | App | `setting`, `theme`, `paired_client`, `watch_event`, `restored_item` |
-| Live TV (unused) | `live_source`, `live_channel`, `live_program` |
 
 - Enums are stored by a stable `code` from `core:model`, never by ordinal or name, so reordering an enum never corrupts data.
-- Schemas are exported to `core/database/schemas`. Debug builds fall back to destructive migration. Release builds drop only the versions listed in `AnstelleDatabase.PRE_RELEASE_VERSIONS`; real migrations begin with the first public release.
+- Schemas are exported to `core/database/schemas`. Debug builds fall back to destructive migration. Release builds drop only the versions listed in `AnstelleDatabase.PRE_RELEASE_VERSIONS`; real migrations begin with the first public release (v1.0.0, schema 14). They are Room auto-migrations declared on `AnstelleDatabase` and checked by `MigrationTest`.
 - `ScheduleCleanupWorker` runs daily. It removes old slots and dashboard rows older than 400 days, trims the font cache, and runs `VACUUM` once a quarter of the file is free pages.
 - Jellyfin tokens are not in the database. `KeystoreTokenStore` encrypts them with an AES-GCM key from the Android Keystore and keeps only the ciphertext in private preferences.
 

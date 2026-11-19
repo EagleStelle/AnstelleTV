@@ -274,7 +274,6 @@ class BackupStore @Inject constructor(
                     profileId = view.profileId,
                     source = codeOf(view.source),
                     channelId = view.channelId?.takeIf { it in channelIds },
-                    liveChannelId = null,
                     mediaItemId = null,
                     title = view.title,
                     showTitle = view.showTitle,

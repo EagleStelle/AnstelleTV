@@ -114,7 +114,6 @@ AnstelleTV/
 │   ├── player/       ExoPlayer pool, stream planning, subtitles
 │   ├── theme/        Theme spec, Compose theme, shared focusable components
 │   ├── data/         Repositories, sync, channels, playback, stats, backup, workers
-│   └── livetv/       Placeholder for the skipped Live TV phase
 ├── feature/          guide, player, ondemand, profiles, settings, dashboard
 ├── webserver/        Ktor server, pairing, LAN guard, admin API, /ws
 ├── webui/            SvelteKit admin SPA

@@ -8,9 +8,6 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 import tv.anstelle.core.database.entity.HiddenItemEntity
-import tv.anstelle.core.database.entity.LiveChannelEntity
-import tv.anstelle.core.database.entity.LiveProgramEntity
-import tv.anstelle.core.database.entity.LiveSourceEntity
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.core.database.entity.ProfileAccountEntity
 import tv.anstelle.core.database.entity.ProfileEntity
@@ -90,43 +87,6 @@ interface ProfileDao {
         clearHidden(profileId, serverId)
         insertHidden(itemIds.map { HiddenItemEntity(profileId, it) })
     }
-}
-
-@Dao
-interface LiveTvDao {
-    @Query("SELECT * FROM live_source WHERE profileId = :profileId ORDER BY name")
-    fun observeSources(profileId: Long): Flow<List<LiveSourceEntity>>
-
-    @Upsert
-    suspend fun upsertSource(source: LiveSourceEntity): Long
-
-    @Query("SELECT * FROM live_channel WHERE sourceId = :sourceId ORDER BY sortNumber")
-    suspend fun channels(sourceId: Long): List<LiveChannelEntity>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertChannels(channels: List<LiveChannelEntity>)
-
-    @Query(
-        """
-        SELECT * FROM live_program
-        WHERE liveChannelId IN (:channelIds)
-          AND startUtcMs > :fromUtcMs - :maxProgramMs AND startUtcMs < :toUtcMs
-          AND endUtcMs > :fromUtcMs
-        ORDER BY liveChannelId, startUtcMs
-        """,
-    )
-    suspend fun programWindow(
-        channelIds: List<Long>,
-        fromUtcMs: Long,
-        toUtcMs: Long,
-        maxProgramMs: Long,
-    ): List<LiveProgramEntity>
-
-    @Insert
-    suspend fun insertPrograms(programs: List<LiveProgramEntity>)
-
-    @Query("DELETE FROM live_program WHERE endUtcMs < :beforeUtcMs")
-    suspend fun deleteProgramsEndedBefore(beforeUtcMs: Long): Int
 }
 
 @Dao

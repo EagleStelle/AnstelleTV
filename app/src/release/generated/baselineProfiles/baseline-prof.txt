@@ -41688,13 +41688,6 @@ Ltv/anstelle/core/database/dao/LibraryDao_Impl$Companion;
 SPLtv/anstelle/core/database/dao/LibraryDao_Impl$Companion;-><init>()V
 SPLtv/anstelle/core/database/dao/LibraryDao_Impl$Companion;-><init>(Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 SPLtv/anstelle/core/database/dao/LibraryDao_Impl$Companion;->getRequiredConverters()Ljava/util/List;
-Ltv/anstelle/core/database/dao/LiveTvDao;
-Ltv/anstelle/core/database/dao/LiveTvDao_Impl;
-SPLtv/anstelle/core/database/dao/LiveTvDao_Impl;-><clinit>()V
-Ltv/anstelle/core/database/dao/LiveTvDao_Impl$Companion;
-SPLtv/anstelle/core/database/dao/LiveTvDao_Impl$Companion;-><init>()V
-SPLtv/anstelle/core/database/dao/LiveTvDao_Impl$Companion;-><init>(Lkotlin/jvm/internal/DefaultConstructorMarker;)V
-SPLtv/anstelle/core/database/dao/LiveTvDao_Impl$Companion;->getRequiredConverters()Ljava/util/List;
 Ltv/anstelle/core/database/dao/MediaItemDao;
 Ltv/anstelle/core/database/dao/MediaItemDao_Impl;
 SPLtv/anstelle/core/database/dao/MediaItemDao_Impl;-><clinit>()V

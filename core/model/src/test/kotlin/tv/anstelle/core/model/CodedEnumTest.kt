@@ -7,7 +7,7 @@ import kotlin.test.assertFailsWith
 class CodedEnumTest {
     private val all: List<List<CodedEnum>> = listOf(
         MediaType.entries, PlaybackOrder.entries, SlotKind.entries, ChannelKind.entries,
-        RuleField.entries, RuleOp.entries, SeasonMode.entries, LiveSourceType.entries,
+        RuleField.entries, RuleOp.entries, SeasonMode.entries,
         HdrType.entries, WatchSource.entries, WatchSync.entries, SubtitleMode.entries, ProfileRole.entries,
         SegmentAction.entries, SubtitleSize.entries, SubtitleFont.entries, SubtitleColor.entries, SubtitleEdge.entries,
         SubtitleBackground.entries,

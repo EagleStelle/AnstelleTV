@@ -10,7 +10,6 @@ dependencies {
     api(projects.core.database)
     implementation(projects.core.scheduler)
     implementation(projects.core.jellyfin)
-    implementation(projects.core.livetv)
     api(projects.core.player)
 
     implementation(libs.androidx.core.ktx)

@@ -1,15 +1,18 @@
 package tv.anstelle.core.database
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
+import androidx.room.DeleteColumn
+import androidx.room.DeleteTable
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.AutoMigrationSpec
 import androidx.sqlite.db.SupportSQLiteDatabase
 import tv.anstelle.core.database.dao.BackupDao
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.LibraryDao
-import tv.anstelle.core.database.dao.LiveTvDao
 import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.database.dao.PairedClientDao
@@ -25,9 +28,6 @@ import tv.anstelle.core.database.entity.ChannelRuleEntity
 import tv.anstelle.core.database.entity.ChannelSeasonEntity
 import tv.anstelle.core.database.entity.HiddenItemEntity
 import tv.anstelle.core.database.entity.LibraryEntity
-import tv.anstelle.core.database.entity.LiveChannelEntity
-import tv.anstelle.core.database.entity.LiveProgramEntity
-import tv.anstelle.core.database.entity.LiveSourceEntity
 import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.database.entity.PairedClientEntity
@@ -57,9 +57,6 @@ import tv.anstelle.core.database.entity.WatchEventEntity
         ChannelRuleEntity::class,
         ChannelSeasonEntity::class,
         ChannelDaypartEntity::class,
-        LiveSourceEntity::class,
-        LiveChannelEntity::class,
-        LiveProgramEntity::class,
         ScheduleSlotEntity::class,
         ScheduleStateEntity::class,
         ThemeEntity::class,
@@ -70,6 +67,7 @@ import tv.anstelle.core.database.entity.WatchEventEntity
     ],
     version = AnstelleDatabase.VERSION,
     exportSchema = true,
+    autoMigrations = [AutoMigration(from = 14, to = 15, spec = AnstelleDatabase.DropLiveTv::class)],
 )
 @TypeConverters(Converters::class)
 abstract class AnstelleDatabase : RoomDatabase() {
@@ -79,22 +77,26 @@ abstract class AnstelleDatabase : RoomDatabase() {
     abstract fun profileDao(): ProfileDao
     abstract fun channelDao(): ChannelDao
     abstract fun scheduleDao(): ScheduleDao
-    abstract fun liveTvDao(): LiveTvDao
     abstract fun themeDao(): ThemeDao
     abstract fun watchEventDao(): WatchEventDao
     abstract fun pairedClientDao(): PairedClientDao
     abstract fun settingDao(): SettingDao
     abstract fun backupDao(): BackupDao
 
+    /** 15: the tables of the skipped Live TV phase, which nothing ever wrote, are gone. */
+    @DeleteTable.Entries(DeleteTable("live_program"), DeleteTable("live_channel"), DeleteTable("live_source"))
+    @DeleteColumn("watch_event", "liveChannelId")
+    class DropLiveTv : AutoMigrationSpec
+
     companion object {
-        const val VERSION = 14
+        const val VERSION = 15
         const val NAME = "anstelle.db"
 
         /** Tables the web UI can subscribe to for live updates. */
         val OBSERVED_TABLES = arrayOf(
             "media_server", "profile", "profile_account", "library", "media_item", "channel_group", "channel",
-            "channel_rule", "channel_season", "channel_daypart", "live_source", "live_channel",
-            "live_program", "schedule_slot", "theme", "watch_event", "paired_client", "setting",
+            "channel_rule", "channel_season", "channel_daypart", "schedule_slot", "theme", "watch_event",
+            "paired_client", "setting",
         )
 
         /**

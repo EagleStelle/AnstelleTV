@@ -48,7 +48,6 @@ AnstelleTV/
 │   │   │   ├── work/      LibrarySyncWorker, ScheduleWorker, ScheduleCleanupWorker, DurationWorker
 │   │   │   └── di/        DataModule
 │   │   └── src/main/assets/channel-words.json
-│   └── livetv/       LiveTvSources constants for the skipped Live TV phase
 ├── feature/
 │   ├── guide/        GuideScreen, GuideGrid, GuideGridState, GuideAutoPreview
 │   ├── player/       PlayerScreen (channels), OnDemandPlayerScreen, PlayerChrome, PlayerPanel
@@ -100,7 +99,7 @@ AnstelleTV/
 | UI | `feature:*` | `core:data`, `core:theme` (added by `anstelle.android.feature`) |
 | Delivery | `app`, `webserver`, `webui` | Everything they wire together |
 
-The plain JVM modules (`core:model`, `core:common`, `core:scheduler`, `core:livetv`) use `anstelle.jvm.library`, so their tests run without Android.
+The plain JVM modules (`core:model`, `core:common`, `core:scheduler`) use `anstelle.jvm.library`, so their tests run without Android.
 
 ## Folder rules
 

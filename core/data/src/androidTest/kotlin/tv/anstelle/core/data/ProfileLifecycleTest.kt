@@ -117,7 +117,7 @@ class ProfileLifecycleTest {
         tokens.put(ProfileRepository.tokenKey("server", "viewer"), "profile-token")
         database.pairedClientDao().insert(PairedClientEntity(profileId = 2, tokenHash = "paired", name = "Browser", userAgent = null, createdAtUtcMs = 0, lastSeenUtcMs = 0, lastAddress = null))
         database.watchEventDao().insertAll(listOf(WatchEventEntity(profileId = 2, source = WatchSource.ON_DEMAND,
-            channelId = null, liveChannelId = null, mediaItemId = null, title = "Movie", showTitle = null, mediaType = MediaType.MOVIE,
+            channelId = null, mediaItemId = null, title = "Movie", showTitle = null, mediaType = MediaType.MOVIE,
             startUtcMs = 0, durationMs = 1, localDay = 0, completed = true)))
     }
 

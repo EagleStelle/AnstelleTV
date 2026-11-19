@@ -81,7 +81,7 @@ class WatchEventDaoTest {
         show: String? = "Show A",
         type: MediaType = MediaType.EPISODE,
         completed: Boolean = false,
-    ) = WatchEventEntity(0, profileId, source, channelId, null, itemId, title, show, type, startUtcMs, minutes * minute, localDay, completed)
+    ) = WatchEventEntity(0, profileId, source, channelId, itemId, title, show, type, startUtcMs, minutes * minute, localDay, completed)
 
     @Test
     fun viewsAreOneProfilesDaysInStartOrder() = runTest {

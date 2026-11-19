@@ -45,7 +45,6 @@ data class WatchEventEntity(
     val profileId: Long,
     val source: WatchSource,
     val channelId: Long?,
-    val liveChannelId: Long?,
     val mediaItemId: Long?,
     /** Denormalized so stats survive library changes. */
     val title: String,

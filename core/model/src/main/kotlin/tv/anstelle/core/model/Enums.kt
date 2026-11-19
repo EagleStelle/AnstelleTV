@@ -114,13 +114,6 @@ enum class SeasonMode(override val code: Int) : CodedEnum {
     OVERRIDE_RULES(1),
 }
 
-enum class LiveSourceType(override val code: Int) : CodedEnum {
-    JELLYFIN(0),
-    M3U(1),
-    XMLTV(2),
-    HDHOMERUN(3),
-}
-
 enum class HdrType(override val code: Int) : CodedEnum {
     SDR(0),
     HDR10(1),

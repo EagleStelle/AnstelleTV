@@ -115,11 +115,11 @@ class BackupRoundTripTest {
         db.settingDao().put(SettingEntity(Settings.WebServerPort.name, "9000"))
         db.watchEventDao().insertAll(
             listOf(
-                WatchEventEntity(profileId = 1, source = WatchSource.CHANNEL, channelId = 12, liveChannelId = null, mediaItemId = 40, title = "Pilot", showTitle = "Show", mediaType = MediaType.EPISODE, startUtcMs = 1_000, durationMs = 60_000, localDay = 20_000, completed = true),
+                WatchEventEntity(profileId = 1, source = WatchSource.CHANNEL, channelId = 12, mediaItemId = 40, title = "Pilot", showTitle = "Show", mediaType = MediaType.EPISODE, startUtcMs = 1_000, durationMs = 60_000, localDay = 20_000, completed = true),
                 // Its channel is gone: the time still counts.
-                WatchEventEntity(profileId = 1, source = WatchSource.CHANNEL, channelId = 77, liveChannelId = null, mediaItemId = 41, title = "Second", showTitle = "Show", mediaType = MediaType.EPISODE, startUtcMs = 90_000, durationMs = 40_000, localDay = 20_001, completed = false),
+                WatchEventEntity(profileId = 1, source = WatchSource.CHANNEL, channelId = 77, mediaItemId = 41, title = "Second", showTitle = "Show", mediaType = MediaType.EPISODE, startUtcMs = 90_000, durationMs = 40_000, localDay = 20_001, completed = false),
                 // Sam keeps no dashboard: nothing of it travels.
-                WatchEventEntity(profileId = 2, source = WatchSource.ON_DEMAND, channelId = null, liveChannelId = null, mediaItemId = 40, title = "Pilot", showTitle = "Show", mediaType = MediaType.EPISODE, startUtcMs = 5_000, durationMs = 30_000, localDay = 20_000, completed = false),
+                WatchEventEntity(profileId = 2, source = WatchSource.ON_DEMAND, channelId = null, mediaItemId = 40, title = "Pilot", showTitle = "Show", mediaType = MediaType.EPISODE, startUtcMs = 5_000, durationMs = 30_000, localDay = 20_000, completed = false),
             ),
         )
     }

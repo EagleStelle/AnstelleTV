@@ -51,7 +51,6 @@ class DashboardHistory @Inject constructor(
                     profileId = view.profileId,
                     source = view.source,
                     channelId = view.channelId,
-                    liveChannelId = null,
                     mediaItemId = view.mediaItemId,
                     title = view.title,
                     showTitle = view.showTitle,

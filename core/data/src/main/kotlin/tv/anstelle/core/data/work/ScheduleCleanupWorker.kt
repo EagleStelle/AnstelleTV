@@ -17,14 +17,13 @@ import tv.anstelle.core.common.Dispatcher
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.data.stats.DashboardHistory
 import tv.anstelle.core.database.AnstelleDatabase
-import tv.anstelle.core.database.dao.LiveTvDao
 import tv.anstelle.core.database.dao.ScheduleDao
 import tv.anstelle.core.player.FontCache
 import java.util.concurrent.TimeUnit
 
 /**
- * Daily housekeeping that keeps the app's storage small: drops schedule slots and guide data that
- * ended more than a day ago and dashboard history past [DashboardHistory.KEEP_DAYS], trims the
+ * Daily housekeeping that keeps the app's storage small: drops schedule slots that ended more
+ * than a day ago and dashboard history past [DashboardHistory.KEEP_DAYS], trims the
  * subtitle font cache, and gives the database file back its free pages once a good part of it is
  * free (SQLite reuses freed pages but never shrinks the file by itself).
  */
@@ -33,7 +32,6 @@ class ScheduleCleanupWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val scheduleDao: ScheduleDao,
-    private val liveTvDao: LiveTvDao,
     private val history: DashboardHistory,
     private val fonts: FontCache,
     private val database: AnstelleDatabase,
@@ -43,8 +41,7 @@ class ScheduleCleanupWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         val cutoff = time.nowUtcMs() - KEEP_MS
         val slots = scheduleDao.deleteEndedBefore(cutoff)
-        val programs = liveTvDao.deleteProgramsEndedBefore(cutoff)
-        AppLog.i(TAG, "Removed $slots old schedule slots and $programs old guide entries")
+        AppLog.i(TAG, "Removed $slots old schedule slots")
         history.prune()
         fonts.tidy()
         withContext(io) { compact() }

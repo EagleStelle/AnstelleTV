@@ -25,7 +25,6 @@ import tv.anstelle.core.database.AnstelleDatabase
 import tv.anstelle.core.database.dao.BackupDao
 import tv.anstelle.core.database.dao.ChannelDao
 import tv.anstelle.core.database.dao.LibraryDao
-import tv.anstelle.core.database.dao.LiveTvDao
 import tv.anstelle.core.database.dao.MediaItemDao
 import tv.anstelle.core.database.dao.MediaServerDao
 import tv.anstelle.core.database.dao.PairedClientDao
@@ -107,7 +106,6 @@ object DatabaseModule {
     @Provides fun profileDao(db: AnstelleDatabase): ProfileDao = db.profileDao()
     @Provides fun channelDao(db: AnstelleDatabase): ChannelDao = db.channelDao()
     @Provides fun scheduleDao(db: AnstelleDatabase): ScheduleDao = db.scheduleDao()
-    @Provides fun liveTvDao(db: AnstelleDatabase): LiveTvDao = db.liveTvDao()
     @Provides fun themeDao(db: AnstelleDatabase): ThemeDao = db.themeDao()
     @Provides fun watchEventDao(db: AnstelleDatabase): WatchEventDao = db.watchEventDao()
     @Provides fun pairedClientDao(db: AnstelleDatabase): PairedClientDao = db.pairedClientDao()
