@@ -22,8 +22,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import tv.anstelle.core.common.AnstelleDispatchers
 import tv.anstelle.core.common.AppLog
@@ -231,9 +229,6 @@ class ChannelPlayer @Inject constructor(
     private var scheduleCheckJob: Job? = null
     private var handoverJob: Job? = null
 
-    /** Schedule moves are written one at a time, in the order the seeks happened. */
-    private val shifts = Mutex()
-
     /** The channels surfing goes through, in number order. */
     fun setLineup(channels: List<Channel>) {
         lineup = channels.sortedBy { it.number }
@@ -325,8 +320,10 @@ class ChannelPlayer @Inject constructor(
         }
         val channelId = program.slot.channelId
         val from = program.slot.startUtcMs
+        // Under the updater's lock: a schedule rewrite in between would undo the move. The lock is
+        // fair, so moves are written in the order the seeks happened.
         scope.launch {
-            shifts.withLock { withContext(io + NonCancellable) { schedules.shift(channelId, from, deltaMs) } }
+            updater.paused { withContext(io + NonCancellable) { schedules.shift(channelId, from, deltaMs) } }
         }
         AppLog.i(TAG, "Seek on ${current?.number}: the schedule moved ${deltaMs / 1000} s")
     }
@@ -355,7 +352,7 @@ class ChannelPlayer @Inject constructor(
         val startUtcMs = finished.slot.startUtcMs
         AppLog.i(TAG, "Item ${finished.item.id} on ${current?.number} ended ${(endUtcMs - finished.slot.endUtcMs) / 1000} s off its airing: the schedule moved")
         return scope.launch {
-            shifts.withLock { withContext(io + NonCancellable) { schedules.endAt(channelId, startUtcMs, endUtcMs) } }
+            updater.paused { withContext(io + NonCancellable) { schedules.endAt(channelId, startUtcMs, endUtcMs) } }
         }
     }
 
@@ -744,7 +741,7 @@ class ChannelPlayer @Inject constructor(
         val program = queue.firstOrNull() ?: return
         val channel = current ?: return
         scheduleCheckJob = scope.launch {
-            val kept = shifts.withLock { scheduleDao.slotAt(channel.id, program.slot.startUtcMs) }
+            val kept = updater.paused { scheduleDao.slotAt(channel.id, program.slot.startUtcMs) }
             if (queue.firstOrNull() !== program || current?.id != channel.id || _state.value.status != TuneStatus.PLAYING) return@launch
             // Comparing the stored airing itself leaves an unchanged, longer-playing file alone.
             if (kept?.kind == SlotKind.PROGRAM && kept.mediaItemId == program.item.id &&
