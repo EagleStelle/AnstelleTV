@@ -68,7 +68,9 @@
 			{ title: 'On Demand', summary: overview.onDemand.summary, icon: Movie, href: '/ondemand' },
 			{ title: 'Themes', summary: theme.spec?.name, icon: Palette, href: '/themes' },
 			{ title: 'Web control', summary: web.urls[0] ? `On at ${web.urls[0]}` : 'On', icon: Wifi, href: '/web' },
-			{ title: 'Backup', summary: backup.savedUtcMs ? `Saved ${ago(backup.savedUtcMs)}` : 'Not saved yet', icon: Restore, href: '/backup' }
+			...(session.isOwner
+				? [{ title: 'Backup', summary: backup.savedUtcMs ? `Saved ${ago(backup.savedUtcMs)}` : 'Not saved yet', icon: Restore, href: '/backup' }]
+				: [])
 		]}
 		<div class="grid gap-y-0.5 min-[840px]:grid-cols-2 min-[840px]:gap-x-8 min-[840px]:gap-y-6 min-[840px]:pt-2">
 			{#each areas as area (area.href)}

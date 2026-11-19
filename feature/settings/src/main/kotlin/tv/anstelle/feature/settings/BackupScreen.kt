@@ -103,8 +103,11 @@ sealed interface BackupStep {
 data class BackupUiState(
     /** What a backup of this device holds, and when one was last taken. */
     val summary: BackupSummary = BackupSummary(),
-    /** Restoring replaces every profile, the owner's too, so only the owner does it (or a device with no profile yet). */
-    val canRestore: Boolean = false,
+    /**
+     * A backup holds every profile's PIN hash and restoring one replaces every profile, so only the
+     * owner saves or restores (or a device with no profile yet).
+     */
+    val managesBackups: Boolean = false,
     /** Other devices serving web control, as they are found. */
     val peers: List<Peer> = emptyList(),
     val nowUtcMs: Long = 0,
@@ -126,14 +129,14 @@ class BackupViewModel @Inject constructor(
     /** Opened before any profile exists, from adding the first server: only copying in makes sense. */
     val firstRun: Boolean = savedState.get<Boolean>("firstRun") ?: false
 
-    private val canRestore = if (firstRun) flowOf(true) else profiles.observeActiveProfile().map { it.role == ProfileRole.OWNER }
+    private val managesBackups = if (firstRun) flowOf(true) else profiles.observeActiveProfile().map { it.role == ProfileRole.OWNER }
 
     val state: StateFlow<BackupUiState> = combine(
         if (firstRun) flowOf(BackupSummary()) else backups.observeSummary(),
-        canRestore,
+        managesBackups,
         // Only someone who may copy a backup in looks for devices to copy from.
-        canRestore.flatMapLatest { if (it) nearby.observe() else flowOf(emptyList()) },
-    ) { summary, restores, peers -> BackupUiState(summary, restores, peers, time.nowUtcMs(), loaded = true) }
+        managesBackups.flatMapLatest { if (it) nearby.observe() else flowOf(emptyList()) },
+    ) { summary, manages, peers -> BackupUiState(summary, manages, peers, time.nowUtcMs(), loaded = true) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BackupUiState())
 
     private val _step = MutableStateFlow<BackupStep>(BackupStep.Idle)
@@ -312,18 +315,19 @@ fun BackupScreen(
         // A problem asks for an answer, so it opens over the page (see below); only progress stays in the list.
         item(key = "message") { message?.takeUnless { it.second }?.let { (text, _) -> SettingsNotice(text, isError = false) } }
         // The file verbs side by side (user decision): saving one, and restoring one where this device can open files.
-        val restoresFiles = state.canRestore && canOpenFiles
-        if (!viewModel.firstRun || restoresFiles) {
+        val savesFiles = state.managesBackups && !viewModel.firstRun
+        val restoresFiles = state.managesBackups && canOpenFiles
+        if (savesFiles || restoresFiles) {
             item(key = "files") {
                 SettingsButtons {
-                    if (!viewModel.firstRun) {
+                    if (savesFiles) {
                         OsdButton("Save backup", onClick = ::save, icon = Icons.Filled.FileDownload, primary = true, modifier = Modifier.focusRequester(firstFocus))
                     }
                     if (restoresFiles) OsdButton("Restore from file", onClick = ::open, icon = Icons.Filled.FileUpload, danger = true)
                 }
             }
         }
-        if (state.canRestore) {
+        if (state.managesBackups) {
             section("Nearby devices")
             val peers = state.peers
             items(peers, key = { "peer-${it.address}" }) { peer ->

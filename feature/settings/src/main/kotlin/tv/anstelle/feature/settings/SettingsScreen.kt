@@ -70,6 +70,8 @@ import tv.anstelle.core.database.dao.TypeCount
 import tv.anstelle.core.database.entity.PairedClientEntity
 import tv.anstelle.core.model.MediaServer
 import tv.anstelle.core.model.MediaType
+import tv.anstelle.core.model.ProfileRights
+import tv.anstelle.core.model.ProfileRole
 import tv.anstelle.core.model.ThemeSpec
 import tv.anstelle.core.model.TrackPrefs
 import tv.anstelle.core.model.WatchSync
@@ -112,8 +114,10 @@ data class SettingsUiState(
     val tracks: TrackPrefs = TrackPrefs(),
     /** The theme the profile wears; null while the default is on. */
     val theme: ThemeSpec? = null,
-    /** The owner and admins see the app-wide rows (servers, channels, web control, backup); members don't. */
+    /** The owner and admins see the app-wide rows (servers, channels, web control); members don't. */
     val canManageApp: Boolean = false,
+    /** Only the owner sees Backup: a backup holds every profile's PIN hash. */
+    val isOwner: Boolean = false,
     /** What a backup of this device holds. */
     val backup: BackupSummary = BackupSummary(),
     val loaded: Boolean = false,
@@ -192,8 +196,8 @@ class SettingsViewModel @Inject constructor(
         state.copy(theme = theme)
     }.combine(backups.observeSummary()) { state, backup ->
         state.copy(backup = backup)
-    }.combine(profiles.observeCanManageApp()) { state, manages ->
-        state.copy(canManageApp = manages, loaded = true)
+    }.combine(profiles.observeActiveProfile()) { state, profile ->
+        state.copy(canManageApp = ProfileRights.canManageApp(profile), isOwner = profile.role == ProfileRole.OWNER, loaded = true)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 }
 
@@ -305,14 +309,16 @@ fun SettingsScreen(
                     modifier = Modifier.tracks(SettingsArea.WEB),
                 )
             }
-            item(key = "backup") {
-                LinkRow(
-                    title = "Backup",
-                    summary = backupSummary(state.backup, state.nowUtcMs),
-                    icon = Icons.Filled.SettingsBackupRestore,
-                    onClick = onOpenBackup,
-                    modifier = Modifier.tracks(SettingsArea.BACKUP),
-                )
+            if (state.isOwner) {
+                item(key = "backup") {
+                    LinkRow(
+                        title = "Backup",
+                        summary = backupSummary(state.backup, state.nowUtcMs),
+                        icon = Icons.Filled.SettingsBackupRestore,
+                        onClick = onOpenBackup,
+                        modifier = Modifier.tracks(SettingsArea.BACKUP),
+                    )
+                }
             }
         }
     }

@@ -91,7 +91,7 @@ Each profile is a Jellyfin user. On launch, *Who's watching?* lists the profiles
 | Watch history | What Live TV and On Demand send to Jellyfin; the dashboard switch | Everyone |
 | Themes | 16 built-in themes, custom themes, the designer, import and export | Everyone |
 | Web control | Turn the web server on, its address, paired browsers | Owner, admins |
-| Backup | Save, restore, copy from a nearby device | Owner, admins (restore is owner only) |
+| Backup | Save, restore, copy from a nearby device | Owner |
 
 ### Building a channel
 
@@ -125,11 +125,11 @@ It is the easiest way to upload channel logos, import theme files and save or re
 
 ## Backups and moving to another device
 
-Settings > Backup:
+Settings > Backup, the owner's alone (a backup holds every profile's PIN hash):
 
 - *Save backup* writes one JSON file (`anstelletv-<device>-<day>.json`) with servers, libraries, profiles, PIN hashes, custom themes, groups, channels with lineups and logos, settings and dashboard history. It holds no tokens.
-- *Restore from file* (owner only) replaces everything on the device after one confirmation, then the app restarts. Sign-ins don't travel: servers this device is already signed in to stay signed in, and the rest need signing in again. Every server syncs in full afterwards.
-- *Nearby devices* (owner only) lists other AnstelleTV devices with web control on. Pick one, enter the PIN it shows, and its backup is copied over and restored. Use *Enter address* if your network blocks discovery.
+- *Restore from file* replaces everything on the device after one confirmation, then the app restarts. Sign-ins don't travel: servers this device is already signed in to stay signed in, and the rest need signing in again. Every server syncs in full afterwards.
+- *Nearby devices* lists other AnstelleTV devices with web control on. Pick one, enter the PIN it shows (it must be on its owner's profile), and its backup is copied over and restored. Use *Enter address* if your network blocks discovery.
 
 A backup file contains PIN hashes, server addresses and user names. Four-digit PINs are quick to guess from the hash, so store backup files somewhere private.
 

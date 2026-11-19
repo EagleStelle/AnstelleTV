@@ -22,15 +22,15 @@
 
 	let { children } = $props();
 
-	/** The areas, the open one with a filled icon and a bright label. */
-	const tabs = [
+	/** The areas, the open one with a filled icon and a bright label. Backup is the owner's alone: it holds every profile's PIN hash. */
+	const tabs = $derived([
 		{ href: '/servers', label: 'Servers', icon: DnsOutline, open: Dns },
 		{ href: '/channels', label: 'Live TV', icon: LiveTvOutline, open: LiveTv },
 		{ href: '/ondemand', label: 'On Demand', icon: MovieOutline, open: Movie },
 		{ href: '/themes', label: 'Themes', icon: PaletteOutline, open: Palette },
 		{ href: '/web', label: 'Web control', icon: Wifi, open: Wifi },
-		{ href: '/backup', label: 'Backup', icon: Backup, open: Backup }
-	];
+		...(session.isOwner ? [{ href: '/backup', label: 'Backup', icon: Backup, open: Backup }] : [])
+	]);
 
 	const onPairPage = $derived(page.url.pathname.startsWith('/pair'));
 

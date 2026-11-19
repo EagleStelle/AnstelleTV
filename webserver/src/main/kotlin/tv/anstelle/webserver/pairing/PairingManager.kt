@@ -8,6 +8,7 @@ import kotlinx.coroutines.sync.withLock
 import tv.anstelle.core.common.AppLog
 import tv.anstelle.core.common.TimeSource
 import tv.anstelle.core.database.entity.PairedClientEntity
+import tv.anstelle.core.model.ProfileRole
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,7 +29,7 @@ sealed interface PairStartResult {
     data class Started(val request: PairingRequest) : PairStartResult
     data object RateLimited : PairStartResult
 
-    /** The profile active on the TV is a member, who can't approve a pairing. */
+    /** The profile active on the TV can't approve this pairing: a member, or for another device anyone but the owner. */
     data object NotAllowed : PairStartResult
 }
 
@@ -73,7 +74,9 @@ class PairingManager @Inject constructor(
     val activeRequest: StateFlow<PairingRequest?> = _activeRequest.asStateFlow()
 
     suspend fun start(clientName: String, address: String?, isDevice: Boolean = false): PairStartResult = mutex.withLock {
-        if (gate.approver() == null) return@withLock PairStartResult.NotAllowed
+        val approver = gate.approver() ?: return@withLock PairStartResult.NotAllowed
+        // Another device pairs only to copy the backup, which only the owner hands out.
+        if (isDevice && gate.managers()[approver]?.role != ProfileRole.OWNER) return@withLock PairStartResult.NotAllowed
         val now = time.nowUtcMs()
         if (recentStarts.countSince(now, START_WINDOW_MS) >= MAX_STARTS ||
             recentWrongPins.countSince(now, WRONG_PIN_WINDOW_MS) >= MAX_WRONG_PINS) return@withLock PairStartResult.RateLimited

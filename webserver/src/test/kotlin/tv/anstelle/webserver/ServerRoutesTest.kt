@@ -293,11 +293,13 @@ class ServerRoutesTest {
     }
 
     @Test
-    fun onlyTheOwnerRestores() = serverTest { server ->
+    fun onlyTheOwnerSavesOrRestores() = serverTest { server ->
         val file = """{"format":"anstelletv-backup","version":1}"""
         server.gate.active = FakeGate.ADMIN
         val admin = "Bearer ${pair(server)}"
         assertTrue(client.get("/api/backup") { header(HttpHeaders.Authorization, admin) }.bodyAsText().contains(""""canRestore":false"""))
+        // The file holds every profile's PIN hash: an admin with it could guess the owner's PIN.
+        assertEquals(HttpStatusCode.Forbidden, client.get("/api/backup/export") { header(HttpHeaders.Authorization, admin) }.status)
         assertEquals(HttpStatusCode.Forbidden, client.post("/api/backup/restore") { header(HttpHeaders.Authorization, admin); setBody(file) }.status)
         assertTrue(server.backup.restored.isEmpty())
 

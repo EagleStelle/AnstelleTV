@@ -43,8 +43,9 @@ internal fun Route.deviceRoutes(deps: ServerDependencies) {
         }
 
         // Everything the device holds, as the file a restore takes: another device copies it, a browser saves it.
+        // Owner only: it holds every profile's PIN hash, and a 4-digit PIN falls to an offline guess.
         get("/export") {
-            call.requireManager(deps) ?: return@get
+            call.requireOwner(deps) ?: return@get
             val file = deps.backup.export()
             call.attachment(file.name)
             call.response.header(HttpHeaders.CacheControl, "no-store")

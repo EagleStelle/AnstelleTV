@@ -96,8 +96,8 @@ private val AccessTables = setOf("paired_client", "profile")
  * The AnstelleTV web server, the owner's and admins' way to manage the TV from a browser:
  * - `/api/health`, `/api/pair/start`, `/api/pair/confirm`: open to the LAN,
  * - every other `/api` route and `/ws`: need a paired token (cookie or Bearer header) that still
- *   speaks for the owner or an admin; another AnstelleTV pairs the same way to copy
- *   `/api/backup/export`,
+ *   speaks for the owner or an admin; another AnstelleTV pairs the same way, while the owner's
+ *   profile is active, to copy `/api/backup/export`,
  * - everything else: the single-page web UI from APK assets.
  */
 fun Application.anstelleModule(deps: ServerDependencies) {
@@ -163,7 +163,10 @@ fun Application.anstelleModule(deps: ServerDependencies) {
                         HttpStatusCode.TooManyRequests,
                         ErrorDto("rate_limited", "Too many pairing attempts. Try again later."),
                     )
-                    PairStartResult.NotAllowed -> call.respond(HttpStatusCode.Forbidden, NotAllowed)
+                    PairStartResult.NotAllowed -> call.respond(
+                        HttpStatusCode.Forbidden,
+                        if (body.device) ErrorDto("no_owner", "On ${deps.appInfo.deviceName}, switch to the owner's profile, then try again.") else NotAllowed,
+                    )
                 }
             }
 

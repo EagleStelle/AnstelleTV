@@ -103,6 +103,15 @@ class PairingManagerTest {
     }
 
     @Test
+    fun anotherDevicePairsOnlyWithTheOwner() = runTest {
+        // It pairs only to copy the backup, which holds every profile's PIN hash.
+        server.gate.active = FakeGate.ADMIN
+        assertEquals(PairStartResult.NotAllowed, pairing.start("Bedroom TV", null, isDevice = true))
+        server.gate.active = FakeGate.OWNER
+        assertIs<PairStartResult.Started>(pairing.start("Bedroom TV", null, isDevice = true))
+    }
+
+    @Test
     fun aPairingCountsWhileItsProfileManages() = runTest {
         server.gate.active = FakeGate.ADMIN
         val request = startPairing()

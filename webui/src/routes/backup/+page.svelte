@@ -82,13 +82,11 @@
 	trail={[{ label: 'Home', href: '/' }]}
 	note="Save or restore your channels, profiles, themes and settings. Restoring replaces everything."
 >
-	<!-- The file verbs side by side: saving one, and restoring one for the owner. -->
+	<!-- The file verbs side by side, the owner's alone: a backup holds every profile's PIN hash. -->
 	{#snippet actions()}
-		{#if !restoring}
+		{#if !restoring && session.isOwner}
 			<Button label="Save backup" icon={Download} primary href={api.backupUrl} download />
-			{#if session.isOwner}
-				<Button label="Restore from file" icon={Upload} danger onclick={() => picker?.click()} />
-			{/if}
+			<Button label="Restore from file" icon={Upload} danger onclick={() => picker?.click()} />
 		{/if}
 	{/snippet}
 	{#snippet overview()}

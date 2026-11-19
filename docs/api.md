@@ -43,7 +43,7 @@ Errors share one shape:
 | 400 | `not_a_theme`, `not_a_backup`, `not_an_image` | Uploaded file isn't what the route expects |
 | 401 | `not_paired` | No valid token |
 | 401 | `wrong_pin`, `too_many_attempts` | Pairing |
-| 403 | `forbidden`, `bad_origin`, `no_manager`, `owner_only` | See above |
+| 403 | `forbidden`, `bad_origin`, `no_manager`, `no_owner`, `owner_only` | See above; `no_owner` answers another device asking to pair while the owner's profile isn't active |
 | 403 | `library_channel_locked`, `built_in_theme` | Editing something only hiding or copying is allowed on |
 | 404 | `no_channel`, `no_group`, `no_server`, `no_theme`, `no_sign_in`, `not_found`, ... | Unknown id or route |
 | 409 | from `ServerRemovalException` | Removing a server needs an ownership transfer first |
@@ -71,7 +71,7 @@ Errors share one shape:
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/api/backup` | paired | What a backup would hold: `{profiles, channels, groups, themes, servers, historyDays, savedUtcMs, canRestore}`. |
-| GET | `/api/backup/export` | paired | The backup file as a JSON attachment, `Cache-Control: no-store`. |
+| GET | `/api/backup/export` | owner | The backup file as a JSON attachment, `Cache-Control: no-store`. |
 | POST | `/api/backup/check` | owner | Raw backup file as the body (max 32 MB). Returns `{question, explanation}` to confirm before restoring, or 400 `not_a_backup`. |
 | POST | `/api/backup/restore` | owner | Raw backup file as the body (max 32 MB). 202, then the app replaces its data and restarts. |
 
