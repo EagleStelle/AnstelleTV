@@ -46,7 +46,7 @@ AnstelleTV is a single Android app with no backend. The only outside system is J
 
 - Sync is incremental. Each library's watermark is the server's own clock (`/GetUtcTime`) at the start of its last sync, re-read with a 5-minute overlap, because `BaseItemDto` exposes no `DateLastSaved`.
 - Series are stored before their episodes, and episodes inherit genres, studios, tags and rating from the series.
-- Deletions do not change any timestamp, so an ID-only listing runs at least every 6 hours and on manual sync. It deletes items that vanished and sets `inputsHash = 0` on the schedules that air them, which marks those schedules stale.
+- Deletions do not change any timestamp, so an ID-only listing runs at least every 6 hours and on manual sync. It deletes items that vanished and sets `inputsHash = 0` on the schedules that air them, which marks those schedules stale. Offset paging can skip an item while the library changes, so an item missing from the listing is deleted only once the server no longer returns it by id, and an item the listing has but the database lacks is fetched by id.
 - Each item stores its audio and subtitle tracks and font attachments as JSON, so choosing tracks later needs no server call.
 - For every profile, sync also records which items that profile's own Jellyfin user cannot see (`profile_hidden_item`).
 

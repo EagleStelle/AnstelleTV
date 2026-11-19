@@ -9,8 +9,8 @@ import tv.anstelle.core.database.entity.MediaItemEntity
 import tv.anstelle.core.database.entity.MediaServerEntity
 import tv.anstelle.core.model.MediaType
 
-/** Local row id for a Jellyfin item id. */
-data class ItemIdRow(val id: Long, val remoteId: String)
+/** Local row id and library for a Jellyfin item id. */
+data class ItemIdRow(val id: Long, val remoteId: String, val libraryId: Long)
 
 /** File identity and runtime, without loading artwork, descriptions or stream metadata. */
 data class MediaRuntimeRow(
@@ -163,10 +163,10 @@ interface MediaItemDao {
     @Query("SELECT * FROM media_item WHERE serverId = :serverId AND remoteId = :remoteId")
     suspend fun byRemoteId(serverId: Long, remoteId: String): MediaItemEntity?
 
-    @Query("SELECT id, remoteId FROM media_item WHERE serverId = :serverId AND remoteId IN (:remoteIds)")
+    @Query("SELECT id, remoteId, libraryId FROM media_item WHERE serverId = :serverId AND remoteId IN (:remoteIds)")
     suspend fun storedFor(serverId: Long, remoteIds: List<String>): List<ItemIdRow>
 
-    @Query("SELECT id, remoteId FROM media_item WHERE serverId = :serverId")
+    @Query("SELECT id, remoteId, libraryId FROM media_item WHERE serverId = :serverId")
     suspend fun allIds(serverId: Long): List<ItemIdRow>
 
     @Query("SELECT COUNT(*) FROM media_item WHERE serverId = :serverId AND type = :type")

@@ -66,7 +66,7 @@ JVM tests that touch Jellyfin SDK code need `slf4j-nop` on the test runtime clas
 |---|---|---|
 | `core:database` | `WatchEventDaoTest`; `MigrationTest` runs each migration from schema 14 (v1.0.0) on against the exported schemas | Any device |
 | `core:player` | `FfmpegDecoderTest` decodes AC3, E-AC3, DTS and TrueHD samples; `ProgramTransitionTest` covers back-to-back items and font caching, with sample media in `src/androidTest/assets` | Any device |
-| `core:data` | `BackupRoundTripTest`, `ProfileLifecycleTest`, `ProgramSeekTest` | Any device |
+| `core:data` | `BackupRoundTripTest`, `ProfileLifecycleTest`, `ProgramSeekTest`, `LibrarySyncerTest` (reconcile deletes only what the server no longer has, and fetches what a pass skipped) | Any device |
 | `feature:guide` | `GuideGridReturnTest` | Any device |
 | `feature:ondemand` | `TvNavigationTest` | Any device |
 | `app` | Catalog loading, watch history, Live TV switching, media durations, progress, shared progress, on-demand navigation | A device signed in to a Jellyfin server; some are opt-in |

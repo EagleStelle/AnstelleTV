@@ -53,7 +53,8 @@ data class SyncOptions(
  *   series changes, its episodes are fetched again.
  * - **Reconciliation:** deletions don't touch `DateLastSaved`, so
  *   an ID-only listing (cheap: no metadata) runs every few hours. Deleted
- *   items are removed and the schedules that air them are marked for regeneration.
+ *   items are removed and the schedules that air them are marked for regeneration; items an
+ *   earlier fetch skipped are fetched.
  * - **Profiles:** every sync lists, ID-only, what each profile's own Jellyfin user can see; the
  *   rest is hidden from that profile.
  */
@@ -141,7 +142,7 @@ class LibrarySyncer @Inject constructor(
         if (linked > 0) AppLog.i(TAG, "${server.name}: $linked restored dashboard rows found their items")
 
         val reconcileDue = server.lastReconcileUtcMs.let { it == null || time.nowUtcMs() - it >= RECONCILE_INTERVAL_MS }
-        if (options.forceReconcile || options.fullRefresh || reconcileDue) reconcile(server, libraries, source)
+        if (options.forceReconcile || options.fullRefresh || reconcileDue) reconcile(server, libraries, source, ratings)
         findHidden(server, libraries)
         // Profiles are Jellyfin users: names and pictures changed there follow.
         profiles.refreshFromJellyfin(server)
@@ -271,7 +272,7 @@ class LibrarySyncer @Inject constructor(
         var start = 0
         while (true) {
             status.update(context.serverId, if (start == 0) "$label: reading…" else "$label: $start items…")
-            val page = source.items(parentId, kinds, since, start, PAGE_SIZE).items
+            val page = source.items(parentId, kinds, since, start, PAGE_SIZE)
             store(context.serverId, page, context)
             page.mapTo(fetched) { it.id.toJellyfinId() }
             start += page.size
@@ -287,18 +288,44 @@ class LibrarySyncer @Inject constructor(
         if (entities.isNotEmpty()) durations.store(entities)
     }
 
-    private suspend fun reconcile(server: MediaServerEntity, libraries: List<LibraryEntity>, source: LibrarySource) {
+    /**
+     * Compares the stored items with the server's by id, both ways. Paging by offset skips an item
+     * when the library changes mid-listing, so an item the listing lacks is deleted only once the
+     * server no longer returns it by id, and an item the listing has but an earlier fetch skipped
+     * is fetched now; incremental syncs would never ask for it again.
+     */
+    private suspend fun reconcile(server: MediaServerEntity, libraries: List<LibraryEntity>, source: LibrarySource, ratings: RatingScores) {
         status.update(server.id, "Checking for removed items…")
+        val stored = itemDao.allIds(server.id)
+        val storedIds = stored.mapTo(HashSet()) { it.remoteId }
+        val synced = libraries.filter { it.syncedKinds().isNotEmpty() }
         val remoteIds = HashSet<String>()
-        for (library in libraries) {
-            val kinds = library.syncedKinds()
-            if (kinds.isEmpty()) continue
-            remoteIds += source.itemIds(library.remoteId, kinds)
+        var fetched = 0
+        for (library in synced) {
+            val ids = source.itemIds(library.remoteId, library.syncedKinds())
+            remoteIds += ids
+            val missed = ids.filter { it !in storedIds }
+            if (missed.isNotEmpty()) fetched += storeByIds(server, library, source, ratings, missed)
         }
-        val gone = itemDao.allIds(server.id).filter { it.remoteId !in remoteIds }.map { it.id }
+        val unlisted = stored.filter { it.remoteId !in remoteIds }
+        val stillThere = HashSet<String>()
+        for (library in synced) {
+            val ids = unlisted.filter { it.libraryId == library.id }.map { it.remoteId }
+            if (ids.isNotEmpty()) source.itemsByIds(library.remoteId, library.syncedKinds(), ids).mapTo(stillThere) { it.id.toJellyfinId() }
+        }
+        val gone = unlisted.filter { it.remoteId !in stillThere }.map { it.id }
         removeItems(gone)
         serverDao.setReconciled(server.id, time.nowUtcMs())
-        AppLog.i(TAG, "${server.name}: reconciled ${remoteIds.size} items, removed ${gone.size}")
+        AppLog.i(TAG, "${server.name}: reconciled ${remoteIds.size} items, removed ${gone.size}, fetched $fetched skipped before")
+    }
+
+    /** Fetches [ids] of [library] and stores them, series first so their episodes inherit from them. Returns how many came. */
+    private suspend fun storeByIds(server: MediaServerEntity, library: LibraryEntity, source: LibrarySource, ratings: RatingScores, ids: List<String>): Int {
+        val (series, others) = source.itemsByIds(library.remoteId, library.syncedKinds(), ids).partition { it.type == BaseItemKind.SERIES }
+        store(server.id, series, SyncContext(server.id, library.id, ratings, emptyMap(), time.nowUtcMs()))
+        val known = itemDao.seriesMetadata(server.id, MediaType.SERIES).associateBy { it.remoteId }
+        store(server.id, others, SyncContext(server.id, library.id, ratings, known, time.nowUtcMs()))
+        return series.size + others.size
     }
 
     /**

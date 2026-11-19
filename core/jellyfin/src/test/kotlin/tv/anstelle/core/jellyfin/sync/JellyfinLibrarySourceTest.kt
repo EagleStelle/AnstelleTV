@@ -5,9 +5,11 @@ import org.jellyfin.sdk.model.api.BaseItemKind
 import tv.anstelle.core.jellyfin.FixtureApiClient
 import tv.anstelle.core.jellyfin.Fixtures
 import tv.anstelle.core.jellyfin.toEpochMs
+import tv.anstelle.core.jellyfin.toJellyfinId
 import java.time.Instant
 import java.time.LocalDateTime
 import java.util.TimeZone
+import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -50,14 +52,29 @@ class JellyfinLibrarySourceTest {
 
         val page = source.items("fa11000000000000000000000000000d", setOf(BaseItemKind.EPISODE), since, startIndex = 150, limit = 150)
 
-        assertEquals(5, page.items.size)
+        assertEquals(5, page.size)
         val query = api.requests.single().query
         // The SDK sends this with the device's UTC offset; it must be the same instant.
         assertEquals(since, (query["minDateLastSaved"] as LocalDateTime).toEpochMs())
         assertEquals(150, query["startIndex"])
         assertEquals(true, query["recursive"])
+        // Nothing reads a total, so the server isn't asked to count the library for every page.
+        assertEquals(false, query["enableTotalRecordCount"])
 
         source.items("fa11000000000000000000000000000d", setOf(BaseItemKind.EPISODE), null, startIndex = 0, limit = 150)
         assertNull(api.requests.last().query["minDateLastSaved"])
+    }
+
+    @Test
+    fun `items by id are asked for a hundred at a time below their library`() = runBlocking {
+        val api = FixtureApiClient(mapOf("/Items" to "items_tv_page.json"))
+        val ids = List(150) { "fa11%028x".format(it) }
+
+        JellyfinLibrarySource(api, userId).itemsByIds("fa11000000000000000000000000000d", setOf(BaseItemKind.EPISODE), ids)
+
+        assertEquals(listOf(100, 50), api.requests.map { (it.query["ids"] as Collection<*>).size })
+        assertEquals("fa11000000000000000000000000000d", (api.requests.first().query["parentId"] as UUID).toJellyfinId())
+        assertEquals(true, api.requests.first().query["recursive"])
+        assertNull(api.requests.first().query["startIndex"])
     }
 }

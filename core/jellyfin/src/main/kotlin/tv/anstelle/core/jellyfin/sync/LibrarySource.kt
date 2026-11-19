@@ -26,8 +26,6 @@ import javax.inject.Singleton
 /** A Jellyfin library (collection folder) the user can see. */
 data class RemoteLibrary(val id: String, val name: String, val collectionType: String?)
 
-data class ItemPage(val items: List<BaseItemDto>, val totalCount: Int)
-
 /** The server calls library sync needs. An interface so the sync logic can be tested offline. */
 interface LibrarySource {
     /** The server's clock, so incremental sync never depends on this device's clock. */
@@ -48,19 +46,22 @@ interface LibrarySource {
         changedSinceUtcMs: Long?,
         startIndex: Int,
         limit: Int,
-    ): ItemPage
+    ): List<BaseItemDto>
 
     /** Ids of every item below [parentId]. Cheap: no metadata. */
     suspend fun itemIds(parentId: String, kinds: Set<BaseItemKind>): List<String>
+
+    /** The items among [ids] that are still below [parentId], with the metadata [items] gives. */
+    suspend fun itemsByIds(parentId: String, kinds: Set<BaseItemKind>, ids: List<String>): List<BaseItemDto>
 }
 
-/** Creates a [LibrarySource] for a signed-in user on one server. */
+/** Creates a [LibrarySource] for a signed-in user on one server. Open so sync tests can hand in a fake source. */
 @Singleton
-class LibrarySourceFactory @Inject constructor(
+open class LibrarySourceFactory @Inject constructor(
     private val clients: JellyfinClients,
 ) {
     /** [device] is a profile's own device when the user is a profile's (see [JellyfinClients.api]). */
-    fun create(baseUrl: String, accessToken: String, userId: String, device: String? = null): LibrarySource =
+    open fun create(baseUrl: String, accessToken: String, userId: String, device: String? = null): LibrarySource =
         JellyfinLibrarySource(clients.api(baseUrl, accessToken, device), userId)
 }
 
@@ -112,30 +113,41 @@ internal class JellyfinLibrarySource(
         changedSinceUtcMs: Long?,
         startIndex: Int,
         limit: Int,
-    ): ItemPage = jellyfinCall("Fetching items") {
-        val result = api.libraryApi.getItems(
-            GetItemsRequest(
-                userId = user,
-                parentId = parentId.toUUID(),
-                recursive = true,
-                includeItemTypes = kinds,
-                excludeLocationTypes = listOf(LocationType.VIRTUAL),
+    ): List<BaseItemDto> = jellyfinCall("Fetching items") {
+        api.libraryApi.getItems(
+            detailRequest(parentId, kinds).copy(
                 minDateLastSaved = changedSinceUtcMs?.let(::sdkDateTime),
-                fields = ItemDetailFields,
-                enableUserData = false,
-                enableImages = true,
-                // One of each: the poster, the first backdrop and the title logo.
-                imageTypeLimit = 1,
-                enableImageTypes = listOf(ImageType.PRIMARY, ImageType.BACKDROP, ImageType.LOGO),
-                // A stable order keeps paging consistent while the library changes.
+                // A fixed order keeps pages apart. An item removed meanwhile still shifts one past a page edge; reconcile fetches it.
                 sortBy = listOf(ItemSortBy.SORT_NAME),
                 startIndex = startIndex,
                 limit = limit,
-                enableTotalRecordCount = true,
             ),
-        ).content
-        ItemPage(result.items, result.totalRecordCount)
+        ).content.items
     }
+
+    override suspend fun itemsByIds(parentId: String, kinds: Set<BaseItemKind>, ids: List<String>): List<BaseItemDto> =
+        jellyfinCall("Fetching items by id") {
+            // The ids go in the URL, so a few at a time.
+            ids.chunked(IDS_PER_REQUEST).flatMap { chunk ->
+                api.libraryApi.getItems(detailRequest(parentId, kinds).copy(ids = chunk.map { it.toUUID() })).content.items
+            }
+        }
+
+    /** Items below [parentId] with the metadata the guide and the scheduler use. */
+    private fun detailRequest(parentId: String, kinds: Set<BaseItemKind>) = GetItemsRequest(
+        userId = user,
+        parentId = parentId.toUUID(),
+        recursive = true,
+        includeItemTypes = kinds,
+        excludeLocationTypes = listOf(LocationType.VIRTUAL),
+        fields = ItemDetailFields,
+        enableUserData = false,
+        enableImages = true,
+        // One of each: the poster, the first backdrop and the title logo.
+        imageTypeLimit = 1,
+        enableImageTypes = listOf(ImageType.PRIMARY, ImageType.BACKDROP, ImageType.LOGO),
+        enableTotalRecordCount = false,
+    )
 
     override suspend fun itemIds(parentId: String, kinds: Set<BaseItemKind>): List<String> = jellyfinCall("Listing item ids") {
         val ids = ArrayList<String>()
@@ -165,6 +177,7 @@ internal class JellyfinLibrarySource(
 
     private companion object {
         const val ID_PAGE_SIZE = 2_000
+        const val IDS_PER_REQUEST = 100
 
         val ItemDetailFields = listOf(
             ItemFields.GENRES,
