@@ -40,12 +40,3 @@ fun Modifier.enterContentFromRail(railFocus: RailFocus): Modifier = onPreviewKey
     }
     true
 }
-
-/** Routes a D-pad key directly, consuming it before spatial focus search can choose another group. */
-fun Modifier.focusOnKey(key: Key, target: () -> FocusRequester?): Modifier =
-    onPreviewKeyEvent { event ->
-        if (event.key != key) return@onPreviewKeyEvent false
-        val requester = target() ?: return@onPreviewKeyEvent false
-        if (event.type == KeyEventType.KeyDown) requester.requestFocus()
-        true
-    }

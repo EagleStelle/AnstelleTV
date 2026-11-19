@@ -118,12 +118,6 @@ class ServerRepository @Inject constructor(
         return ServerCandidate(info, quickConnect)
     }
 
-    /** The known server [serverId] at its saved address, for signing in to it again. */
-    suspend fun candidateFor(serverId: Long): ServerCandidate {
-        val server = serverDao.byId(serverId) ?: throw ServerConnectException(ServerProblem.INVALID_URL, "That server is gone")
-        return findServer(server.baseUrl)
-    }
-
     /**
      * Signs in with a password. For a profile, the user is that profile's own on the server
      * instead of the server's, signed in as a device of its own: the profile plays as it there.

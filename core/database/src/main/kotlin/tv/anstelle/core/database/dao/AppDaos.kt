@@ -68,9 +68,6 @@ interface ProfileDao {
     @Query("UPDATE profile_account SET userName = :userName WHERE profileId = :profileId AND serverId = :serverId")
     suspend fun setAccountName(profileId: Long, serverId: Long, userName: String)
 
-    @Query("DELETE FROM profile_account WHERE profileId = :profileId AND serverId = :serverId")
-    suspend fun deleteAccount(profileId: Long, serverId: Long)
-
     /** What the profile's own Jellyfin users can't see, on every server. */
     @Query("SELECT mediaItemId FROM profile_hidden_item WHERE profileId = :profileId")
     fun observeHidden(profileId: Long): Flow<List<Long>>

@@ -332,15 +332,6 @@ class ProfileRepository @Inject constructor(
         }
     }
 
-    /** A server is going away: its profile sign-ins go with it. */
-    suspend fun forgetAccountsOn(serverId: Long) = withContext(io) {
-        val server = serverDao.byId(serverId) ?: return@withContext
-        for (account in dao.accountsOn(serverId)) {
-            forget(account, server)
-            dao.deleteAccount(account.profileId, serverId)
-        }
-    }
-
     /** The profiles signed in on [server] as users of their own, with their tokens. */
     suspend fun sessionsOn(server: MediaServerEntity): List<ProfileSession> = withContext(io) {
         dao.accountsOn(server.id).mapNotNull { account ->

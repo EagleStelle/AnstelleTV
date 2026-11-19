@@ -175,9 +175,6 @@ interface MediaItemDao {
     @Query("SELECT type, COUNT(*) AS count FROM media_item WHERE serverId = :serverId GROUP BY type ORDER BY type")
     fun observeTypeCounts(serverId: Long): Flow<List<TypeCount>>
 
-    @Query("SELECT type, COUNT(*) AS count FROM media_item WHERE serverId = :serverId GROUP BY type ORDER BY type")
-    suspend fun typeCounts(serverId: Long): List<TypeCount>
-
     @Query(
         """
         SELECT officialRating AS name, ratingScore AS score, COUNT(*) AS count FROM media_item
@@ -186,9 +183,6 @@ interface MediaItemDao {
         """,
     )
     suspend fun ratingCounts(): List<RatingCount>
-
-    @Query("SELECT COUNT(*) FROM media_item")
-    fun observeTotalCount(): Flow<Int>
 
     @Query(
         """

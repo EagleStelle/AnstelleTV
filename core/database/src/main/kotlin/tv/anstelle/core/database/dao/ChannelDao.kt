@@ -86,9 +86,6 @@ interface ChannelDao {
     @Insert
     suspend fun insertSeason(season: ChannelSeasonEntity): Long
 
-    @Upsert
-    suspend fun upsertSeason(season: ChannelSeasonEntity): Long
-
     @Query("SELECT * FROM channel_daypart WHERE channelId = :channelId ORDER BY startMinuteOfDay")
     suspend fun dayparts(channelId: Long): List<ChannelDaypartEntity>
 
