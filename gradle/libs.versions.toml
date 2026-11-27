@@ -5,14 +5,14 @@ compileSdk = "37"
 targetSdk = "37"
 
 # Build
-agp = "9.5.1"
+agp = "9.5.3"
 kotlin = "2.4.21"
 ksp = "2.3.14"
 desugar = "2.1.5"
 
 # AndroidX
 activityCompose = "1.13.0"
-composeBom = "2026.09.00"
+composeBom = "2026.11.01"
 # material-icons-extended is no longer part of new Compose releases; 1.7.8 is the last published version.
 composeMaterialIcons = "1.7.8"
 coreKtx = "1.19.1"
